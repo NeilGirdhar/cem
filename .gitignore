@@ -7,3 +7,6 @@
 
 # SLURM
 *.log
+
+# AI
+.claude/settings.local.json

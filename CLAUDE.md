@@ -10,6 +10,10 @@ Read these files to understand the theory and architecture before implementing:
 - @~/src/typst/thesis.typ
 - @~/src/typst/architecture_figures.typ
 
+## Prior work
+
+`@~/backup/cem` is the old version of this project. Draw on it heavily when implementing — it contains working code and patterns to reference.
+
 ## Setup
 
 ```bash
