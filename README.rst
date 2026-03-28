@@ -31,13 +31,13 @@ Running
 
   .. code:: bash
 
-     uv run visualize afp_iv
+     uv run visualize afp
 
   - Show the graphs in a window:
 
   .. code:: bash
 
-     uv run visualize afp_iv --display
+     uv run visualize afp --display
 
 - Optimize:
 
@@ -45,13 +45,13 @@ Running
 
   .. code:: bash
 
-     uv run optimize afp_iv single --trials 30
+     uv run optimize afp single --trials 30
 
   - Using 8 threads:
 
   .. code:: bash
 
-     uv run optimize afp_iv multi --trials 30 --jobs 8
+     uv run optimize afp multi --trials 30 --jobs 8
 
 Contribution guidelines
 =======================
