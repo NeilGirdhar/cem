@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
-from tjax import JaxArray
+from efax import (
+    ExpectationParametrization,
+    Flattener,
+    NaturalParametrization,
+    expectation_parameters_from_characteristic_function,
+)
+from tjax import JaxArray, JaxComplexArray, JaxRealArray
 
 
 class PhasorMessage(eqx.Module):
@@ -47,6 +54,80 @@ class PhasorMessage(eqx.Module):
     def zeros(cls, features: int) -> PhasorMessage:
         """Zero phasor vector — no evidence."""
         return cls(jnp.zeros(features, dtype=jnp.complex128))
+
+    @classmethod
+    def from_distribution(
+        cls,
+        dist: NaturalParametrization,  # type: ignore[type-arg]
+        frequencies: JaxRealArray,
+    ) -> PhasorMessage:
+        """Encode a belief distribution as a matrix of phasors via the characteristic function.
+
+        For each frequency f_j and each sufficient-statistic component k, computes
+
+            Z[j, k] = E[exp(i * f_j * T(x)_k)]
+                     = exp(A(η + i * f_j * e_k) − A(η))
+
+        where e_k is the k-th standard basis vector in natural-parameter space.  This is the
+        distributional encoding from @eqn-distributional-encoding in the thesis.
+
+        Args:
+            dist: Exponential family belief, shape (*s).  The batch dimensions *s are preserved
+                in the output.
+            frequencies: Geometric frequency grid, shape (m,).  Typically produced by
+                ``geometric_frequencies(m, base)``.
+
+        Returns:
+            PhasorMessage with data of shape (*s, m * d), where d = final_dimension_size() is
+            the number of natural parameters (= number of sufficient-statistic components).
+            The phasor at flat index ``j * d + k`` encodes sufficient statistic T(x)_k at
+            frequency ``frequencies[j]``, for j in 0..m-1 and k in 0..d-1.
+        """
+        flattener, _ = Flattener.flatten(dist, map_to_plane=False)
+        d = flattener.final_dimension_size()
+        m = frequencies.shape[0]
+
+        # Build t_flat of shape (m * d, d): row (j * d + k) is f_j * e_k.
+        # eye[k, :] is e_k; frequencies[j] scales it.
+        eye = jnp.eye(d, dtype=frequencies.dtype)  # (d, d)
+        t_flat = (frequencies[:, None, None] * eye[None, :, :]).reshape(m * d, d)  # (m*d, d)
+
+        t = flattener.unflatten(t_flat)  # shape (m * d,)
+
+        # vmap over all batch dims of dist so each scalar element sees t of shape (m*d,),
+        # producing output shape (*s, m*d).
+
+        cf_fn = lambda d: d.characteristic_function(t)  # noqa: E731
+        for _ in dist.shape:
+            cf_fn = jax.vmap(cf_fn)
+        cf = cf_fn(dist)  # shape (*s, m * d)
+        return cls(cf)
+
+    def to_distribution(
+        self,
+        t: NaturalParametrization,  # type: ignore[type-arg]
+    ) -> ExpectationParametrization:  # type: ignore[type-arg]
+        """Recover a belief distribution from phasors via OLS on the characteristic function.
+
+        Inverts ``from_distribution`` by solving the overdetermined linear system
+
+            Im(log Z[j, k]) ≈ f_j * E[T(x)_k]
+
+        for the expectation parameters E[T(x)].  The estimate is exact for Normal
+        distributions and a first-order approximation for other families.
+
+        Args:
+            t: The frequency grid used to produce this PhasorMessage, i.e. the same ``t``
+                built internally by ``from_distribution``.  Shape (m * d,), where m is the
+                number of frequencies and d is the natural-parameter dimension.  Each leaf
+                has shape (m * d, *field_shape).
+
+        Returns:
+            ExpectationParametrization with shape (*s,), where *s are the batch dimensions
+            of this PhasorMessage's data (shape (*s, m * d)).
+        """
+        cf_values: JaxComplexArray = self.data
+        return expectation_parameters_from_characteristic_function(t, cf_values)
 
     def zeros_like(self) -> PhasorMessage:
         return type(self)(jnp.zeros_like(self.data))

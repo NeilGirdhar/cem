@@ -294,7 +294,7 @@ dev = [
 requires-dist = [
     { name = "array-api-extra", specifier = ">=0.6.0" },
     { name = "datasets", specifier = ">=3.2.0" },
-    { name = "efax", specifier = ">=1.22.0" },
+    { name = "efax", specifier = ">=2.0.0" },
     { name = "equinox", specifier = ">=0.13" },
     { name = "jax", extras = ["cuda"], specifier = ">=0.9" },
     { name = "jaxkd", specifier = ">=0.1.0" },
@@ -532,7 +532,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/a6/83/ce29720ccf934c6cf
 
 [[package]]
 name = "efax"
-version = "1.23.0"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "array-api-compat", marker = "sys_platform == 'linux'" },
@@ -548,9 +548,9 @@ dependencies = [
     { name = "tjax", marker = "sys_platform == 'linux'" },
     { name = "typing-extensions", marker = "sys_platform == 'linux'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d8/01/a73c2d80f6811738351eea39f30adc55dbc6d0c8df4feda1d6bbcce67245/efax-1.23.0.tar.gz", hash = "sha256:a8d1ecabcef283f1ab7bba52d8b00cac2f5869062561b727e2b807451036e298", size = 437266, upload-time = "2025-09-22T06:08:08.74Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/c7/bb58f1e7819b1c460a5248b256ccfd77bbb4771d3355a79d5f69980a9e38/efax-2.0.0.tar.gz", hash = "sha256:2d9557fe2b63a9f77f8d57eedc2f8507d704c40b686d77c035f6c8cd54a3902c", size = 419847, upload-time = "2026-03-28T13:54:47.494Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/2a/beed3b69aeb3cc4568d172da70b1ef40cc9ae8227b2d109641e9cc68eeb3/efax-1.23.0-py3-none-any.whl", hash = "sha256:62c35918db6434b0afee23282418059b2d27e0109f97c3f07cfd60d85473728e", size = 98834, upload-time = "2025-09-22T06:08:06.916Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/24/20ccfb8b542abc97a739ea4eff9d5837e6f83da5191a18cade38f229eb5d/efax-2.0.0-py3-none-any.whl", hash = "sha256:19e25146cf0c5a625bc23b4f5a63ae835ce69581626c077a5b6156cddfe0c8c0", size = 101797, upload-time = "2026-03-28T13:54:49.167Z" },
 ]
 
 [[package]]
@@ -1016,11 +1016,11 @@ wheels = [
 
 [[package]]
 name = "json5"
-version = "0.13.0"
+version = "0.14.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/77/e8/a3f261a66e4663f22700bc8a17c08cb83e91fbf086726e7a228398968981/json5-0.13.0.tar.gz", hash = "sha256:b1edf8d487721c0bf64d83c28e91280781f6e21f4a797d3261c7c828d4c165bf", size = 52441, upload-time = "2026-01-01T19:42:14.99Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/4b/6f8906aaf67d501e259b0adab4d312945bb7211e8b8d4dcc77c92320edaa/json5-0.14.0.tar.gz", hash = "sha256:b3f492fad9f6cdbced8b7d40b28b9b1c9701c5f561bef0d33b81c2ff433fefcb", size = 52656, upload-time = "2026-03-27T22:50:48.108Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/9e/038522f50ceb7e74f1f991bf1b699f24b0c2bbe7c390dd36ad69f4582258/json5-0.13.0-py3-none-any.whl", hash = "sha256:9a08e1dd65f6a4d4c6fa82d216cf2477349ec2346a38fd70cc11d2557499fbcc", size = 36163, upload-time = "2026-01-01T19:42:13.962Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/42/cf027b4ac873b076189d935b135397675dac80cb29acb13e1ab86ad6c631/json5-0.14.0-py3-none-any.whl", hash = "sha256:56cf861bab076b1178eb8c92e1311d273a9b9acea2ccc82c276abf839ebaef3a", size = 36271, upload-time = "2026-03-27T22:50:47.073Z" },
 ]
 
 [[package]]
@@ -2500,7 +2500,7 @@ wheels = [
 
 [[package]]
 name = "tfp-nightly"
-version = "0.26.0.dev20260327"
+version = "0.26.0.dev20260328"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "absl-py", marker = "sys_platform == 'linux'" },
@@ -2512,7 +2512,7 @@ dependencies = [
     { name = "six", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d5/f0/159619d6bc5ea6a12e55955c13b13d7ffcdd99ef56b315274fca125a0885/tfp_nightly-0.26.0.dev20260327-py2.py3-none-any.whl", hash = "sha256:17f57db2275331958f8d957a444d6caf210e7b889dc7be852e5b583529315cea", size = 6975583, upload-time = "2026-03-27T08:43:52.647Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/22/d19a0ff850c536dc724fd9c328deb25f575c90537b46c8d15b0ab2c5ed40/tfp_nightly-0.26.0.dev20260328-py2.py3-none-any.whl", hash = "sha256:20675356734eb981ed3e8abc924a3fd1b25be4e95c34091670482749c1899ca5", size = 6975587, upload-time = "2026-03-28T08:43:52.468Z" },
 ]
 
 [[package]]

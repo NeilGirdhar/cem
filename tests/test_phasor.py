@@ -3,9 +3,62 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import jax.numpy as jnp
+from efax import Flattener, NormalNP
 from tjax import RngStream
 
 from cem.phasor import PhasorMessage, geometric_frequencies
+
+# ── from_distribution / to_distribution ──────────────────────────────────────
+
+
+def _normal_t(m: int, base: float = 2.0 * float(jnp.pi)) -> NormalNP:
+    """Frequency grid t for NormalNP with m frequencies, d=2 sufficient statistics."""
+    frequencies = geometric_frequencies(m, base=base)
+    flattener, _ = Flattener.flatten(NormalNP(jnp.array(0.0), jnp.array(0.0)), map_to_plane=False)
+    d = flattener.final_dimension_size()
+    eye = jnp.eye(d, dtype=jnp.float64)
+    t_flat = (frequencies[:, None, None] * eye[None, :, :]).reshape(m * d, d)
+    return flattener.unflatten(t_flat)
+
+
+def test_from_distribution_shape() -> None:
+    # NormalNP has d=2 sufficient statistics; m=4 frequencies → m*d=8 phasors
+    dist = NormalNP(jnp.array(1.0), jnp.array(-0.5))
+    freqs = geometric_frequencies(4)
+    p = PhasorMessage.from_distribution(dist, freqs)
+    assert p.data.shape == (8,)
+
+
+def test_from_distribution_batched_shape() -> None:
+    # dist shape (*s,) = (3,); m=4, d=2 → output (*s, m*d) = (3, 8)
+    dist = NormalNP(jnp.array([0.0, 1.0, -1.0]), jnp.array([-0.5, -0.5, -0.5]))
+    freqs = geometric_frequencies(4)
+    p = PhasorMessage.from_distribution(dist, freqs)
+    assert p.data.shape == (3, 8)
+
+
+def test_from_distribution_unit_magnitude_for_point_mass() -> None:
+    # A Normal with tiny variance (~point mass) should have phasors near unit magnitude
+    dist = NormalNP(jnp.array(1e6), jnp.array(-1e6))  # huge precision → near point mass
+    freqs = geometric_frequencies(4)
+    p = PhasorMessage.from_distribution(dist, freqs)
+    assert jnp.all(p.presence <= 1.0 + 1e-6)
+
+
+def test_to_distribution_recovers_normal_mean() -> None:
+    # OLS recovery uses Im(log CF(t)) ≈ ⟨t, E[T(x)]⟩, valid when |f * σ²| << 1.
+    # base=1e-4, m=8 → max f = 1e-4 * 2^7 = 0.0128; max f*σ² = 0.0128 << 1 ✓
+    mu, sigma2 = 0.5, 1.0
+    dist = NormalNP(jnp.array(mu / sigma2), jnp.array(-0.5 / sigma2))
+    m = 8
+    base = 1e-4
+    freqs = geometric_frequencies(m, base=base)
+    p = PhasorMessage.from_distribution(dist, freqs)
+    t = _normal_t(m, base=base)
+    ep = p.to_distribution(t)
+    # NormalEP fields: mean=μ, second_moment=μ²+σ²
+    assert jnp.allclose(ep.mean, jnp.array(mu), atol=1e-3)  # ty: ignore
+    assert jnp.allclose(ep.second_moment, jnp.array(mu**2 + sigma2), atol=1e-3)  # ty: ignore
 
 
 # ── construction ──────────────────────────────────────────────────────────────
