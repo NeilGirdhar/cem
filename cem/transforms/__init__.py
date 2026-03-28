@@ -1,3 +1,5 @@
+"""Phasor-space transforms: gating, rotation, linear/nonlinear maps, rivalry, and attention."""
+
 from .accumulator import Accumulator
 from .attention import interpolate, select
 from .gate import phasor_gate, rotate_by_location
