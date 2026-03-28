@@ -7,7 +7,7 @@ from typing import override
 import equinox as eqx
 from tjax import JaxArray, RngStream
 
-from cem.structure import Module
+from cem.structure.model import Module
 
 from .gate import phasor_gate
 from .linear import Linear

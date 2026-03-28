@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from jax.nn.initializers import normal
 from tjax import JaxArray, RngStream
 
-from cem.structure import LearnableParameter, Module
+from cem.structure.model import LearnableParameter, Module
 
 _logit_init = normal(1.0)
 
