@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from dataclasses import KW_ONLY
 
+from matplotlib.axes import Axes
 from optuna.distributions import IntDistribution
 from tjax import JaxArray
 
 from cem.structure.solver import int_field
 
-from .subplot import Subplot
-from .with_projection import PlotterWithProjection
+from .with_projection import PlotterWithProjection, plot_kde
 
 
 class PlotterWithClustering(PlotterWithProjection):
@@ -17,9 +17,9 @@ class PlotterWithClustering(PlotterWithProjection):
 
     def _plot_using_kde_and_modes(
         self,
+        ax: Axes,
         xy_values: JaxArray,
         mode_values: JaxArray,
-        subplot: Subplot,
         resolution: int,
         color_index: int | None = None,
         alpha: float | None = None,
@@ -30,6 +30,4 @@ class PlotterWithClustering(PlotterWithProjection):
         assert mode_values.shape[0] == xy_values.shape[0]
         for mode in range(self.num_clustering_modes):
             these_xy_values = xy_values[mode_values == mode, :]
-            self._plot_using_kde(
-                subplot, these_xy_values, resolution=resolution, color_index=mode, alpha=alpha
-            )
+            plot_kde(ax, these_xy_values, resolution=resolution, color_index=mode, alpha=alpha)
