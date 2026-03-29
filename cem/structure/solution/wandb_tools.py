@@ -1,14 +1,12 @@
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass
 from os import PathLike
-from types import NoneType
-from typing import Any, Literal, TypeGuard, overload
+from typing import Any, Literal
 
 import wandb
 from matplotlib.figure import Figure
 from tjax import JaxArray
-from tjax.dataclasses import DataclassInstance
 from wandb import Image
 from wandb.sdk.wandb_run import Run
 
@@ -79,33 +77,3 @@ def wandb_init(settings: WAndBInitSettings) -> Generator[Run]:
 type _WandBLeaves = str | int | float | bool | JaxArray | Figure | Image | None
 type _WandBNodes = _WandBLeaves | tuple[_WandBNodes, ...] | list[_WandBNodes] | "WandBDict"
 type WandBDict = dict[str, _WandBNodes]
-
-
-def as_wandb_dict(obj: DataclassInstance | dict[Any, Any]) -> WandBDict:
-    """Return the fields of a dataclass instance as a new dictionary."""
-    if not _is_dataclass_instance(obj) and not isinstance(obj, dict):
-        raise TypeError
-    return _asdict_inner(obj)
-
-
-def _is_dataclass_instance(x: object) -> TypeGuard[DataclassInstance]:
-    return not isinstance(x, type) and is_dataclass(x)
-
-
-@overload
-def _asdict_inner(obj: DataclassInstance | dict[Any, Any]) -> WandBDict: ...
-@overload
-def _asdict_inner(obj: object) -> _WandBNodes: ...
-def _asdict_inner(obj: object) -> _WandBNodes:
-    if _is_dataclass_instance(obj):
-        return {f.name: _asdict_inner(getattr(obj, f.name)) for f in fields(obj)}
-    if isinstance(obj, dict):
-        return {str(k): _asdict_inner(v) for k, v in obj.items()}
-    if isinstance(obj, tuple):
-        return tuple(_asdict_inner(v) for v in obj)
-    if isinstance(obj, list):
-        return [_asdict_inner(v) for v in obj]
-    if isinstance(obj, str | int | float | JaxArray | NoneType):
-        return obj
-    msg = f"Cannot convert object of type {type(obj).__name__}"
-    raise TypeError(msg)

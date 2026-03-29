@@ -28,6 +28,26 @@ def _stack(*elements: JaxArray) -> JaxArray:
     return jnp.asarray(np.stack(elements))  # np.stack is much faster than jnp.stack
 
 
+def _snapshots_to_wandb_dict(x: DataclassInstance | dict[Any, Any], /) -> WandBDict:
+    """Recursively convert a snapshots structure into a W&B-compatible dict.
+
+    Dataclass instances are converted to dicts keyed by field name.  Plain dicts
+    have their keys stringified (e.g. Telemetry objects become their repr).
+    Recursion stops at any value that is neither a dataclass nor a dict.
+
+    Args:
+        x: A dataclass instance or a dict whose values may themselves be dataclasses
+            or nested dicts.
+
+    Returns:
+        A nested ``WandBDict`` suitable for passing to ``wandb.Run.log``.
+    """
+    if is_dataclass(x):
+        return {f.name: _snapshots_to_wandb_dict(getattr(x, f.name)) for f in fields(x)}
+    assert not isinstance(x, DataclassInstance)
+    return {str(k): _snapshots_to_wandb_dict(v) for k, v in x.items()}
+
+
 class ExecutionContext[T: Telemetry]:
     @override
     def __init__(
@@ -58,15 +78,7 @@ class ExecutionContext[T: Telemetry]:
             and snapshots
             and self.episodes_done() % self._wandb_log_period == 0
         ):
-
-            def dc_to_dict(x: DataclassInstance | dict[T, Any], /) -> WandBDict:
-                """Transform dataclasses into dicts."""
-                if is_dataclass(x):
-                    return {f.name: dc_to_dict(getattr(x, f.name)) for f in fields(x)}
-                assert not isinstance(x, DataclassInstance)
-                return {str(k): dc_to_dict(v) for k, v in x.items()}
-
-            self._wandb_run.log(dc_to_dict(snapshots))
+            self._wandb_run.log(_snapshots_to_wandb_dict(snapshots))
 
     def _stack_telemetries(self) -> None:
         results = self._results
