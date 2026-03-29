@@ -4,36 +4,50 @@ from abc import abstractmethod
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
-from cem.structure.solution import ExecutionPacket, Telemetries
+from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
 from cem.structure.solver import Solver
 
 from .plotter import Plotter
 
 
-class Demo[T: Solver[Any]]:
+class Demo:
     name: ClassVar[str]
     title: ClassVar[str]
 
     @classmethod
     @abstractmethod
-    def create_solvers(cls) -> Sequence[T]:
+    def solver(cls) -> Solver[Any]:
+        """Return the solver that defines the model, problem, and hyperparameters for this demo."""
         raise NotImplementedError
 
     @classmethod
     @abstractmethod
-    def demo_loss(cls, solvers: Sequence[T], packet: ExecutionPacket) -> float:
-        """The demo loss is used to optimize hyperparameters.
+    def demo_loss(
+        cls, training_results: TrainingResults, inference_results: InferenceResults
+    ) -> float:
+        """Return a scalar loss used to drive hyperparameter optimisation.
 
-        The default value of zero means that hyperparameters can't be optimized.
+        Args:
+            training_results: Results from the training run.
+            inference_results: Results from the inference run.
+
+        Returns:
+            A scalar loss; lower is better.
         """
         raise NotImplementedError
 
     @classmethod
     @abstractmethod
     def plotters(cls) -> Sequence[Plotter]:
+        """Return the plotters that visualise results for this demo."""
         raise NotImplementedError
 
     @classmethod
     @abstractmethod
-    def telemetries(cls) -> Telemetries:
+    def create_telemetries(cls) -> Telemetries:
+        """Return additional telemetries beyond those declared by the plotters.
+
+        The telemetries returned here are automatically combined with those
+        from each plotter in ``plotters()``.
+        """
         raise NotImplementedError
