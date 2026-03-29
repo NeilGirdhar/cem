@@ -17,10 +17,9 @@ from tjax import JaxArray, Timer, display_time
 from tjax.dataclasses import DataclassInstance
 from wandb.sdk.wandb_run import Run
 
-from .wandb_tools import WandBDict, wandb_init
-
 from .execution_packet import ExecutionPacket
 from .telemetry import Telemetries, Telemetry
+from .wandb_tools import WandBDict, wandb_init
 
 log = logging.getLogger(__name__)
 

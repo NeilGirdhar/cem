@@ -7,6 +7,7 @@ import equinox as eqx
 
 from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
 from cem.structure.solver import Solver
+
 from .plot import Plot
 
 

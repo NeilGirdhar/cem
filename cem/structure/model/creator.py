@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import Enum, auto
 from typing import Any
 
 import equinox as eqx
@@ -13,15 +14,23 @@ from .node import Node
 from .problem import Problem
 
 
+class NodeRole(Enum):
+    observation = 0
+    latent = auto()
+    action = auto()
+    reward = auto()
+
+
 class ModelCreator[ProblemStateT: ProblemState](eqx.Module):
     data_source: DataSource
     problem: Problem
 
-    def create_observation_node(
+    def create_node(
         self,
         name: str,
-        streams: Mapping[str, RngStream],
+        role: NodeRole,
         ep: ExpectationParametrization[Any],
+        streams: Mapping[str, RngStream],
     ) -> Node:
         raise NotImplementedError
 
@@ -30,6 +39,6 @@ class ModelCreator[ProblemStateT: ProblemState](eqx.Module):
 
     def create_model(self, model: EditableModel, streams: Mapping[str, RngStream]) -> None:
         for name, ep in self.problem.observation_distributions().items():
-            observation_node = self.create_observation_node(name, streams, ep)
+            observation_node = self.create_node(name, NodeRole.observation, ep, streams)
             model.add_node(observation_node)
         self.create_model_edges(model, streams)

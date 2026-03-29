@@ -1,7 +1,7 @@
 """Model primitives: computation graph, nodes, edges, parameters, and training/inference engine."""
 
 from cem.structure.model.batch_loss import BatchLoss
-from cem.structure.model.creator import ModelCreator
+from cem.structure.model.creator import ModelCreator, NodeRole
 from cem.structure.model.data_source import DataSource, ProblemObservation, ProblemState
 from cem.structure.model.disassembled import (
     DisGradientState,
@@ -46,6 +46,7 @@ __all__ = [
     "NodeConfiguration",
     "NodeInferenceResult",
     "NodeMemory",
+    "NodeRole",
     "Parameter",
     "ParameterType",
     "Problem",
