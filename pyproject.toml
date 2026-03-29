@@ -4,6 +4,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+  "types-networkx",
   "jupyter>=1.1.1",
   "lefthook>=2",
   "pyright>=1.1.408",
@@ -55,9 +56,6 @@ dependencies = [
   "typer>=0.15.1",
   "wandb>=0.19.4"
 ]
-
-# [project.scripts]
-# cem = "cem.commands:cli"
 
 [project.urls]
 source = "https://github.com/NeilGirdhar/cem"
@@ -114,7 +112,7 @@ ignore = [
   "TC002", # Move third-party import into TYPE_CHECKING.
   "TC003", # Move stdlib import into TYPE_CHECKING.
   "TD002", # TODO missing author.
-  "TD003", # TODO missing issue link.
+  "TD003" # TODO missing issue link.
 ]
 
 [tool.ruff.lint.flake8-errmsg]
