@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import operator
 import tempfile
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import ExitStack, contextmanager
 from dataclasses import fields, is_dataclass, replace
 from typing import Any, Self, override
@@ -18,7 +18,7 @@ from tjax.dataclasses import DataclassInstance
 from wandb.sdk.wandb_run import Run
 
 from .execution_packet import ExecutionPacket
-from .telemetry import Telemetries, Telemetry
+from .telemetry import Telemetry
 from .wandb_tools import WandBDict, wandb_init
 
 log = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ class ExecutionContext[T: Telemetry]:
         default_result: Any,
         progress_manager: rp.Progress | None,
         task_id: rp.TaskID | None,
-        telemetries: Telemetries,  # Only part of the interface for child classes.
+        snapshots_fn: Callable[[Any], dict[T, Any]],
         wandb_run: Run | None,
         wandb_log_period: int,
     ) -> None:
@@ -44,13 +44,14 @@ class ExecutionContext[T: Telemetry]:
         self._default_result = default_result
         self._progress_manager = progress_manager
         self._task_id = task_id
+        self._snapshots_fn = snapshots_fn
         self._results: list[dict[T, Any]] = []
         self._wandb_run = wandb_run
         self._telemetries: dict[T, Any] = {}
         self._wandb_log_period = wandb_log_period
 
     def snapshots(self, result: object) -> dict[T, Any]:
-        raise NotImplementedError
+        return self._snapshots_fn(result)
 
     def append_result(self, snapshots: dict[T, Any]) -> None:
         self._results.append(snapshots)
@@ -101,7 +102,7 @@ class ExecutionContext[T: Telemetry]:
         packet: ExecutionPacket,
         job_type: str,
         use_wandb: bool,
-        **kwargs: object,
+        snapshots_fn: Callable[[Any], dict[T, Any]],
     ) -> Generator[Self]:
         exit_stack = ExitStack()
         task_id: rp.TaskID | None = None
@@ -123,10 +124,9 @@ class ExecutionContext[T: Telemetry]:
             default_result=default_result,
             progress_manager=packet.progress_manager,
             task_id=task_id,
-            telemetries=packet.telemetries,
+            snapshots_fn=snapshots_fn,
             wandb_run=wandb_run,
             wandb_log_period=packet.wandb_log_period,
-            **kwargs,
         )
         with exit_stack:
             yield inference_manager

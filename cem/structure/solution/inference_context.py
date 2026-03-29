@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import logging
 from functools import partial
-from typing import Any, override
+from typing import Any
 
-import rich.progress as rp
 from tjax import KeyArray, jit
-from wandb.sdk.wandb_run import Run
 
 from cem.structure.model import (
     DataSource,
@@ -20,7 +18,7 @@ from cem.structure.model import (
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import InferenceResults
 from .segment import segment_keys
-from .telemetry import InferenceTelemetry, Telemetries
+from .telemetry import InferenceTelemetry
 
 log = logging.getLogger(__name__)
 
@@ -35,35 +33,6 @@ def inference_snapshots(
         snapshot = telemetry.inference_snapshot(inference, result, snapshots)
         snapshots[telemetry] = snapshot
     return snapshots
-
-
-class InferenceExecutionContext(ExecutionContext[InferenceTelemetry]):
-    @override
-    def __init__(
-        self,
-        *,
-        default_result: InferenceResult,
-        progress_manager: rp.Progress | None,
-        task_id: rp.TaskID | None,
-        telemetries: Telemetries,
-        wandb_run: Run | None,
-        wandb_log_period: int,
-        inference: Inference,
-    ) -> None:
-        super().__init__(
-            default_result=default_result,
-            progress_manager=progress_manager,
-            task_id=task_id,
-            telemetries=telemetries,
-            wandb_run=wandb_run,
-            wandb_log_period=wandb_log_period,
-        )
-        self.inference = inference
-        self._inference_telemetries = telemetries.inference_telemetries
-
-    @override
-    def snapshots(self, result: Any) -> dict[InferenceTelemetry, Any]:
-        return inference_snapshots(self.inference, self._inference_telemetries, result)
 
 
 @partial(jit, static_argnames=("batch_size", "return_samples"))
@@ -116,14 +85,15 @@ def infer_episodes(
     log.info("Inferring")
     data_source = problem.create_data_source()
     default_result = inference.infer_zero_episodes(data_source, problem)
-    with InferenceExecutionContext.create(
+    snapshots_fn = partial(inference_snapshots, inference, packet.telemetries.inference_telemetries)
+    with ExecutionContext.create(
         solver_name=solver_name,
         default_result=default_result,
         episodes=episodes,
         packet=packet,
         job_type="inference",
-        inference=inference,
         use_wandb=True,
+        snapshots_fn=snapshots_fn,
     ) as execution_context:
         example_keys, inference_keys = segment_keys(key, episodes)
         for example_key, inference_key in zip(example_keys, inference_keys, strict=True):
