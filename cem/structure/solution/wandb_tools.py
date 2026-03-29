@@ -13,10 +13,6 @@ from wandb import Image
 from wandb.sdk.wandb_run import Run
 
 
-def snake_case(x: str, /) -> str:
-    return x.lower().replace(" ", "_")
-
-
 @dataclass
 class WAndBInitSettings:
     entity: str | None = None
