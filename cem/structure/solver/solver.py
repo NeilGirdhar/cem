@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+from dataclasses import KW_ONLY, fields, is_dataclass, replace
+from typing import Any, Self, cast
+
+import equinox as eqx
+import jax.random as jr
+from optuna.distributions import BaseDistribution, FloatDistribution, IntDistribution
+from tjax.gradient import Adam
+
+from cem.structure.model import (
+    DataSource,
+    DisGradientTransformation,
+    FixedParameter,
+    LearnableParameter,
+    Model,
+    ModelCreator,
+    ParameterType,
+    Problem,
+    SolutionState,
+)
+from cem.structure.solution import (
+    ExecutionPacket,
+    InferenceResults,
+    TrainingResults,
+    TrainingSegment,
+    TrainingSolution,
+    infer_episodes,
+    train_episodes,
+)
+from .hp_field import float_field, int_field
+
+__all__ = ["Solver", "Trainer"]
+
+
+class Trainer[P: Problem](eqx.Module):
+    _: KW_ONLY
+    training_examples: int = int_field(
+        default=0, domain=IntDistribution(1, (1 << 64) - 1, log=True)
+    )
+    initial_weight_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
+    training_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
+    training_batch_size: int = int_field(
+        default=1, domain=IntDistribution(1, (1 << 32) - 1, log=True)
+    )
+    learning_rate: float = float_field(
+        default=0.002, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
+    )
+
+    def training_results(self, name: str | None, *, packet: ExecutionPacket) -> TrainingResults:
+        solution = self.solution()
+        training_segments = self.training_segments()
+        return train_episodes(name, self.training_batch_size, solution, packet, training_segments)
+
+    def problem(self) -> P:
+        raise NotImplementedError
+
+    def solution(self) -> TrainingSolution:
+        """Return the solution for this solver.
+
+        This is typically called in the following places:
+        * NamesAndPaths.extract,
+        * Solver.training_results,
+        * Solver.inference_results, and
+        * various plotters.
+
+        Therefore, it should always create the same pytree, which means it must not have closures.
+        """
+        problem = self.problem()
+        weight_key = jr.key(self.initial_weight_seed)
+        data_source = problem.create_data_source()
+        creator = self.model_creator(data_source, problem)
+        return TrainingSolution.create(creator, weight_key, self.gradient_transformations())
+
+    def gradient_transformations(self) -> DisGradientTransformation:
+        return DisGradientTransformation(
+            [
+                (ParameterType(FixedParameter), None),
+                (ParameterType(LearnableParameter), Adam[Model](self.learning_rate)),
+            ]
+        )
+
+    def training_segments(self) -> list[TrainingSegment]:
+        training_key = jr.key(self.training_seed)
+        return [TrainingSegment(training_key, self.training_examples)]
+
+    def model_creator(self, data_source: DataSource, problem: Problem) -> ModelCreator[Any]:
+        raise NotImplementedError
+
+
+class Solver[T: Trainer[Any]](eqx.Module):
+    _: KW_ONLY
+    title: str = ""
+    name: str | None = None
+    trainer: T
+    inference_examples: int = int_field(
+        default=0, domain=IntDistribution(1, (1 << 64) - 1, log=True)
+    )
+    inference_batch_size: int = int_field(
+        default=0, domain=IntDistribution(1, (1 << 32) - 1, log=True)
+    )
+    inference_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
+
+    def training_results(self, *, packet: ExecutionPacket) -> TrainingResults:
+        return self.trainer.training_results(self.name, packet=packet)
+
+    def inference_results(
+        self, solution_state: SolutionState, *, packet: ExecutionPacket
+    ) -> InferenceResults:
+        solution = self.trainer.solution()
+        inference_key = jr.key(self.inference_seed)
+        return infer_episodes(
+            self.name,
+            self.inference_batch_size,
+            self.inference_examples,
+            inference_key,
+            solution.inference,
+            solution.problem,
+            packet,
+            solution_state,
+        )
+
+    def training_and_inference_result(
+        self, *, packet: ExecutionPacket
+    ) -> tuple[TrainingResults, InferenceResults]:
+        training_results = self.trainer.training_results(self.name, packet=packet)
+        inference_results = self.inference_results(training_results.final_state, packet=packet)
+        return training_results, inference_results
+
+    def create_hyperparameters(self) -> dict[str, BaseDistribution]:
+        return _create_hyperparameters(self, prefix="")
+
+    def populate_from_hyperparameters(self, hyper: dict[str, Any]) -> Self:
+        return _populate_from_hyperparameters(self, hyper, prefix="")
+
+
+def _create_hyperparameters(x: object, *, prefix: str) -> dict[str, BaseDistribution]:
+    assert is_dataclass(x)
+    assert not isinstance(x, type)
+    hyper = {}
+    for f in fields(x):
+        y = getattr(x, f.name)
+        if not f.metadata.get("optimize", True):
+            continue
+        if (domain := f.metadata.get("domain", None)) is not None:
+            hyper[f"{prefix}{f.name}"] = domain
+        elif is_dataclass(y):
+            hyper |= _create_hyperparameters(y, prefix=f"{prefix}{f.name}.")
+    return hyper
+
+
+def _populate_from_hyperparameters[T](x: T, hyper: dict[str, Any], *, prefix: str) -> T:
+    assert is_dataclass(x)
+    assert not isinstance(x, type)
+    kwargs = {}
+    for f in fields(x):
+        y = getattr(x, f.name)
+        if not f.metadata.get("optimize", True):
+            continue
+        if f.metadata.get("domain", None) is not None:
+            kwargs[f.name] = hyper[f"{prefix}{f.name}"]
+        elif is_dataclass(y):
+            kwargs[f.name] = _populate_from_hyperparameters(y, hyper, prefix=f"{prefix}{f.name}.")
+    return cast("T", replace(x, **kwargs))
