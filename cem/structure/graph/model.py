@@ -11,7 +11,8 @@ import jax.numpy as jnp
 import networkx as nx
 from tjax import JaxArray, RngStream
 
-from .creator import ModelCreator
+from cem.structure.problem.creator import ModelCreator
+
 from .edge import Edge
 from .editable import EditableModel
 from .module import Module

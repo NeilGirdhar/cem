@@ -2,8 +2,8 @@ from typing import Any
 
 import equinox as eqx
 
+from .inference import SolutionState
 from .telemetry import Telemetry
-from .training_solution import SolutionState
 
 
 class TrainingResults(eqx.Module):

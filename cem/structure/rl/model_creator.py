@@ -5,7 +5,9 @@ from typing import override
 
 from tjax import RngStream
 
-from cem.structure.model import EditableModel, ModelCreator, ProblemState, NodeRole
+from cem.structure.graph.editable import EditableModel
+from cem.structure.problem.creator import ModelCreator, NodeRole
+from cem.structure.problem.data_source import ProblemState
 
 from .problem import RLProblem
 
