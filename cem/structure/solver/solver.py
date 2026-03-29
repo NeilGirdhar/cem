@@ -30,27 +30,39 @@ from cem.structure.solution import (
 )
 from .hp_field import float_field, int_field
 
-__all__ = ["Solver", "Trainer"]
+__all__ = ["Solver"]
 
 
-class Trainer[P: Problem](eqx.Module):
+class Solver[P: Problem](eqx.Module):
     _: KW_ONLY
+    title: str = ""
+    name: str | None = None
+    inference_examples: int = int_field(
+        default=0, domain=IntDistribution(1, (1 << 64) - 1, log=True)
+    )
+    inference_batch_size: int = int_field(
+        default=0, domain=IntDistribution(1, (1 << 32) - 1, log=True)
+    )
+    inference_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
+
     training_examples: int = int_field(
         default=0, domain=IntDistribution(1, (1 << 64) - 1, log=True)
     )
-    initial_weight_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
     training_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
     training_batch_size: int = int_field(
         default=1, domain=IntDistribution(1, (1 << 32) - 1, log=True)
     )
+    parameters_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
     learning_rate: float = float_field(
         default=0.002, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
     )
 
-    def training_results(self, name: str | None, *, packet: ExecutionPacket) -> TrainingResults:
+    def training_results(self, *, packet: ExecutionPacket) -> TrainingResults:
         solution = self.solution()
         training_segments = self.training_segments()
-        return train_episodes(name, self.training_batch_size, solution, packet, training_segments)
+        return train_episodes(
+            self.name, self.training_batch_size, solution, packet, training_segments
+        )
 
     def problem(self) -> P:
         raise NotImplementedError
@@ -67,10 +79,10 @@ class Trainer[P: Problem](eqx.Module):
         Therefore, it should always create the same pytree, which means it must not have closures.
         """
         problem = self.problem()
-        weight_key = jr.key(self.initial_weight_seed)
+        parameters_key = jr.key(self.parameters_seed)
         data_source = problem.create_data_source()
         creator = self.model_creator(data_source, problem)
-        return TrainingSolution.create(creator, weight_key, self.gradient_transformations())
+        return TrainingSolution.create(creator, parameters_key, self.gradient_transformations())
 
     def gradient_transformations(self) -> DisGradientTransformation:
         return DisGradientTransformation(
@@ -87,27 +99,10 @@ class Trainer[P: Problem](eqx.Module):
     def model_creator(self, data_source: DataSource, problem: Problem) -> ModelCreator[Any]:
         raise NotImplementedError
 
-
-class Solver[T: Trainer[Any]](eqx.Module):
-    _: KW_ONLY
-    title: str = ""
-    name: str | None = None
-    trainer: T
-    inference_examples: int = int_field(
-        default=0, domain=IntDistribution(1, (1 << 64) - 1, log=True)
-    )
-    inference_batch_size: int = int_field(
-        default=0, domain=IntDistribution(1, (1 << 32) - 1, log=True)
-    )
-    inference_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
-
-    def training_results(self, *, packet: ExecutionPacket) -> TrainingResults:
-        return self.trainer.training_results(self.name, packet=packet)
-
     def inference_results(
         self, solution_state: SolutionState, *, packet: ExecutionPacket
     ) -> InferenceResults:
-        solution = self.trainer.solution()
+        solution = self.solution()
         inference_key = jr.key(self.inference_seed)
         return infer_episodes(
             self.name,
@@ -123,7 +118,7 @@ class Solver[T: Trainer[Any]](eqx.Module):
     def training_and_inference_result(
         self, *, packet: ExecutionPacket
     ) -> tuple[TrainingResults, InferenceResults]:
-        training_results = self.trainer.training_results(self.name, packet=packet)
+        training_results = self.training_results(packet=packet)
         inference_results = self.inference_results(training_results.final_state, packet=packet)
         return training_results, inference_results
 

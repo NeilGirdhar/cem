@@ -37,10 +37,10 @@ class TrainingSolution(eqx.Module):
     def create(
         cls,
         creator: ModelCreator[Any],
-        weight_key: KeyArray,
+        parameters_key: KeyArray,
         gradient_transformations: DisGradientTransformation,
     ) -> TrainingSolution:
-        keys = {"parameters": weight_key, "example": jr.key(0)}
+        keys = {"parameters": parameters_key, "example": jr.key(0)}
         model, initial_memory = eqx.nn.make_with_state(Model)(
             creator=creator, streams=create_streams(keys)
         )
