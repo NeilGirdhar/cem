@@ -23,7 +23,6 @@ from cem.structure.solution import (
     ExecutionPacket,
     InferenceResults,
     TrainingResults,
-    TrainingSegment,
     TrainingSolution,
     infer_episodes,
     train_episodes,
@@ -60,9 +59,13 @@ class Solver[P: Problem](eqx.Module):
 
     def training_results(self, *, packet: ExecutionPacket) -> TrainingResults:
         solution = self.solution()
-        training_segments = self.training_segments()
         return train_episodes(
-            self.name, self.training_batch_size, solution, packet, training_segments
+            self.name,
+            self.training_batch_size,
+            solution,
+            packet,
+            jr.key(self.training_seed),
+            self.training_examples,
         )
 
     def problem(self) -> P:
@@ -92,10 +95,6 @@ class Solver[P: Problem](eqx.Module):
                 (ParameterType(LearnableParameter), Adam[Model](self.learning_rate)),
             ]
         )
-
-    def training_segments(self) -> list[TrainingSegment]:
-        training_key = jr.key(self.training_seed)
-        return [TrainingSegment(training_key, self.training_examples)]
 
     def model_creator(self, data_source: DataSource, problem: Problem) -> ModelCreator[Any]:
         raise NotImplementedError
