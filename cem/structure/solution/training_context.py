@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Generator
 from dataclasses import replace
-from functools import partial
 from typing import Any
 
 import equinox as eqx
@@ -16,7 +15,7 @@ from cem.structure.model import DataSource, SolutionState, TrainingResult
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import TrainingResults
 from .segment import segment_keys
-from .telemetry import TrainingTelemetry
+from .telemetry import Telemetry
 from .training_solution import TrainingSolution
 
 log = logging.getLogger(__name__)
@@ -45,13 +44,14 @@ def training_segments_iterable(
 
 def training_snapshots(
     solution: TrainingSolution,
-    training_telemetries: tuple[TrainingTelemetry, ...],
+    telemetries: tuple[Telemetry, ...],
     result: TrainingResult,
-) -> dict[TrainingTelemetry, Any]:
-    snapshots = {}
-    for telemetry in training_telemetries:
+) -> dict[Telemetry, Any]:
+    snapshots: dict[Telemetry, Any] = {}
+    for telemetry in telemetries:
         snapshot = telemetry.training_snapshot(solution, result, snapshots)
-        snapshots[telemetry] = snapshot
+        if snapshot is not None:
+            snapshots[telemetry] = snapshot
     return snapshots
 
 
@@ -61,10 +61,10 @@ def train_one_episode(
     example_key: KeyArray,
     inference_key: KeyArray,
     data_source: DataSource,
-    training_telemetries: tuple[TrainingTelemetry, ...],
+    telemetries: tuple[Telemetry, ...],
     *,
     return_samples: bool,
-) -> tuple[SolutionState, dict[TrainingTelemetry, Any], JaxArray, JaxArray]:
+) -> tuple[SolutionState, dict[Telemetry, Any], JaxArray, JaxArray]:
     result = solution.inference.train_one_episode(
         batch_size,
         example_key,
@@ -75,7 +75,7 @@ def train_one_episode(
         solution.solution_state,
         return_samples=return_samples,
     )
-    snapshots = training_snapshots(solution, training_telemetries, result)
+    snapshots = training_snapshots(solution, telemetries, result)
     finite_parameters = is_all_finite_tree(result.solution_state.dis_learnable_parameters)
     finite_inference_result = is_all_finite_tree(result.inference_result)
     return result.solution_state, snapshots, finite_parameters, finite_inference_result
@@ -99,15 +99,14 @@ def train_episodes(
     default_result = TrainingResult(
         solution_state, solution.inference.infer_zero_episodes(data_source, solution.problem)
     )
-    snapshots_fn = partial(training_snapshots, solution, packet.telemetries.training_telemetries)
+    default_snapshots = training_snapshots(solution, packet.telemetries.telemetries, default_result)
     with ExecutionContext.create(
         solver_name=solver_name,
-        default_result=default_result,
+        default_snapshots=default_snapshots,
         episodes=total_episodes,
         packet=packet,
         job_type="training",
         use_wandb=True,
-        snapshots_fn=snapshots_fn,
     ) as execution_context:
         for example_key, inference_key in training_segments_iterable(segments):
             (solution_state, snapshots, finite_parameters, finite_inference_result) = (
@@ -117,7 +116,7 @@ def train_episodes(
                     example_key,
                     inference_key,
                     data_source,
-                    packet.telemetries.training_telemetries,
+                    packet.telemetries.telemetries,
                     return_samples=False,
                 )
             )

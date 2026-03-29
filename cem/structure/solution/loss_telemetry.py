@@ -5,11 +5,13 @@ from tjax.dataclasses import field
 
 from cem.structure.model import Inference, InferenceResult, TrainingResult
 
-from .telemetry import InferenceTelemetry, TrainingTelemetry
+from .telemetry import Telemetry
 from .training_solution import TrainingSolution
 
 
-class LossTrainingTelemetry(TrainingTelemetry):
+class LossTelemetry(Telemetry):
+    """Telemetry that records the total loss for a selected node."""
+
     selected_node: str = field(static=True)
 
     @override
@@ -17,21 +19,17 @@ class LossTrainingTelemetry(TrainingTelemetry):
         self,
         training_solution: TrainingSolution,
         training_result: TrainingResult,
-        snapshots: Mapping[TrainingTelemetry, Any],
+        snapshots: Mapping[Telemetry, Any],
     ) -> Any:
         configuration = training_result.inference_result.model_configuration[self.selected_node]
         return configuration.total_loss()
-
-
-class LossInferenceTelemetry(InferenceTelemetry):
-    selected_node: str = field(static=True)
 
     @override
     def inference_snapshot(
         self,
         inference: Inference,
         inference_result: InferenceResult,
-        snapshots: Mapping[InferenceTelemetry, Any],
+        snapshots: Mapping[Telemetry, Any],
     ) -> Any:
         configuration = inference_result.model_configuration[self.selected_node]
         return configuration.total_loss()
