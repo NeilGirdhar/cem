@@ -4,6 +4,7 @@ import logging
 from functools import partial
 from typing import Any
 
+import jax.random as jr
 from tjax import KeyArray, jit
 
 from cem.structure.model import (
@@ -17,7 +18,6 @@ from cem.structure.model import (
 
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import InferenceResults
-from .segment import segment_keys
 from .telemetry import Telemetry
 
 log = logging.getLogger(__name__)
@@ -97,7 +97,9 @@ def infer_episodes(
         job_type="inference",
         use_wandb=True,
     ) as execution_context:
-        example_keys, inference_keys = segment_keys(key, episodes)
+        example_key_base, inference_key_base = jr.split(key)
+        example_keys = jr.split(example_key_base, episodes)
+        inference_keys = jr.split(inference_key_base, episodes)
         for example_key, inference_key in zip(example_keys, inference_keys, strict=True):
             learnable_parameters = solution_state.dis_learnable_parameters.assembled()
             snapshots = infer_one_episode(

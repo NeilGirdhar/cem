@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Generator
 from dataclasses import replace
 from typing import Any
 
 import equinox as eqx
 import jax.numpy as jnp
+import jax.random as jr
 from jax import tree
 from tjax import Array, GenericString, JaxArray, KeyArray, PyTree, dynamic_tree_all, jit
 
@@ -14,16 +14,10 @@ from cem.structure.model import DataSource, SolutionState, TrainingResult
 
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import TrainingResults
-from .segment import segment_keys
 from .telemetry import Telemetry
 from .training_solution import TrainingSolution
 
 log = logging.getLogger(__name__)
-
-
-class TrainingSegment(eqx.Module):
-    key: KeyArray  # Used for producing example and doing inference.
-    episodes: int  # The number of episodes that belong to this segment.
 
 
 def all_finite(x: Array, /) -> JaxArray:
@@ -32,14 +26,6 @@ def all_finite(x: Array, /) -> JaxArray:
 
 def is_all_finite_tree(x: PyTree, /) -> JaxArray:
     return dynamic_tree_all(tree.map(all_finite, x))
-
-
-def training_segments_iterable(
-    segments: list[TrainingSegment],
-) -> Generator[tuple[KeyArray, KeyArray]]:
-    for segment in segments:
-        example_keys, inference_keys = segment_keys(segment.key, segment.episodes)
-        yield from zip(example_keys, inference_keys, strict=True)
 
 
 def training_snapshots(
@@ -89,26 +75,29 @@ def train_episodes(
     batch_size: int,
     solution: TrainingSolution,
     packet: ExecutionPacket,
-    segments: list[TrainingSegment],
+    key: KeyArray,
+    episodes: int,
 ) -> TrainingResults:
     """Train episodes."""
     log.info("Training")
-    total_episodes = sum(segment.episodes for segment in segments)
     solution_state = solution.solution_state
     data_source = solution.problem.create_data_source()
     default_result = TrainingResult(
         solution_state, solution.inference.infer_zero_episodes(data_source, solution.problem)
     )
     default_snapshots = training_snapshots(solution, packet.telemetries.telemetries, default_result)
+    example_key_base, inference_key_base = jr.split(key)
+    example_keys = jr.split(example_key_base, episodes)
+    inference_keys = jr.split(inference_key_base, episodes)
     with ExecutionContext.create(
         solver_name=solver_name,
         default_snapshots=default_snapshots,
-        episodes=total_episodes,
+        episodes=episodes,
         packet=packet,
         job_type="training",
         use_wandb=True,
     ) as execution_context:
-        for example_key, inference_key in training_segments_iterable(segments):
+        for example_key, inference_key in zip(example_keys, inference_keys, strict=True):
             (solution_state, snapshots, finite_parameters, finite_inference_result) = (
                 j_train_one_episode(
                     solution,
