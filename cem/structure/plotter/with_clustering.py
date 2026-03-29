@@ -6,6 +6,7 @@ from optuna.distributions import IntDistribution
 from tjax import JaxArray
 
 from cem.structure.solver import int_field
+
 from .subplot import Subplot
 from .with_projection import PlotterWithProjection
 

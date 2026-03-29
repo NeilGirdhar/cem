@@ -3,9 +3,8 @@ from __future__ import annotations
 import equinox as eqx
 import rich.progress as rp
 
-from .wandb_tools import WAndBInitSettings
-
 from .telemetry import Telemetries
+from .wandb_tools import WAndBInitSettings
 
 
 class ExecutionPacket(eqx.Module):

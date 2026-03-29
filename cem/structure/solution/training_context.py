@@ -13,6 +13,7 @@ from tjax import Array, GenericString, JaxArray, KeyArray, PyTree, dynamic_tree_
 from wandb.sdk.wandb_run import Run
 
 from cem.structure.model import DataSource, SolutionState, TrainingResult
+
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import TrainingResults
 from .segment import segment_keys

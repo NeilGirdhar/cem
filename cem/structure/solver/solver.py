@@ -28,6 +28,7 @@ from cem.structure.solution import (
     infer_episodes,
     train_episodes,
 )
+
 from .hp_field import float_field, int_field
 
 __all__ = ["Solver"]

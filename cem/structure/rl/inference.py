@@ -13,6 +13,7 @@ from tjax.dataclasses import as_shallow_dict
 
 from cem.structure.model import DataSource, Inference, InferenceResult, Model, Problem, ProblemState
 from cem.structure.model.inference import _InferenceState, _InferOutput, _TrainingState
+
 from .problem import ProblemAction, ProblemReward, RLProblem
 
 

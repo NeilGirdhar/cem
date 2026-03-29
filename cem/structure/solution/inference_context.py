@@ -16,6 +16,7 @@ from cem.structure.model import (
     Problem,
     SolutionState,
 )
+
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import InferenceResults
 from .segment import segment_keys

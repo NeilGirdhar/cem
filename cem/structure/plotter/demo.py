@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 from cem.structure.solution import ExecutionPacket, Telemetries
 from cem.structure.solver import Solver
+
 from .plotter import Plotter
 
 

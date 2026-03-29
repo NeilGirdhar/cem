@@ -4,6 +4,7 @@ from typing import Any, override
 from tjax.dataclasses import field
 
 from cem.structure.model import Inference, InferenceResult, TrainingResult
+
 from .telemetry import InferenceTelemetry, TrainingTelemetry
 from .training_solution import TrainingSolution
 
