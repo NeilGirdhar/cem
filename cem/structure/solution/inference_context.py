@@ -18,20 +18,21 @@ from cem.structure.model import (
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import InferenceResults
 from .segment import segment_keys
-from .telemetry import InferenceTelemetry
+from .telemetry import Telemetry
 
 log = logging.getLogger(__name__)
 
 
 def inference_snapshots(
     inference: Inference,
-    inference_telemetries: tuple[InferenceTelemetry, ...],
+    telemetries: tuple[Telemetry, ...],
     result: InferenceResult,
-) -> dict[InferenceTelemetry, Any]:
-    snapshots = {}
-    for telemetry in inference_telemetries:
+) -> dict[Telemetry, Any]:
+    snapshots: dict[Telemetry, Any] = {}
+    for telemetry in telemetries:
         snapshot = telemetry.inference_snapshot(inference, result, snapshots)
-        snapshots[telemetry] = snapshot
+        if snapshot is not None:
+            snapshots[telemetry] = snapshot
     return snapshots
 
 
@@ -44,10 +45,10 @@ def infer_one_episode(
     data_source: DataSource,
     learnable_parameters: Model,
     problem: Problem,
-    inference_telemetries: tuple[InferenceTelemetry, ...],
+    telemetries: tuple[Telemetry, ...],
     *,
     return_samples: bool,
-) -> dict[InferenceTelemetry, Any]:
+) -> dict[Telemetry, Any]:
     result = inference.infer_one_episode(
         batch_size,
         example_key,
@@ -57,7 +58,7 @@ def infer_one_episode(
         problem,
         return_samples=False,
     )
-    return inference_snapshots(inference, inference_telemetries, result)
+    return inference_snapshots(inference, telemetries, result)
 
 
 def infer_episodes(
@@ -85,15 +86,16 @@ def infer_episodes(
     log.info("Inferring")
     data_source = problem.create_data_source()
     default_result = inference.infer_zero_episodes(data_source, problem)
-    snapshots_fn = partial(inference_snapshots, inference, packet.telemetries.inference_telemetries)
+    default_snapshots = inference_snapshots(
+        inference, packet.telemetries.telemetries, default_result
+    )
     with ExecutionContext.create(
         solver_name=solver_name,
-        default_result=default_result,
+        default_snapshots=default_snapshots,
         episodes=episodes,
         packet=packet,
         job_type="inference",
         use_wandb=True,
-        snapshots_fn=snapshots_fn,
     ) as execution_context:
         example_keys, inference_keys = segment_keys(key, episodes)
         for example_key, inference_key in zip(example_keys, inference_keys, strict=True):
@@ -106,7 +108,7 @@ def infer_episodes(
                 data_source,
                 learnable_parameters,
                 problem,
-                packet.telemetries.inference_telemetries,
+                packet.telemetries.telemetries,
                 return_samples=False,
             )
             execution_context.append_result(snapshots)

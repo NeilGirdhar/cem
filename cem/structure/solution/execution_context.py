@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import operator
 import tempfile
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
 from dataclasses import fields, is_dataclass, replace
 from typing import Any, Self, override
@@ -33,25 +33,20 @@ class ExecutionContext[T: Telemetry]:
     def __init__(
         self,
         *,
-        default_result: Any,
+        default_snapshots: dict[T, Any],
         progress_manager: rp.Progress | None,
         task_id: rp.TaskID | None,
-        snapshots_fn: Callable[[Any], dict[T, Any]],
         wandb_run: Run | None,
         wandb_log_period: int,
     ) -> None:
         super().__init__()
-        self._default_result = default_result
+        self._default_snapshots = default_snapshots
         self._progress_manager = progress_manager
         self._task_id = task_id
-        self._snapshots_fn = snapshots_fn
         self._results: list[dict[T, Any]] = []
         self._wandb_run = wandb_run
         self._telemetries: dict[T, Any] = {}
         self._wandb_log_period = wandb_log_period
-
-    def snapshots(self, result: object) -> dict[T, Any]:
-        return self._snapshots_fn(result)
 
     def append_result(self, snapshots: dict[T, Any]) -> None:
         self._results.append(snapshots)
@@ -80,7 +75,7 @@ class ExecutionContext[T: Telemetry]:
             self._telemetries = tree.map(_stack, result, *more_results)
         else:
             assert not self._telemetries
-            self._telemetries = self._empty_telemetries()
+            self._telemetries = tree.map(operator.itemgetter(jnp.newaxis), self._default_snapshots)
 
     def episodes_done(self) -> int:
         return len(self._results)
@@ -88,21 +83,17 @@ class ExecutionContext[T: Telemetry]:
     def telemetries(self) -> dict[T, Any]:
         return self._telemetries
 
-    def _empty_telemetries(self) -> dict[T, Any]:
-        return tree.map(operator.itemgetter(jnp.newaxis), self.snapshots(self._default_result))
-
     @classmethod
     @contextmanager
     def create(
         cls,
         *,
         solver_name: str | None,
-        default_result: object,
+        default_snapshots: dict[T, Any],
         episodes: int,
         packet: ExecutionPacket,
         job_type: str,
         use_wandb: bool,
-        snapshots_fn: Callable[[Any], dict[T, Any]],
     ) -> Generator[Self]:
         exit_stack = ExitStack()
         task_id: rp.TaskID | None = None
@@ -121,10 +112,9 @@ class ExecutionContext[T: Telemetry]:
             temp_log_dir = tempfile.TemporaryDirectory(prefix="jax")
             exit_stack.enter_context(trace(temp_log_dir.name, create_perfetto_link=True))
         inference_manager = cls(
-            default_result=default_result,
+            default_snapshots=default_snapshots,
             progress_manager=packet.progress_manager,
             task_id=task_id,
-            snapshots_fn=snapshots_fn,
             wandb_run=wandb_run,
             wandb_log_period=packet.wandb_log_period,
         )
