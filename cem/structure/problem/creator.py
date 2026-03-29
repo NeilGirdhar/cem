@@ -8,9 +8,10 @@ import equinox as eqx
 from efax import ExpectationParametrization
 from tjax import RngStream
 
+from cem.structure.graph.editable import EditableModel
+from cem.structure.graph.node import Node
+
 from .data_source import DataSource, ProblemState
-from .editable import EditableModel
-from .node import Node
 from .problem import Problem
 
 

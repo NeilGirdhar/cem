@@ -7,7 +7,8 @@ import equinox as eqx
 from efax import ExpectationParametrization
 from tjax import JaxArray, JaxBooleanArray, KeyArray
 
-from cem.structure.model import Problem, ProblemState
+from cem.structure.problem.data_source import ProblemState
+from cem.structure.problem.problem import Problem
 
 
 class ProblemAction(eqx.Module):

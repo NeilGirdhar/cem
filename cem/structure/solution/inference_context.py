@@ -7,14 +7,10 @@ from typing import Any
 import jax.random as jr
 from tjax import KeyArray, jit
 
-from cem.structure.model import (
-    DataSource,
-    Inference,
-    InferenceResult,
-    Model,
-    Problem,
-    SolutionState,
-)
+from cem.structure.graph.model import Model
+from cem.structure.problem.data_source import DataSource
+from cem.structure.problem.problem import Problem
+from cem.structure.solution.inference import Inference, InferenceResult, SolutionState
 
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import InferenceResults

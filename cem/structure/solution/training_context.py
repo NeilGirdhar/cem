@@ -10,7 +10,8 @@ import jax.random as jr
 from jax import tree
 from tjax import Array, GenericString, JaxArray, KeyArray, PyTree, dynamic_tree_all, jit
 
-from cem.structure.model import DataSource, SolutionState, TrainingResult
+from cem.structure.problem.data_source import DataSource
+from cem.structure.solution.inference import SolutionState, TrainingResult
 
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import TrainingResults

@@ -12,11 +12,11 @@ from jax import grad, tree, vmap
 from tjax import JaxAbstractClass, JaxArray, KeyArray, create_streams
 from tjax.dataclasses import as_shallow_dict
 
-from .data_source import DataSource, ProblemState
-from .disassembled import DisGradientState, DisGradientTransformation, DisModel
-from .model import Model, ModelConfiguration
-from .parameters import is_parameter
-from .problem import Problem
+from cem.structure.graph.disassembled import DisGradientState, DisGradientTransformation, DisModel
+from cem.structure.graph.model import Model, ModelConfiguration
+from cem.structure.graph.parameters import is_parameter
+from cem.structure.problem.data_source import DataSource, ProblemState
+from cem.structure.problem.problem import Problem
 
 
 class InferenceResult(eqx.Module):
