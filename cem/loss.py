@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+
 import jax.numpy as jnp
-import jax.scipy.special as jss
+from efax import ComplexVonMisesNP
 from tjax import JaxArray
 
 
@@ -10,9 +11,7 @@ def expectation_params(z: JaxArray) -> JaxArray:
 
     g(z) = A₁(|z|) / |z| * z,  where A₁(r) = I₁(r) / I₀(r).
 
-    The magnitude |g(z)| = A₁(|z|) lies in [0, 1); phase is preserved.  Uses
-    exponentially scaled Bessel functions for numerical stability at large |z|.
-    At z = 0, the limit A₁(r)/r → 1/2 is applied.
+    The magnitude |g(z)| = A₁(|z|) lies in [0, 1); phase is preserved.
 
     Args:
         z: Natural-parameter phasors, any shape.
@@ -20,10 +19,7 @@ def expectation_params(z: JaxArray) -> JaxArray:
     Returns:
         Expectation-parameter phasors, same shape as z.
     """
-    r = jnp.abs(z)
-    a1 = jss.i1e(r) / jss.i0e(r)  # I₁(r) / I₀(r), stable for all r ≥ 0
-    scale = jnp.where(r > 0, a1 / r, 0.5)
-    return scale * z
+    return ComplexVonMisesNP(z).to_exp().mean
 
 
 def score(z: JaxArray, z_hat: JaxArray) -> JaxArray:
@@ -61,9 +57,7 @@ def reconstruction_loss(z: JaxArray, z_hat: JaxArray) -> JaxArray:
     Returns:
         Elementwise cross-entropy, same shape as z and z_hat (real-valued).
     """
-    r_hat = jnp.abs(z_hat)
-    log_normalizer = jnp.log(2.0 * jnp.pi) + r_hat + jnp.log(jss.i0e(r_hat))
-    return log_normalizer - jnp.real(expectation_params(z) * jnp.conj(z_hat))
+    return ComplexVonMisesNP(z).to_exp().cross_entropy(ComplexVonMisesNP(z_hat))
 
 
 def centering_loss(z: JaxArray) -> JaxArray:
@@ -98,8 +92,7 @@ def strength_loss(z: JaxArray) -> JaxArray:
     Returns:
         Scalar penalty, ≤ 0.
     """
-    r = jnp.abs(z)
-    log_i0 = r + jnp.log(jss.i0e(r))  # log I₀(r) = r + log i0e(r), numerically stable
+    log_i0 = ComplexVonMisesNP(z).log_normalizer() - jnp.log(2.0 * jnp.pi)
     batch_axes = tuple(range(z.ndim - 1))
     return -jnp.sum(jnp.mean(log_i0, axis=batch_axes))
 

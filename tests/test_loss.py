@@ -38,7 +38,7 @@ def test_expectation_params_magnitude_less_than_input() -> None:
 
 
 def test_expectation_params_small_r_limit() -> None:
-    # At z → 0, scale → 1/2, so g(z) ≈ z/2.
+    # At z → 0, scale → 1/2, so g(z) ≈ z / 2.
     z = jnp.array([1e-8 + 0j, 0 + 1e-8j])
     assert jnp.allclose(expectation_params(z), 0.5 * z, rtol=1e-4)
 
@@ -100,7 +100,7 @@ def test_reconstruction_loss_output_shape() -> None:
 
 
 def test_reconstruction_loss_zero_input_equals_log_2pi() -> None:
-    # z = z_hat = 0: log(2π I₀(0)) - Re(g(0) * conj(0)) = log(2π * 1) - 0 = log(2π)
+    # z = z_hat = 0: log(2π I₀(0)) - Re(g(0) conj(0)) = log(2π * 1) - 0 = log(2π)
     z = jnp.zeros(2, dtype=jnp.complex128)
     assert jnp.allclose(reconstruction_loss(z, z), jnp.log(2.0 * jnp.pi) * jnp.ones(2))
 
