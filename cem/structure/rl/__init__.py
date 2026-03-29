@@ -3,7 +3,6 @@
 from .inference import RLInference
 from .model_creator import RLModelCreator
 from .problem import ProblemAction, ProblemReward, RLProblem
-from .trajectory import RLTrajectory
 
 __all__ = [
     "ProblemAction",
@@ -11,5 +10,4 @@ __all__ = [
     "RLInference",
     "RLModelCreator",
     "RLProblem",
-    "RLTrajectory",
 ]
