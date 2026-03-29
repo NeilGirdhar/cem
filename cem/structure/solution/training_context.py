@@ -3,21 +3,20 @@ from __future__ import annotations
 import logging
 from collections.abc import Generator
 from dataclasses import replace
-from typing import Any, override
+from functools import partial
+from typing import Any
 
 import equinox as eqx
 import jax.numpy as jnp
-import rich.progress as rp
 from jax import tree
 from tjax import Array, GenericString, JaxArray, KeyArray, PyTree, dynamic_tree_all, jit
-from wandb.sdk.wandb_run import Run
 
 from cem.structure.model import DataSource, SolutionState, TrainingResult
 
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import TrainingResults
 from .segment import segment_keys
-from .telemetry import Telemetries, TrainingTelemetry
+from .telemetry import TrainingTelemetry
 from .training_solution import TrainingSolution
 
 log = logging.getLogger(__name__)
@@ -54,35 +53,6 @@ def training_snapshots(
         snapshot = telemetry.training_snapshot(solution, result, snapshots)
         snapshots[telemetry] = snapshot
     return snapshots
-
-
-class TrainingExecutionContext(ExecutionContext[TrainingTelemetry]):
-    @override
-    def __init__(
-        self,
-        *,
-        default_result: TrainingResult,
-        progress_manager: rp.Progress | None,
-        task_id: rp.TaskID | None,
-        telemetries: Telemetries,
-        wandb_run: Run | None,
-        wandb_log_period: int,
-        solution: TrainingSolution,
-    ) -> None:
-        super().__init__(
-            default_result=default_result,
-            progress_manager=progress_manager,
-            task_id=task_id,
-            telemetries=telemetries,
-            wandb_run=wandb_run,
-            wandb_log_period=wandb_log_period,
-        )
-        self.solution = solution
-        self._training_telemetries = telemetries.training_telemetries
-
-    @override
-    def snapshots(self, result: Any) -> dict[TrainingTelemetry, Any]:
-        return training_snapshots(self.solution, self._training_telemetries, result)
 
 
 def train_one_episode(
@@ -129,14 +99,15 @@ def train_episodes(
     default_result = TrainingResult(
         solution_state, solution.inference.infer_zero_episodes(data_source, solution.problem)
     )
-    with TrainingExecutionContext.create(
+    snapshots_fn = partial(training_snapshots, solution, packet.telemetries.training_telemetries)
+    with ExecutionContext.create(
         solver_name=solver_name,
         default_result=default_result,
         episodes=total_episodes,
         packet=packet,
         job_type="training",
-        solution=solution,
         use_wandb=True,
+        snapshots_fn=snapshots_fn,
     ) as execution_context:
         for example_key, inference_key in training_segments_iterable(segments):
             (solution_state, snapshots, finite_parameters, finite_inference_result) = (
