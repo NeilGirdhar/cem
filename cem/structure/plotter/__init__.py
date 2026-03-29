@@ -1,26 +1,19 @@
-"""Plotting: subplots, projections, clustering overlays, labelers, and demo harness."""
+"""Plotting: projections, clustering overlays, and demo harness."""
 
 from .demo import Demo
-from .plot import Plot
-from .plot_labeler import DefaultLabeler, Labeler, ListLabeler, SimpleLabeler
-from .plotter import ExecutedSolverResults, Plotter
-from .subplot import Subplot
+from .plotter import Plotter
 from .with_clustering import PlotterWithClustering
-from .with_projection import PlotterWithProjection, ProjectionOptions
-from .with_smooth_graph import PlotterWithSmoothGraph
+from .with_projection import PlotterWithProjection, ProjectionOptions, plot_kde
+from .with_smooth_graph import PlotterWithSmoothGraph, absolute_percentile, smooth_data
 
 __all__ = [
-    "DefaultLabeler",
     "Demo",
-    "ExecutedSolverResults",
-    "Labeler",
-    "ListLabeler",
-    "Plot",
     "Plotter",
     "PlotterWithClustering",
     "PlotterWithProjection",
     "PlotterWithSmoothGraph",
     "ProjectionOptions",
-    "SimpleLabeler",
-    "Subplot",
+    "absolute_percentile",
+    "plot_kde",
+    "smooth_data",
 ]
