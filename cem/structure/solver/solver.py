@@ -8,17 +8,15 @@ import jax.random as jr
 from optuna.distributions import BaseDistribution, FloatDistribution, IntDistribution
 from tjax.gradient import Adam
 
-from cem.structure.model import (
-    DataSource,
+from cem.structure.graph import (
     DisGradientTransformation,
     FixedParameter,
     LearnableParameter,
     Model,
-    ModelCreator,
     ParameterType,
-    Problem,
-    SolutionState,
 )
+from cem.structure.problem import DataSource, ModelCreator, Problem
+from cem.structure.solution.inference import SolutionState
 from cem.structure.solution import (
     ExecutionPacket,
     InferenceResults,

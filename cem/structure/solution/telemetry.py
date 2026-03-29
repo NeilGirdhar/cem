@@ -8,7 +8,7 @@ from typing import Any
 import equinox as eqx
 from tjax.dataclasses import field
 
-from cem.structure.model import Inference, InferenceResult, TrainingResult
+from cem.structure.solution.inference import Inference, InferenceResult, TrainingResult
 
 from .training_solution import TrainingSolution
 

@@ -3,7 +3,7 @@ from typing import Any, override
 
 from tjax.dataclasses import field
 
-from cem.structure.model import Inference, InferenceResult, TrainingResult
+from cem.structure.solution.inference import Inference, InferenceResult, TrainingResult
 
 from .telemetry import Telemetry
 from .training_solution import TrainingSolution

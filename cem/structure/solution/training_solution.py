@@ -6,17 +6,15 @@ import equinox as eqx
 import jax.random as jr
 from tjax import KeyArray, create_streams
 
-from cem.structure.model import (
+from cem.structure.graph import (
     DisGradientTransformation,
     DisModel,
-    Inference,
     Model,
-    ModelCreator,
-    Problem,
-    SolutionState,
     is_parameter,
     verify_model_has_no_free_parameters,
 )
+from cem.structure.problem import ModelCreator, Problem
+from cem.structure.solution.inference import Inference, SolutionState
 
 
 class TrainingSolution(eqx.Module):
