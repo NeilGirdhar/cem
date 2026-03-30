@@ -26,6 +26,14 @@ class ModelCreator[ProblemStateT: ProblemState](eqx.Module):
     data_source: DataSource
     problem: Problem
 
+    def input_routing(self) -> Mapping[str, str]:
+        """Map observation field names to node names.
+
+        The default (empty) means each field routes to the node of the same name.
+        Override to redirect multiple observation fields to a single node.
+        """
+        return {}
+
     def create_node(
         self,
         name: str,

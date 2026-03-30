@@ -4,14 +4,15 @@ from collections.abc import Iterable, Mapping, MutableMapping
 from dataclasses import InitVar
 from functools import reduce
 from operator import add
-from typing import Any, overload, override
+from typing import TYPE_CHECKING, Any, overload, override
 
 import equinox as eqx
 import jax.numpy as jnp
 import networkx as nx
 from tjax import JaxArray, RngStream
 
-from cem.structure.problem.creator import ModelCreator
+if TYPE_CHECKING:
+    from cem.structure.problem.creator import ModelCreator
 
 from .edge import Edge
 from .editable import EditableModel
@@ -38,6 +39,7 @@ class Model(Module):
 
     creator: InitVar[ModelCreator[Any]]
     network: nx.DiGraph[str] = eqx.field(init=False)
+    _input_routing: tuple[tuple[str, str], ...] = eqx.field(static=True, init=False)
 
     @override
     def __post_init__(
@@ -50,6 +52,7 @@ class Model(Module):
         model = EditableModel()
         creator.create_model(model, streams=streams)
         self.network = model.network
+        self._input_routing = tuple(creator.input_routing().items())
 
     # Accessing methods ----------------------------------------------------------------------------
     @overload
@@ -149,9 +152,11 @@ class Model(Module):
 
     def set_input(self, field_values: Mapping[str, Any], state: eqx.nn.State) -> eqx.nn.State:
         """Write the input into the state."""
-        for name, value in field_values.items():
-            node = self.get_node(name)
-            state = node.set_input(value, state)
+        routing = dict(self._input_routing)
+        for field_name, value in field_values.items():
+            node_name = routing.get(field_name, field_name)
+            node = self.get_node(node_name)
+            state = node.set_input(field_name, value, state)
         return state
 
     def get_output(

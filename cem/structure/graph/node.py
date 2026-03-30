@@ -78,7 +78,7 @@ class Node(Module):
     def zero_configuration(self) -> NodeConfiguration:
         raise NotImplementedError
 
-    def set_input(self, new_value: object, state: eqx.nn.State) -> eqx.nn.State:
+    def set_input(self, field_name: str, new_value: object, state: eqx.nn.State) -> eqx.nn.State:
         raise NotImplementedError
 
     def get_output(self, model_configuration: ModelConfiguration) -> object:
