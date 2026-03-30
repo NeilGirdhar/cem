@@ -16,7 +16,6 @@ from cem.structure.graph import (
     ParameterType,
 )
 from cem.structure.problem import DataSource, ModelCreator, Problem
-from cem.structure.solution.inference import SolutionState
 from cem.structure.solution import (
     ExecutionPacket,
     InferenceResults,
@@ -25,6 +24,7 @@ from cem.structure.solution import (
     infer_episodes,
     train_episodes,
 )
+from cem.structure.solution.inference import SolutionState
 
 from .hp_field import float_field, int_field
 

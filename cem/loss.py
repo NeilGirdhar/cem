@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 import jax.numpy as jnp
 from efax import ComplexVonMisesNP
 from tjax import JaxArray

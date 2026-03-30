@@ -14,8 +14,13 @@ from tjax.dataclasses import as_shallow_dict
 from cem.structure.graph.model import Model
 from cem.structure.problem.data_source import DataSource, ProblemState
 from cem.structure.problem.problem import Problem
-from cem.structure.solution.inference import Inference, InferenceResult
-from cem.structure.solution.inference import _InferenceState, _InferOutput, _TrainingState
+from cem.structure.solution.inference import (
+    Inference,
+    InferenceResult,
+    _InferenceState,
+    _InferOutput,
+    _TrainingState,
+)
 
 from .problem import ProblemAction, ProblemReward, RLProblem
 
