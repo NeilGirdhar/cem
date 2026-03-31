@@ -57,6 +57,10 @@ dependencies = [
   "wandb>=0.19.4"
 ]
 
+[project.scripts]
+optimize = "cem.commands.optimize:app"
+visualize = "cem.commands.visualize:app"
+
 [project.urls]
 source = "https://github.com/NeilGirdhar/cem"
 
