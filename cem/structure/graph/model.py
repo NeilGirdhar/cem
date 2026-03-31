@@ -39,7 +39,7 @@ class Model(Module):
 
     creator: InitVar[ModelCreator[Any]]
     network: nx.DiGraph[str] = eqx.field(init=False)
-    _input_routing: tuple[tuple[str, str], ...] = eqx.field(static=True, init=False)
+    _input_routing: tuple[tuple[str, tuple[str, str]], ...] = eqx.field(static=True, init=False)
 
     @override
     def __post_init__(
@@ -154,9 +154,13 @@ class Model(Module):
         """Write the input into the state."""
         routing = dict(self._input_routing)
         for field_name, value in field_values.items():
-            node_name = routing.get(field_name, field_name)
+            route = routing.get(field_name)
+            if route is None:
+                msg = f"Input field {field_name!r} is not declared in input_routing()"
+                raise ValueError(msg)
+            node_name, node_field_name = route
             node = self.get_node(node_name)
-            state = node.set_input(field_name, value, state)
+            state = node.set_input(node_field_name, value, state)
         return state
 
     def get_output(
