@@ -31,7 +31,13 @@ Running
 
   .. code:: bash
 
-     uv run cem visualize geometry save
+     uv run visualize afp_iv
+
+  - Show the graphs in a window:
+
+  .. code:: bash
+
+     uv run visualize afp_iv --display
 
 - Optimize:
 
@@ -39,13 +45,13 @@ Running
 
   .. code:: bash
 
-     uv run cem optimize geometry single --trials 30
+     uv run optimize afp_iv single --trials 30
 
   - Using 8 threads:
 
   .. code:: bash
 
-     uv run cem optimize geometry multi --trials 30 --jobs 8
+     uv run optimize afp_iv multi --trials 30 --jobs 8
 
 Contribution guidelines
 =======================
