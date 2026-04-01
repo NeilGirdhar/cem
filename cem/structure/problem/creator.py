@@ -8,7 +8,6 @@ import equinox as eqx
 from efax import ExpectationParametrization
 from tjax import RngStream
 
-from cem.structure.graph.editable import EditableModel
 from cem.structure.graph.node import Node
 
 from .data_source import DataSource, ProblemState
@@ -43,11 +42,9 @@ class ModelCreator[ProblemStateT: ProblemState](eqx.Module):
     ) -> Node:
         raise NotImplementedError
 
-    def create_model_edges(self, model: EditableModel, streams: Mapping[str, RngStream]) -> None:
-        pass
-
-    def create_model(self, model: EditableModel, streams: Mapping[str, RngStream]) -> None:
+    def create_model(self, streams: Mapping[str, RngStream]) -> dict[str, Node]:
+        nodes = {}
         for name, ep in self.problem.observation_distributions().items():
             observation_node = self.create_node(name, NodeRole.observation, ep, streams)
-            model.add_node(observation_node)
-        self.create_model_edges(model, streams)
+            nodes[observation_node.name] = observation_node
+        return nodes
