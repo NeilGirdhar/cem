@@ -1,6 +1,5 @@
 """Graph primitives: computation graph, nodes, edges, parameters, and training/inference engine."""
 
-from cem.structure.graph.batch_loss import BatchLoss
 from cem.structure.graph.disassembled import (
     DisGradientState,
     DisGradientTransformation,
@@ -22,7 +21,6 @@ from cem.structure.graph.parameters import (
 )
 
 __all__ = [
-    "BatchLoss",
     "DisGradientState",
     "DisGradientTransformation",
     "DisModel",

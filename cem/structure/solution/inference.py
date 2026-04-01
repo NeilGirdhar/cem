@@ -229,11 +229,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         model_inference_result = model.infer_one_time_step(
             streams, state, use_signal_noise=use_signal_noise, return_samples=return_samples
         )
-        model_loss = model_inference_result.loss
-        state = model_inference_result.state
-        for batch_loss in model_inference_result.batch_losses:
-            model_loss += batch_loss.loss(streams)
-        return model_loss, state
+        return model_inference_result.loss, model_inference_result.state
 
     def _v_infer(
         self,
