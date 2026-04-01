@@ -1,4 +1,4 @@
-"""Graph primitives: computation graph, nodes, edges, parameters, and training/inference engine."""
+"""Graph primitives: computation graph, nodes, parameters, and training/inference engine."""
 
 from cem.structure.graph.disassembled import (
     DisGradientState,
@@ -7,8 +7,6 @@ from cem.structure.graph.disassembled import (
     ParameterType,
     verify_model_has_no_free_parameters,
 )
-from cem.structure.graph.edge import Edge, EdgeFactory
-from cem.structure.graph.editable import EditableModel
 from cem.structure.graph.model import Model, ModelConfiguration
 from cem.structure.graph.module import Module
 from cem.structure.graph.node import Node, NodeConfiguration, NodeInferenceResult
@@ -24,9 +22,6 @@ __all__ = [
     "DisGradientState",
     "DisGradientTransformation",
     "DisModel",
-    "Edge",
-    "EdgeFactory",
-    "EditableModel",
     "FixedParameter",
     "LearnableParameter",
     "Model",
