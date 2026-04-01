@@ -9,7 +9,6 @@ import jax.numpy as jnp
 from tjax import JaxArray, RngStream
 from tjax.dataclasses import dataclass
 
-from .batch_loss import BatchLoss
 from .module import Module
 
 if TYPE_CHECKING:
@@ -37,7 +36,6 @@ class NodeInferenceResult(Generic[_C_co]):  # noqa: UP046
 
     configuration: _C_co
     state: eqx.nn.State
-    batch_losses: tuple[BatchLoss, ...] = ()
 
 
 class Node(Module):

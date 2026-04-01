@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 from .edge import Edge
 from .editable import EditableModel
 from .module import Module
-from .node import BatchLoss, Node, NodeConfiguration
+from .node import Node, NodeConfiguration
 
 ModelConfiguration = Mapping[str, NodeConfiguration]
 
@@ -25,7 +25,6 @@ ModelConfiguration = Mapping[str, NodeConfiguration]
 class ModelInferenceResult(eqx.Module):
     loss: JaxArray
     state: eqx.nn.State
-    batch_losses: tuple[BatchLoss, ...] = ()
 
 
 class Model(Module):
@@ -125,7 +124,6 @@ class Model(Module):
         return_samples: bool,
     ) -> ModelInferenceResult:
         model_losses: list[JaxArray] = []
-        batch_losses: tuple[BatchLoss, ...] = ()
 
         for _, node in self.ordered_nodes():
             inference_result = node.infer(
@@ -138,10 +136,9 @@ class Model(Module):
             configuration = inference_result.configuration
             state = inference_result.state
             state = node.write_output_to_state(configuration, state)
-            batch_losses += inference_result.batch_losses
             model_losses.append(configuration.total_loss())
         total_loss = reduce(add, model_losses) if model_losses else jnp.asarray(0.0)
-        return ModelInferenceResult(total_loss, state, batch_losses)
+        return ModelInferenceResult(total_loss, state)
 
     def set_input(self, field_values: Mapping[str, Any], state: eqx.nn.State) -> eqx.nn.State:
         """Write the input into the state."""
