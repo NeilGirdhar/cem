@@ -4,6 +4,7 @@ from collections.abc import Callable
 from functools import partial
 from typing import override
 
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from equinox.internal import while_loop
@@ -18,7 +19,6 @@ from cem.structure.solution.inference import (
     Inference,
     InferenceResult,
     _InferenceState,
-    _InferOutput,
     _TrainingState,
 )
 
@@ -59,7 +59,6 @@ class RLInference(Inference):
         rl_inference_state = _RLInferenceState(
             inference_state.example_key,
             inference_state.inference_key,
-            inference_state.model_configuration,
             inference_state.state,
             z,
             z,
@@ -75,7 +74,7 @@ class RLInference(Inference):
         problem_state: ProblemState,
         problem: Problem,
         inference_state: _InferenceState,
-        body_function: Callable[[_InferenceState], _InferOutput],
+        body_function: Callable[[_InferenceState], eqx.nn.State],
     ) -> InferenceResult:
         assert isinstance(problem, RLProblem)
         assert isinstance(inference_state, _RLInferenceState)
@@ -90,7 +89,8 @@ class RLInference(Inference):
             kind="lax",
         )
         return InferenceResult(
-            problem_state, inference_state.model_configuration, inference_state.state
+            problem_state,
+            self.fixed_parameters.configuration_from_state(inference_state.state),
         )
 
     @override
@@ -119,16 +119,16 @@ class RLInference(Inference):
 
     def _rl_inference_body_fun(
         self,
-        body_function: Callable[[_InferenceState], _InferOutput],
+        body_function: Callable[[_InferenceState], eqx.nn.State],
         problem: RLProblem[ProblemState, ProblemAction, ProblemReward],
         learnable_parameters: Model,
         inference_state: _RLInferenceState,
     ) -> _RLInferenceState:
         # Run one time step.
-        infer_outputs = body_function(inference_state)
+        state = body_function(inference_state)
         # Extract action.
         model = self.assemble_model(learnable_parameters)
-        action_fields = model.get_output(infer_outputs.model_configuration)
+        action_fields = model.get_output(state)
         action = problem.produce_action(action_fields, inference_state.example_key)
         action = stop_gradient(action)
         # Update environment.
@@ -138,7 +138,7 @@ class RLInference(Inference):
         new_problem_state = stop_gradient(new_problem_state)
         # Inject new observation.
         new_observation = problem.extract_observation(new_problem_state)
-        new_state = model.set_input(as_shallow_dict(new_observation), infer_outputs.state)
+        new_state = model.set_input(as_shallow_dict(new_observation), state)
         # Produce result.
         new_step = inference_state.step + 1
         new_total_reward = inference_state.total_reward + reward.total_reward()
@@ -147,7 +147,6 @@ class RLInference(Inference):
         return _RLInferenceState(
             new_example_key,
             new_inference_key,
-            infer_outputs.model_configuration,
             new_state,
             new_step,
             new_total_reward,
