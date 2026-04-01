@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import KW_ONLY
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar, override
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -13,7 +13,7 @@ from .batch_loss import BatchLoss
 from .module import Module
 
 if TYPE_CHECKING:
-    from .model import Model, ModelConfiguration
+    from .model import Model
 
 
 class NodeMemory(eqx.Module):
@@ -56,11 +56,16 @@ class Node(Module):
 
     _: KW_ONLY
     name: str = eqx.field(static=True)
+    _output_state_index: eqx.nn.StateIndex = eqx.field(init=False)
+
+    @override
+    def __post_init__(self, streams: Mapping[str, RngStream]) -> None:
+        super().__post_init__(streams=streams)
+        self._output_state_index = eqx.nn.StateIndex(self.zero_configuration())
 
     def infer(
         self,
         model: Model,
-        model_configuration: ModelConfiguration,
         streams: Mapping[str, RngStream],
         state: eqx.nn.State,
         *,
@@ -90,3 +95,13 @@ class Node(Module):
         """Extract one named externally visible output field from the model configuration."""
         msg = f"{type(self).__name__} does not expose output field {field_name!r}"
         raise ValueError(msg)
+
+    def write_output_to_state(
+        self, configuration: NodeConfiguration, state: eqx.nn.State
+    ) -> eqx.nn.State:
+        """Write this node's output configuration into state."""
+        return state.set(self._output_state_index, configuration)
+
+    def read_output_from_state(self, state: eqx.nn.State) -> NodeConfiguration:
+        """Read this node's most recent output configuration from state."""
+        return state.get(self._output_state_index)

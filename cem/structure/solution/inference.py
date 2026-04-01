@@ -20,18 +20,18 @@ from cem.structure.problem.problem import Problem
 
 
 class InferenceResult(eqx.Module):
-    """The state of one batch of inference iterates between episodes.
+    """Result of running inference for one batch.
 
-    The inital problem state can help with plotting.  The other fields are final values.
+    Stores the initial problem state together with the final model configuration
+    derived from the resulting model state.
     """
 
     initial_problem_state: ProblemState
     model_configuration: ModelConfiguration
-    state: eqx.nn.State
 
 
 class TrainingResult(eqx.Module):
-    """The state of one batch of training iterates between episodes."""
+    """Result of running one training episode for one batch."""
 
     solution_state: SolutionState
     inference_result: InferenceResult
@@ -54,24 +54,17 @@ class SolutionState(eqx.Module):
 
 
 class _InferenceState(eqx.Module):
-    """The input of batch inference.
+    """Internal state carried through batched inference.
 
-    This is also used by RLInference to manage the state.
+    Holds RNG keys and the model state for the current batch. RLInference extends
+    this with environment-specific rollout state.
     """
 
     # These fields have shape ().
     example_key: KeyArray
     inference_key: KeyArray
     # These fields have shape (batch_size,)
-    model_configuration: ModelConfiguration
     state: eqx.nn.State  # The state stores every variable marked as eqx.nn.StateIndex.
-
-
-class _InferOutput(eqx.Module):
-    """The output of the infer function."""
-
-    model_configuration: ModelConfiguration
-    state: eqx.nn.State
 
 
 class _TrainingState(eqx.Module):
@@ -82,10 +75,10 @@ class _TrainingState(eqx.Module):
 
 
 class Inference(eqx.Module, JaxAbstractClass):
-    """This class iterates the parameters of the model.
+    """Base class for batched model inference and training.
 
-    Each step of the iteration corresponds to a single step of a reinforcement learning trajectory.
-    An RLInference object is stored by SolutionTrainer, which is an instance IteratedFunction.
+    The base implementation performs a single batched inference or training step.
+    Subclasses such as RLInference can override this to run multi-step episodes.
     """
 
     fixed_parameters: Model
@@ -96,15 +89,11 @@ class Inference(eqx.Module, JaxAbstractClass):
         data_source: DataSource,
         problem: Problem,
     ) -> InferenceResult:
-        """Like infer_one_episode, but for zero episodes.
-
-        This is useful when infer_one_episode produces a bad result, but you still need a result.
-        """
+        """Initialize inference state without running any model steps."""
         key = jr.key(0)
         inference_state, problem_state = self._set_up_inference(1, key, key, data_source, problem)
-        return InferenceResult(
-            problem_state, inference_state.model_configuration, inference_state.state
-        )
+        model_configuration = self.fixed_parameters.configuration_from_state(inference_state.state)
+        return InferenceResult(problem_state, model_configuration)
 
     def infer_one_episode(
         self,
@@ -117,9 +106,10 @@ class Inference(eqx.Module, JaxAbstractClass):
         *,
         return_samples: bool,
     ) -> InferenceResult:
-        """Start batch_size parallel agents and run them for one episode.
+        """Run one batched inference episode with shared model parameters.
 
-        The models all share parameters, which are held constant.
+        In the base class this is a single batched forward pass; subclasses may
+        interpret an episode as a multi-step rollout.
         """
         inference_state, problem_state = self._set_up_inference(
             batch_size, example_key, inference_key, data_source, problem
@@ -146,9 +136,10 @@ class Inference(eqx.Module, JaxAbstractClass):
         *,
         return_samples: bool,
     ) -> TrainingResult:
-        """Start batch_size parallel agents and run them for one episode.
+        """Run one batched training episode.
 
-        The models all share parameters, which trained after every time step.
+        All batch elements share parameters, and the training body may update
+        those parameters during the episode.
         """
         inference_state, problem_state = self._set_up_inference(
             batch_size, example_key, inference_key, data_source, problem
@@ -164,9 +155,10 @@ class Inference(eqx.Module, JaxAbstractClass):
             problem, training_state, training_body_function
         )
         new_inference_state = new_training_state.inference_state
-        inference_result = InferenceResult(
-            problem_state, new_inference_state.model_configuration, new_inference_state.state
+        model_configuration = self.fixed_parameters.configuration_from_state(
+            new_inference_state.state
         )
+        inference_result = InferenceResult(problem_state, model_configuration)
         return TrainingResult(new_training_state.solution_state, inference_result)
 
     def _infer_one_episode(
@@ -175,15 +167,17 @@ class Inference(eqx.Module, JaxAbstractClass):
         problem_state: ProblemState,
         problem: Problem,
         inference_state: _InferenceState,
-        body_function: Callable[[_InferenceState], _InferOutput],
+        body_function: Callable[[_InferenceState], eqx.nn.State],
     ) -> InferenceResult:
-        """Infer one episode.
+        """Run the inference body for one episode.
 
-        For Inference, this is just batch inference.  For RLInference, this runs a whole trajectory.
+        In the base class this is a single batched inference step. Subclasses
+        such as RLInference can override this to execute a full rollout.
         """
-        infer_outputs = body_function(inference_state)
+        state = body_function(inference_state)
         return InferenceResult(
-            problem_state, infer_outputs.model_configuration, infer_outputs.state
+            problem_state,
+            self.fixed_parameters.configuration_from_state(state),
         )
 
     def _train_one_episode(
@@ -205,9 +199,6 @@ class Inference(eqx.Module, JaxAbstractClass):
         data_source: DataSource,
         problem: Problem,
     ) -> tuple[_InferenceState, ProblemState]:
-        model_configuration = vmap(
-            self.fixed_parameters.dummy_configuration, axis_size=batch_size
-        )()
         example_keys = jr.split(example_key, batch_size)
 
         def initial_problem_state_and_set_to_state(
@@ -221,7 +212,7 @@ class Inference(eqx.Module, JaxAbstractClass):
 
         v_initial = vmap(initial_problem_state_and_set_to_state, in_axes=(None, 0))
         state, observation = v_initial(self.initial_memory, example_keys)
-        inference_state = _InferenceState(example_key, inference_key, model_configuration, state)
+        inference_state = _InferenceState(example_key, inference_key, state)
         return inference_state, observation
 
     def _infer(
@@ -231,7 +222,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         learnable_parameters: Model,
         use_signal_noise: bool,  # noqa: FBT001
         return_samples: bool,  # noqa: FBT001
-    ) -> tuple[JaxArray, _InferOutput]:
+    ) -> tuple[JaxArray, eqx.nn.State]:
         keys = {"inference": inference_key}
         streams = create_streams(keys)
         model = self.assemble_model(learnable_parameters)
@@ -239,12 +230,10 @@ class Inference(eqx.Module, JaxAbstractClass):
             streams, state, use_signal_noise=use_signal_noise, return_samples=return_samples
         )
         model_loss = model_inference_result.loss
-        configuration = model_inference_result.configuration
         state = model_inference_result.state
         for batch_loss in model_inference_result.batch_losses:
             model_loss += batch_loss.loss(streams)
-        infer_output = _InferOutput(configuration, state)
-        return model_loss, infer_output
+        return model_loss, state
 
     def _v_infer(
         self,
@@ -255,14 +244,14 @@ class Inference(eqx.Module, JaxAbstractClass):
         *,
         use_signal_noise: bool,
         return_samples: bool,
-    ) -> tuple[JaxArray, _InferOutput]:
+    ) -> tuple[JaxArray, eqx.nn.State]:
         inference_keys = jr.split(inference_key, batch_size)
         f = vmap(self._infer, in_axes=(0, 0, None, None, None), out_axes=(0, 0))
-        model_losses, infer_outputs = f(
+        model_losses, state = f(
             inference_keys, state, learnable_parameters, use_signal_noise, return_samples
         )
         model_loss = jnp.mean(model_losses)
-        return model_loss, infer_outputs
+        return model_loss, state
 
     def _v_infer_gradient(
         self,
@@ -272,7 +261,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         learnable_parameters: Model,
         *,
         return_samples: bool,
-    ) -> tuple[Model, _InferOutput]:
+    ) -> tuple[Model, eqx.nn.State]:
         bound_infer = partial(
             self._v_infer,
             batch_size,
@@ -281,7 +270,7 @@ class Inference(eqx.Module, JaxAbstractClass):
             use_signal_noise=True,
             return_samples=return_samples,
         )
-        f = cast("Callable[[Model], tuple[Model, _InferOutput]]", grad(bound_infer, has_aux=True))
+        f = cast("Callable[[Model], tuple[Model, eqx.nn.State]]", grad(bound_infer, has_aux=True))
         return f(learnable_parameters)
 
     def _inference_body_fun(
@@ -291,8 +280,8 @@ class Inference(eqx.Module, JaxAbstractClass):
         inference_state: _InferenceState,
         *,
         return_samples: bool,
-    ) -> _InferOutput:
-        _, infer_outputs = self._v_infer(
+    ) -> eqx.nn.State:
+        _, state = self._v_infer(
             batch_size,
             inference_state.inference_key,
             inference_state.state,
@@ -300,7 +289,7 @@ class Inference(eqx.Module, JaxAbstractClass):
             use_signal_noise=False,
             return_samples=return_samples,
         )
-        return infer_outputs
+        return state
 
     def _training_body_fun(
         self,
@@ -314,7 +303,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         solution_state = training_state.solution_state
 
         # Infer parameter gradient.
-        learnable_parameters_bar, infer_outputs = self._v_infer_gradient(
+        learnable_parameters_bar, new_state = self._v_infer_gradient(
             batch_size,
             inference_state.inference_key,
             inference_state.state,
@@ -336,11 +325,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         )
 
         # Return the new training state.
-        new_inference_state = replace(
-            inference_state,
-            model_configuration=infer_outputs.model_configuration,
-            state=infer_outputs.state,
-        )
+        new_inference_state = replace(inference_state, state=new_state)
         return _TrainingState(
             SolutionState(new_dis_learnable_parameters, new_gradient_states), new_inference_state
         )

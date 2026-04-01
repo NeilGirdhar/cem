@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, MutableMapping
+from collections.abc import Iterable, Mapping
 from dataclasses import InitVar
 from functools import reduce
 from operator import add
@@ -24,7 +24,6 @@ ModelConfiguration = Mapping[str, NodeConfiguration]
 
 class ModelInferenceResult(eqx.Module):
     loss: JaxArray
-    configuration: ModelConfiguration
     state: eqx.nn.State
     batch_losses: tuple[BatchLoss, ...] = ()
 
@@ -117,12 +116,6 @@ class Model(Module):
             yield source_name, edge
 
     # Operation methods ----------------------------------------------------------------------------
-    def dummy_configuration(self) -> ModelConfiguration:
-        retval: MutableMapping[str, NodeConfiguration] = {}
-        for node_name, node in self.ordered_nodes():
-            retval[node_name] = node.zero_configuration()
-        return retval
-
     def infer_one_time_step(
         self,
         streams: Mapping[str, RngStream],
@@ -132,13 +125,11 @@ class Model(Module):
         return_samples: bool,
     ) -> ModelInferenceResult:
         model_losses: list[JaxArray] = []
-        model_configuration: MutableMapping[str, NodeConfiguration] = {}
         batch_losses: tuple[BatchLoss, ...] = ()
 
-        for node_name, node in self.ordered_nodes():
+        for _, node in self.ordered_nodes():
             inference_result = node.infer(
                 self,
-                model_configuration,
                 streams,
                 state,
                 use_signal_noise=use_signal_noise,
@@ -146,11 +137,11 @@ class Model(Module):
             )
             configuration = inference_result.configuration
             state = inference_result.state
+            state = node.write_output_to_state(configuration, state)
             batch_losses += inference_result.batch_losses
             model_losses.append(configuration.total_loss())
-            model_configuration[node_name] = configuration
         total_loss = reduce(add, model_losses) if model_losses else jnp.asarray(0.0)
-        return ModelInferenceResult(total_loss, model_configuration, state, batch_losses)
+        return ModelInferenceResult(total_loss, state, batch_losses)
 
     def set_input(self, field_values: Mapping[str, Any], state: eqx.nn.State) -> eqx.nn.State:
         """Write the input into the state."""
@@ -165,12 +156,18 @@ class Model(Module):
             state = node.set_input(node_field_name, value, state)
         return state
 
-    def get_output(self, model_configuration: ModelConfiguration) -> dict[str, Any]:
-        """Read the output from the configuration."""
+    def configuration_from_state(self, state: eqx.nn.State) -> ModelConfiguration:
+        """Reconstruct model configuration by reading each node's most recent output from state."""
+        return {
+            node_name: node.read_output_from_state(state)
+            for node_name, node in self.ordered_nodes()
+        }
+
+    def get_output(self, state: eqx.nn.State) -> dict[str, Any]:
+        """Read the output from state."""
         retval: dict[str, Any] = {}
         for field_name, (node_name, node_field_name) in self._output_routing:
             node = self.get_node(node_name)
-            node_configuration = model_configuration[node.name]
-            assert isinstance(node_configuration, NodeConfiguration)
+            node_configuration = node.read_output_from_state(state)
             retval[field_name] = node.get_output(node_configuration, node_field_name)
         return retval
