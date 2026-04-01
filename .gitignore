@@ -13,3 +13,4 @@
 
 # AI
 .claude/settings.local.json
+.codex
