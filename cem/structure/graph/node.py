@@ -16,14 +16,6 @@ if TYPE_CHECKING:
     from .model import Model
 
 
-class NodeMemory(eqx.Module):
-    """The memory of a Node.
-
-    NodeMemory contains memory terms that are carried between node inference calls in a
-    reinforcement learning trajectory.
-    """
-
-
 class NodeConfiguration(eqx.Module):
     """The configuration of a node.
 
