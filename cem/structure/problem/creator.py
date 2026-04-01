@@ -30,6 +30,10 @@ class ModelCreator[ProblemStateT: ProblemState](eqx.Module):
         """Map every observation field name to a node and field name explicitly."""
         return {}
 
+    def output_routing(self) -> Mapping[str, tuple[str, str]]:
+        """Map every externally requested output field name to a node and field name explicitly."""
+        return {}
+
     def create_node(
         self,
         name: str,

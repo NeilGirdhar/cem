@@ -128,9 +128,7 @@ class RLInference(Inference):
         infer_outputs = body_function(inference_state)
         # Extract action.
         model = self.assemble_model(learnable_parameters)
-        action_fields = model.get_output(
-            problem.action_distributions().keys(), infer_outputs.model_configuration
-        )
+        action_fields = model.get_output(infer_outputs.model_configuration)
         action = problem.produce_action(action_fields, inference_state.example_key)
         action = stop_gradient(action)
         # Update environment.

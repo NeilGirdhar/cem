@@ -40,6 +40,7 @@ class Model(Module):
     creator: InitVar[ModelCreator[Any]]
     network: nx.DiGraph[str] = eqx.field(init=False)
     _input_routing: tuple[tuple[str, tuple[str, str]], ...] = eqx.field(static=True, init=False)
+    _output_routing: tuple[tuple[str, tuple[str, str]], ...] = eqx.field(static=True, init=False)
 
     @override
     def __post_init__(
@@ -53,6 +54,7 @@ class Model(Module):
         creator.create_model(model, streams=streams)
         self.network = model.network
         self._input_routing = tuple(creator.input_routing().items())
+        self._output_routing = tuple(creator.output_routing().items())
 
     # Accessing methods ----------------------------------------------------------------------------
     @overload
@@ -163,8 +165,12 @@ class Model(Module):
             state = node.set_input(node_field_name, value, state)
         return state
 
-    def get_output(
-        self, field_names: Iterable[str], model_configuration: ModelConfiguration
-    ) -> dict[str, Any]:
+    def get_output(self, model_configuration: ModelConfiguration) -> dict[str, Any]:
         """Read the output from the configuration."""
-        return {name: self.get_node(name).get_output(model_configuration) for name in field_names}
+        retval: dict[str, Any] = {}
+        for field_name, (node_name, node_field_name) in self._output_routing:
+            node = self.get_node(node_name)
+            node_configuration = model_configuration[node.name]
+            assert isinstance(node_configuration, NodeConfiguration)
+            retval[field_name] = node.get_output(node_configuration, node_field_name)
+        return retval

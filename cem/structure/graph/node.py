@@ -32,6 +32,7 @@ class NodeConfiguration(eqx.Module):
     """
 
     def total_loss(self) -> JaxArray:
+        """Return this node's contribution to the scalar model loss."""
         return jnp.zeros(())
 
 
@@ -40,6 +41,8 @@ _C_co = TypeVar("_C_co", covariant=True, bound=NodeConfiguration, default=NodeCo
 
 @dataclass
 class NodeInferenceResult(Generic[_C_co]):  # noqa: UP046
+    """The result of a single node inference step."""
+
     configuration: _C_co
     state: eqx.nn.State
     batch_losses: tuple[BatchLoss, ...] = ()
@@ -76,10 +79,14 @@ class Node(Module):
         raise NotImplementedError
 
     def zero_configuration(self) -> NodeConfiguration:
+        """Return a placeholder configuration matching this node's output shape."""
         raise NotImplementedError
 
     def set_input(self, field_name: str, new_value: object, state: eqx.nn.State) -> eqx.nn.State:
+        """Write one externally supplied input field into the node's state."""
         raise NotImplementedError
 
-    def get_output(self, model_configuration: ModelConfiguration) -> object:
-        raise NotImplementedError
+    def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> object:
+        """Extract one named externally visible output field from the model configuration."""
+        msg = f"{type(self).__name__} does not expose output field {field_name!r}"
+        raise ValueError(msg)
