@@ -12,7 +12,7 @@ from cem.structure.graph.edge import Edge, EdgeFactory
 from cem.structure.graph.editable import EditableModel
 from cem.structure.graph.model import Model, ModelConfiguration
 from cem.structure.graph.module import Module
-from cem.structure.graph.node import Node, NodeConfiguration, NodeInferenceResult, NodeMemory
+from cem.structure.graph.node import Node, NodeConfiguration, NodeInferenceResult
 from cem.structure.graph.parameters import (
     FixedParameter,
     LearnableParameter,
@@ -37,7 +37,6 @@ __all__ = [
     "Node",
     "NodeConfiguration",
     "NodeInferenceResult",
-    "NodeMemory",
     "Parameter",
     "ParameterType",
     "apply_to_parameters",
