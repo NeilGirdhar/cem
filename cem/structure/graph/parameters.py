@@ -13,13 +13,6 @@ class Parameter[A](eqx.Module):
 
     value: A
 
-    def __post_init__(self) -> None:
-        if type(self) is Parameter:
-            raise TypeError
-        if hasattr(super(), "__post_init__"):
-            super().__post_init__()
-        assert not isinstance(self.value, Parameter)
-
 
 class LearnableParameter[A](Parameter[A]):
     """A parameter that is updated by training.

@@ -123,28 +123,29 @@ def test_accumulator_batched_shape() -> None:
 
 
 def test_linear_output_shape(streams: Mapping[str, RngStream]) -> None:
-    assert Linear(3, 5, streams=streams).infer(jnp.ones(3, dtype=jnp.complex128)).shape == (5,)
+    f = Linear.create(3, 5, streams=streams)
+    assert f.infer(jnp.ones(3, dtype=jnp.complex128)).shape == (5,)
 
 
 def test_linear_output_dtype(streams: Mapping[str, RngStream]) -> None:
     assert (
-        Linear(3, 5, streams=streams).infer(jnp.ones(3, dtype=jnp.complex128)).dtype
+        Linear.create(3, 5, streams=streams).infer(jnp.ones(3, dtype=jnp.complex128)).dtype
         == jnp.complex128
     )
 
 
 def test_linear_batched_shape(streams: Mapping[str, RngStream]) -> None:
-    f = Linear(3, 5, streams=streams)
+    f = Linear.create(3, 5, streams=streams)
     assert f.infer(jnp.ones((4, 3), dtype=jnp.complex128)).shape == (4, 5)
 
 
 def test_linear_zero_input_gives_bias(streams: Mapping[str, RngStream]) -> None:
-    f = Linear(3, 5, streams=streams)
+    f = Linear.create(3, 5, streams=streams)
     assert jnp.allclose(f.infer(jnp.zeros(3, dtype=jnp.complex128)), f.bias.value)
 
 
 def test_linear_is_linear(streams: Mapping[str, RngStream]) -> None:
-    f = Linear(4, 6, streams=streams)
+    f = Linear.create(4, 6, streams=streams)
     stream = streams["inference"]
     z1 = jr.normal(stream.key(), (4,)) + 1j * jr.normal(stream.key(), (4,))
     z2 = jr.normal(stream.key(), (4,)) + 1j * jr.normal(stream.key(), (4,))
@@ -153,7 +154,7 @@ def test_linear_is_linear(streams: Mapping[str, RngStream]) -> None:
 
 
 def test_linear_weight_shape(streams: Mapping[str, RngStream]) -> None:
-    f = Linear(3, 5, streams=streams)
+    f = Linear.create(3, 5, streams=streams)
     assert f.weight.value.shape == (5, 3)
     assert f.bias.value.shape == (5,)
 
@@ -162,16 +163,16 @@ def test_linear_weight_shape(streams: Mapping[str, RngStream]) -> None:
 
 
 def test_rivalry_groups_weights_shape(streams: Mapping[str, RngStream]) -> None:
-    assert RivalryGroups(8, 4, streams=streams).weights.shape == (4, 8)
+    assert RivalryGroups.create(8, 4, streams=streams).weights.shape == (4, 8)
 
 
 def test_rivalry_groups_weights_sum_to_one_columnwise(streams: Mapping[str, RngStream]) -> None:
-    g = RivalryGroups(8, 4, streams=streams)
+    g = RivalryGroups.create(8, 4, streams=streams)
     assert jnp.allclose(g.weights.sum(axis=0), jnp.ones(8))
 
 
 def test_rivalry_groups_weights_nonnegative(streams: Mapping[str, RngStream]) -> None:
-    assert jnp.all(RivalryGroups(8, 4, streams=streams).weights >= 0)
+    assert jnp.all(RivalryGroups.create(8, 4, streams=streams).weights >= 0)
 
 
 # ── RivalryNorm ───────────────────────────────────────────────────────────────
@@ -179,7 +180,7 @@ def test_rivalry_groups_weights_nonnegative(streams: Mapping[str, RngStream]) ->
 
 @pytest.fixture
 def rivalry_norm(streams: Mapping[str, RngStream]) -> RivalryNorm:
-    return RivalryNorm(6, 3, streams=streams)
+    return RivalryNorm.create(6, 3, streams=streams)
 
 
 @pytest.fixture
@@ -211,22 +212,22 @@ def test_rivalry_norm_batched_shape(rivalry_norm: RivalryNorm) -> None:
 
 
 def test_nonlinear_output_shape(streams: Mapping[str, RngStream]) -> None:
-    f = Nonlinear(4, 6, 3, streams=streams)
+    f = Nonlinear.create(4, 6, 3, streams=streams)
     assert f.infer(jnp.ones(4, dtype=jnp.complex128)).shape == (6,)
 
 
 def test_nonlinear_output_dtype(streams: Mapping[str, RngStream]) -> None:
-    f = Nonlinear(4, 6, 3, streams=streams)
+    f = Nonlinear.create(4, 6, 3, streams=streams)
     assert f.infer(jnp.ones(4, dtype=jnp.complex128)).dtype == jnp.complex128
 
 
 def test_nonlinear_batched_shape(streams: Mapping[str, RngStream]) -> None:
-    f = Nonlinear(4, 6, 3, streams=streams)
+    f = Nonlinear.create(4, 6, 3, streams=streams)
     assert f.infer(jnp.ones((5, 4), dtype=jnp.complex128)).shape == (5, 6)
 
 
 def test_nonlinear_custom_mid_features(streams: Mapping[str, RngStream]) -> None:
-    f = Nonlinear(4, 6, 3, mid_features=8, streams=streams)
+    f = Nonlinear.create(4, 6, 3, mid_features=8, streams=streams)
     assert f.infer(jnp.ones(4, dtype=jnp.complex128)).shape == (6,)
 
 

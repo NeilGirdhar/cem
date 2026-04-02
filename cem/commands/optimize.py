@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import warnings
 from dataclasses import replace
 from enum import StrEnum
 from typing import Annotated, Any
@@ -103,13 +102,6 @@ def objective(
     with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
         training_results, inference_results = solver.training_and_inference_result(packet=packet)
         return demo.demo_loss(training_results, inference_results)
-
-
-warnings.filterwarnings(
-    "ignore",
-    message=r"Using `field\(init=False\)` on `equinox\.Module` can lead to surprising behaviour.*",
-    category=UserWarning,
-)
 
 
 @app.command()

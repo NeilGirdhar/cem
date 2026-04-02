@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import KW_ONLY
-from typing import TYPE_CHECKING, Generic, TypeVar, override
+from typing import TYPE_CHECKING, Generic, Self, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
 from tjax import JaxArray, RngStream
 from tjax.dataclasses import dataclass
-
-from .module import Module
 
 if TYPE_CHECKING:
     from .model import Model
@@ -38,20 +35,28 @@ class NodeInferenceResult(Generic[_C_co]):  # noqa: UP046
     state: eqx.nn.State
 
 
-class Node(Module):
-    """A node is the fundamental computational unit of a model.
+class Node[ConfigurationT: NodeConfiguration = NodeConfiguration](eqx.Module):
+    """A node is the fundamental computational unit of a model."""
 
-    It is defined in terms of its configuration type and loss type.
-    """
-
-    _: KW_ONLY
     name: str = eqx.field(static=True)
-    _output_state_index: eqx.nn.StateIndex = eqx.field(init=False)
+    _output_state_index: eqx.nn.StateIndex
 
-    @override
-    def __post_init__(self, streams: Mapping[str, RngStream]) -> None:
-        super().__post_init__(streams=streams)
-        self._output_state_index = eqx.nn.StateIndex(self.zero_configuration())
+    @classmethod
+    def zero_configuration(cls) -> ConfigurationT:
+        """Return a placeholder configuration matching this node's output shape."""
+        raise NotImplementedError
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        name: str,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        return cls(
+            name=name,
+            _output_state_index=eqx.nn.StateIndex(cls.zero_configuration()),
+        )
 
     def infer(
         self,
@@ -61,20 +66,7 @@ class Node(Module):
         *,
         use_signal_noise: bool,
         return_samples: bool,
-    ) -> NodeInferenceResult:
-        """Infer this node.
-
-        Returns:
-            loss: The loss scalar.  The backward pass will send a unit cotangent.
-            configuration: The configuration, which allows other nodes to see the results earlier
-                nodes in the graph.
-
-            The backward pass can send cotangents through the configuration and the memory.
-        """
-        raise NotImplementedError
-
-    def zero_configuration(self) -> NodeConfiguration:
-        """Return a placeholder configuration matching this node's output shape."""
+    ) -> NodeInferenceResult[ConfigurationT]:
         raise NotImplementedError
 
     def set_input(self, field_name: str, new_value: object, state: eqx.nn.State) -> eqx.nn.State:

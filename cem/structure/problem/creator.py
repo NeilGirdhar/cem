@@ -38,13 +38,14 @@ class ModelCreator[ProblemStateT: ProblemState](eqx.Module):
         name: str,
         role: NodeRole,
         ep: ExpectationParametrization[Any],
+        *,
         streams: Mapping[str, RngStream],
     ) -> Node:
         raise NotImplementedError
 
-    def create_model(self, streams: Mapping[str, RngStream]) -> dict[str, Node]:
+    def create_model(self, *, streams: Mapping[str, RngStream]) -> dict[str, Node]:
         nodes = {}
         for name, ep in self.problem.observation_distributions().items():
-            observation_node = self.create_node(name, NodeRole.observation, ep, streams)
+            observation_node = self.create_node(name, NodeRole.observation, ep, streams=streams)
             nodes[observation_node.name] = observation_node
         return nodes

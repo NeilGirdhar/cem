@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import KW_ONLY, InitVar
-from typing import override
+from typing import Self
 
 import equinox as eqx
 from tjax import JaxArray, RngStream
-
-from cem.structure.graph import Module
 
 from .gate import phasor_gate
 from .linear import Linear
 from .rivalry import RivalryNorm
 
 
-class Nonlinear(Module):
+class Nonlinear(eqx.Module):
     """GLU-style nonlinear projection followed by rivalry normalization.
 
     h(z) = r(f3(g(f1(z), f2(z))))
@@ -30,32 +27,29 @@ class Nonlinear(Module):
         rivalry_norm: Rivalry normalization applied to the output.
     """
 
-    in_features: InitVar[int]
-    out_features: InitVar[int]
-    num_groups: InitVar[int]
-    _: KW_ONLY
-    mid_features: InitVar[int | None] = None
-    f1: Linear = eqx.field(init=False)
-    f2: Linear = eqx.field(init=False)
-    f3: Linear = eqx.field(init=False)
-    rivalry_norm: RivalryNorm = eqx.field(init=False)
+    f1: Linear
+    f2: Linear
+    f3: Linear
+    rivalry_norm: RivalryNorm
 
-    @override
-    def __post_init__(
-        self,
-        streams: Mapping[str, RngStream],
+    @classmethod
+    def create(
+        cls,
         in_features: int,
         out_features: int,
         num_groups: int,
-        mid_features: int | None,
-    ) -> None:
-        super().__post_init__(streams=streams)
+        *,
+        mid_features: int | None = None,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
         if mid_features is None:
             mid_features = out_features
-        self.f1 = Linear(in_features, mid_features, streams=streams)
-        self.f2 = Linear(in_features, mid_features, streams=streams)
-        self.f3 = Linear(mid_features, out_features, streams=streams)
-        self.rivalry_norm = RivalryNorm(out_features, num_groups, streams=streams)
+        return cls(
+            f1=Linear.create(in_features, mid_features, streams=streams),
+            f2=Linear.create(in_features, mid_features, streams=streams),
+            f3=Linear.create(mid_features, out_features, streams=streams),
+            rivalry_norm=RivalryNorm.create(out_features, num_groups, streams=streams),
+        )
 
     def infer(self, z: JaxArray) -> JaxArray:
         """Apply GLU-style nonlinear transform with rivalry normalization.

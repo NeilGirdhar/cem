@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import InitVar
-from typing import override
+from typing import Self
 
 import equinox as eqx
 import jax
@@ -10,12 +9,12 @@ import jax.numpy as jnp
 from jax.nn.initializers import normal
 from tjax import JaxArray, RngStream
 
-from cem.structure.graph import LearnableParameter, Module
+from cem.structure.graph import LearnableParameter
 
 _logit_init = normal(1.0)
 
 
-class RivalryGroups(Module):
+class RivalryGroups(eqx.Module):
     """Learned group-membership matrix for rivalry normalization.
 
     W[i, j] = exp(U[i, j]) / sum_{i'} exp(U[i', j])  (columnwise softmax)
@@ -26,21 +25,21 @@ class RivalryGroups(Module):
         logits: Unconstrained logits U, shape (num_groups, num_features).
     """
 
-    num_features: InitVar[int]
-    num_groups: InitVar[int]
-    logits: LearnableParameter[JaxArray] = eqx.field(init=False)
+    logits: LearnableParameter[JaxArray]
 
-    @override
-    def __post_init__(
-        self,
-        streams: Mapping[str, RngStream],
+    @classmethod
+    def create(
+        cls,
         num_features: int,
         num_groups: int,
-    ) -> None:
-        super().__post_init__(streams=streams)
+        *,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
         stream = streams["parameters"]
-        self.logits = LearnableParameter(
-            _logit_init(stream.key(), (num_groups, num_features), jnp.float64)
+        return cls(
+            logits=LearnableParameter(
+                _logit_init(stream.key(), (num_groups, num_features), jnp.float64)
+            )
         )
 
     @property
@@ -49,7 +48,7 @@ class RivalryGroups(Module):
         return jax.nn.softmax(self.logits.value, axis=0)
 
 
-class RivalryNorm(Module):
+class RivalryNorm(eqx.Module):
     """Rivalry normalization: removes the gauge symmetry of global presence scaling.
 
     Subtracts from each feature's log-presence the log total presence of the rivalry groups it
@@ -64,19 +63,17 @@ class RivalryNorm(Module):
         groups: Rivalry group membership matrix.
     """
 
-    num_features: InitVar[int]
-    num_groups: InitVar[int]
-    groups: RivalryGroups = eqx.field(init=False)
+    groups: RivalryGroups
 
-    @override
-    def __post_init__(
-        self,
-        streams: Mapping[str, RngStream],
+    @classmethod
+    def create(
+        cls,
         num_features: int,
         num_groups: int,
-    ) -> None:
-        super().__post_init__(streams=streams)
-        self.groups = RivalryGroups(num_features, num_groups, streams=streams)
+        *,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        return cls(groups=RivalryGroups.create(num_features, num_groups, streams=streams))
 
     def infer(self, z: JaxArray) -> JaxArray:
         """Apply rivalry normalization to phasors.
