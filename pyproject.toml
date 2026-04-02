@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.11.3,<0.12"]
+build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
@@ -18,10 +18,7 @@ dev = [
 [project]
 name = "cem"
 version = "0.1"
-description = """
-The Causal Evidence Model: Instrument Discovery via Adversarial Factor Purification with Evidence \
-Phasors
-"""
+description = "The Causal Evidence Model: Instrument Discovery via Adversarial Factor Purification with Evidence Phasors"
 readme = "README.rst"
 requires-python = ">=3.14, <3.15"
 authors = [{name = "Neil Girdhar", email = "mistersheik@gmail.com"}]
@@ -151,6 +148,9 @@ max-args = 8
 
 [tool.uv]
 environments = ["sys_platform == 'linux'"]
+
+[tool.uv.build-backend]
+module-root = ""
 
 [tool.vulture]
 ignore_decorators = ["@pytest.fixture", "@cli.command"]
