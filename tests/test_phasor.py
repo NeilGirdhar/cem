@@ -14,7 +14,9 @@ from cem.phasor import PhasorMessage, geometric_frequencies
 def _normal_t(m: int, base: float = 2.0 * float(jnp.pi)) -> NormalNP:
     """Frequency grid t for NormalNP with m frequencies, d=2 sufficient statistics."""
     frequencies = geometric_frequencies(m, base=base)
-    flattener, _ = Flattener.flatten(NormalNP(jnp.array(0.0), jnp.array(0.0)), map_to_plane=False)
+    flattener, _ = Flattener.flatten(
+        NormalNP(jnp.array(0.0), jnp.array(0.0)), mapped_to_plane=False
+    )
     d = flattener.final_dimension_size()
     eye = jnp.eye(d, dtype=jnp.float64)
     t_flat = (frequencies[:, None, None] * eye[None, :, :]).reshape(m * d, d)
