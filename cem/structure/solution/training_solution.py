@@ -39,7 +39,7 @@ class TrainingSolution(eqx.Module):
         gradient_transformations: DisGradientTransformation,
     ) -> TrainingSolution:
         keys = {"parameters": parameters_key, "example": jr.key(0)}
-        model, initial_memory = eqx.nn.make_with_state(Model)(
+        model, initial_memory = eqx.nn.make_with_state(Model.create)(
             creator=creator, streams=create_streams(keys)
         )
         verify_model_has_no_free_parameters(model)

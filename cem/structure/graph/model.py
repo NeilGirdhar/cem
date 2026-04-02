@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import InitVar
 from functools import reduce
 from operator import add
-from typing import TYPE_CHECKING, Any, overload, override
+from typing import TYPE_CHECKING, Any, Self, overload
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -13,7 +12,6 @@ from tjax import JaxArray, RngStream
 if TYPE_CHECKING:
     from cem.structure.problem.creator import ModelCreator
 
-from .module import Module
 from .node import Node, NodeConfiguration
 
 ModelConfiguration = Mapping[str, NodeConfiguration]
@@ -24,29 +22,30 @@ class ModelInferenceResult(eqx.Module):
     state: eqx.nn.State
 
 
-class Model(Module):
+class Model(eqx.Module):
     """The entire model.
 
     The model is stored as a dictionary of nodes. Inference proceeds in alphabetical order
     by node name.
     """
 
-    creator: InitVar[ModelCreator[Any]]
-    _nodes: dict[str, Node] = eqx.field(static=True, init=False)
-    _input_routing: tuple[tuple[str, tuple[str, str]], ...] = eqx.field(static=True, init=False)
-    _output_routing: tuple[tuple[str, tuple[str, str]], ...] = eqx.field(static=True, init=False)
+    _nodes: dict[str, Node] = eqx.field(static=True)
+    _input_routing: tuple[tuple[str, tuple[str, str]], ...] = eqx.field(static=True)
+    _output_routing: tuple[tuple[str, tuple[str, str]], ...] = eqx.field(static=True)
 
-    @override
-    def __post_init__(
-        self,
+    @classmethod
+    def create(
+        cls,
+        *,
         streams: Mapping[str, RngStream],
         creator: ModelCreator[Any],
-    ) -> None:
-        super().__post_init__(streams=streams)
+    ) -> Self:
         assert "example" in streams
-        self._nodes = creator.create_model(streams=streams)
-        self._input_routing = tuple(creator.input_routing().items())
-        self._output_routing = tuple(creator.output_routing().items())
+        return cls(
+            _nodes=creator.create_model(streams=streams),
+            _input_routing=tuple(creator.input_routing().items()),
+            _output_routing=tuple(creator.output_routing().items()),
+        )
 
     # Accessing methods ----------------------------------------------------------------------------
     @overload
