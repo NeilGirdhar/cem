@@ -83,7 +83,7 @@ class PhasorMessage(eqx.Module):
             The phasor at flat index ``j * d + k`` encodes sufficient statistic T(x)_k at
             frequency ``frequencies[j]``, for j in 0..m-1 and k in 0..d-1.
         """
-        flattener, _ = Flattener.flatten(dist, map_to_plane=False)
+        flattener, _ = Flattener.flatten(dist, mapped_to_plane=False)
         d = flattener.final_dimension_size()
         m = frequencies.shape[0]
 
