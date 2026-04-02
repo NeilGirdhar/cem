@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.special as jss
 
-from cem.loss import (
+from cem.phasor_calculus.loss import (
     centering_loss,
     decorrelation_loss,
     expectation_params,
