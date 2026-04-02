@@ -22,6 +22,7 @@ from cem.structure.solution.inference import (
     _TrainingState,
 )
 
+from .model import RLModel
 from .problem import ProblemAction, ProblemReward, RLProblem
 
 
@@ -128,6 +129,7 @@ class RLInference(Inference):
         state = body_function(inference_state)
         # Extract action.
         model = self.assemble_model(learnable_parameters)
+        assert isinstance(model, RLModel)
         action_fields = model.get_output(state)
         action = problem.produce_action(action_fields, inference_state.example_key)
         action = stop_gradient(action)

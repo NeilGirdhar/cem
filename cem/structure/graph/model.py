@@ -3,16 +3,14 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from functools import reduce
 from operator import add
-from typing import TYPE_CHECKING, Any, Self, overload
+from typing import Any, Self, overload
 
 import equinox as eqx
 import jax.numpy as jnp
-from tjax import JaxArray, RngStream
+from tjax import JaxArray, RngStream, frozendict
 
-if TYPE_CHECKING:
-    from cem.structure.problem.creator import ModelCreator
-
-from .node import Node, NodeConfiguration
+from .input_node import InputNode
+from .node import Node, NodeBase, NodeConfiguration
 
 ModelConfiguration = Mapping[str, NodeConfiguration]
 
@@ -26,38 +24,66 @@ class Model(eqx.Module):
     """The entire model.
 
     The model is stored as a dictionary of nodes. Inference proceeds in alphabetical order
-    by node name.
+    by node name. The caller is responsible for including an 'input' node that holds
+    environment-provided inputs; see :meth:`create` for an example.
     """
 
-    _nodes: dict[str, Node] = eqx.field(static=True)
-    _input_routing: tuple[tuple[str, tuple[str, str]], ...] = eqx.field(static=True)
-    _output_routing: tuple[tuple[str, tuple[str, str]], ...] = eqx.field(static=True)
+    _nodes: frozendict[str, NodeBase] = eqx.field(static=True)
+    _output_routing: frozendict[str, tuple[str, str]] = eqx.field(static=True)
 
     @classmethod
     def create(
         cls,
-        *,
-        streams: Mapping[str, RngStream],
-        creator: ModelCreator[Any],
+        nodes: frozendict[str, NodeBase],
+        output_routing: frozendict[str, tuple[str, str]],
     ) -> Self:
-        assert "example" in streams
-        return cls(
-            _nodes=creator.create_model(streams=streams),
-            _input_routing=tuple(creator.input_routing().items()),
-            _output_routing=tuple(creator.output_routing().items()),
-        )
+        """Construct a Model from a pre-built node dictionary.
+
+        The caller is responsible for creating and including the ``'input'`` node.
+        Use :class:`~cem.structure.graph.input_node.InputNode` for this::
+
+            zero = jnp.zeros(1, dtype=jnp.complex128)
+            input_node = InputNode.create(field_defaults={"x": zero, "y": zero})
+            model = Model.create(
+                frozendict({"input": input_node, "encoder": encoder_node}),
+                frozendict({"z": ("encoder", "latent")}),
+            )
+
+        Args:
+            nodes: All nodes in the model, keyed by name. Must include an ``'input'`` node.
+            output_routing: Maps each externally visible output field name to
+                ``(node_name, node_field_name)``.
+
+        Returns:
+            A new Model instance.
+        """
+        return cls(_nodes=nodes, _output_routing=output_routing)
 
     # Accessing methods ----------------------------------------------------------------------------
     @overload
-    def get_node(self, node_name: str) -> Node: ...
+    def get_node(self, node_name: str) -> NodeBase: ...
 
     @overload
-    def get_node(self, node_name: str, node_type: None) -> Node: ...
+    def get_node(self, node_name: str, node_type: None) -> NodeBase: ...
 
     @overload
     def get_node[NT: Node](self, node_name: str, node_type: type[NT]) -> NT: ...
 
-    def get_node(self, node_name: str, node_type: type[Node] | None = None) -> Node:
+    def get_node(self, node_name: str, node_type: type[Node] | None = None) -> NodeBase:
+        """Retrieve a node by name, with optional type narrowing.
+
+        Args:
+            node_name: The name of the node to retrieve.
+            node_type: If provided, asserts the node is an instance of this type and
+                returns it as that type.
+
+        Returns:
+            The requested node.
+
+        Raises:
+            ValueError: If ``node_name`` is not in the model.
+            TypeError: If ``node_type`` is provided and the node is not of that type.
+        """
         if node_name not in self._nodes:
             msg = f"{node_name} not in model"
             raise ValueError(msg)
@@ -67,7 +93,12 @@ class Model(eqx.Module):
             raise TypeError(msg)
         return node
 
-    def ordered_nodes(self) -> Iterable[tuple[str, Node]]:
+    def ordered_nodes(self) -> Iterable[tuple[str, NodeBase]]:
+        """Return all nodes sorted alphabetically by name.
+
+        Inference always processes nodes in this order, so bindings from node A to node B
+        are valid only when A precedes B alphabetically.
+        """
         return sorted(self._nodes.items())
 
     # Operation methods ----------------------------------------------------------------------------
@@ -79,6 +110,21 @@ class Model(eqx.Module):
         use_signal_noise: bool,
         return_samples: bool,
     ) -> ModelInferenceResult:
+        """Run one forward pass through every node in alphabetical order.
+
+        Each node reads its inputs from ``state`` (written by earlier nodes or
+        :meth:`set_input`), produces a configuration, and writes it back to state.
+        The total loss is the sum of each node's :meth:`~NodeConfiguration.total_loss`.
+
+        Args:
+            streams: RNG streams passed to each node's ``infer`` method.
+            state: Current model state. Updated in-place across nodes.
+            use_signal_noise: Passed through to each node's ``infer``.
+            return_samples: Passed through to each node's ``infer``.
+
+        Returns:
+            A :class:`ModelInferenceResult` with the summed scalar loss and updated state.
+        """
         model_losses: list[JaxArray] = []
 
         for _, node in self.ordered_nodes():
@@ -97,29 +143,54 @@ class Model(eqx.Module):
         return ModelInferenceResult(total_loss, state)
 
     def set_input(self, field_values: Mapping[str, Any], state: eqx.nn.State) -> eqx.nn.State:
-        """Write the input into the state."""
-        routing = dict(self._input_routing)
+        """Write environment-provided values into the ``'input'`` node's state.
+
+        Must be called before :meth:`infer_one_time_step` whenever the environment
+        observation changes.
+
+        Args:
+            field_values: Mapping from input field name to the new value. Must be a
+                subset of the field names declared in the ``'input'`` node.
+            state: Current model state.
+
+        Returns:
+            Updated state with the new input values written in.
+        """
+        input_node = self._nodes["input"]
+        assert isinstance(input_node, InputNode)
         for field_name, value in field_values.items():
-            route = routing.get(field_name)
-            if route is None:
-                msg = f"Input field {field_name!r} is not declared in input_routing()"
-                raise ValueError(msg)
-            node_name, node_field_name = route
-            node = self.get_node(node_name)
-            state = node.set_input(node_field_name, value, state)
+            state = input_node.set_input(field_name, value, state)
         return state
 
     def configuration_from_state(self, state: eqx.nn.State) -> ModelConfiguration:
-        """Reconstruct model configuration by reading each node's most recent output from state."""
+        """Reconstruct the full model configuration from state.
+
+        Reads each node's most recently written output configuration.  Useful after
+        inference to inspect intermediate activations and losses.
+
+        Args:
+            state: Model state from which to read.
+
+        Returns:
+            Dict mapping each node name to its :class:`~NodeConfiguration`.
+        """
         return {
             node_name: node.read_output_from_state(state)
             for node_name, node in self.ordered_nodes()
         }
 
     def get_output(self, state: eqx.nn.State) -> dict[str, Any]:
-        """Read the output from state."""
+        """Read the externally visible outputs declared in ``output_routing``.
+
+        Args:
+            state: Model state from which to read.
+
+        Returns:
+            Dict mapping each output field name (as declared in ``output_routing``) to
+            the corresponding value extracted from the appropriate node's configuration.
+        """
         retval: dict[str, Any] = {}
-        for field_name, (node_name, node_field_name) in self._output_routing:
+        for field_name, (node_name, node_field_name) in self._output_routing.items():
             node = self.get_node(node_name)
             node_configuration = node.read_output_from_state(state)
             retval[field_name] = node.get_output(node_configuration, node_field_name)

@@ -7,8 +7,16 @@ from cem.structure.graph.disassembled import (
     ParameterType,
     verify_model_has_no_free_parameters,
 )
+from cem.structure.graph.input_node import InputNode, InputNodeConfiguration
 from cem.structure.graph.model import Model, ModelConfiguration
-from cem.structure.graph.node import Node, NodeConfiguration, NodeInferenceResult
+from cem.structure.graph.node import (
+    Binding,
+    Kernel,
+    Node,
+    NodeBase,
+    NodeConfiguration,
+    NodeInferenceResult,
+)
 from cem.structure.graph.parameters import (
     FixedParameter,
     LearnableParameter,
@@ -18,14 +26,19 @@ from cem.structure.graph.parameters import (
 )
 
 __all__ = [
+    "Binding",
     "DisGradientState",
     "DisGradientTransformation",
     "DisModel",
     "FixedParameter",
+    "InputNode",
+    "InputNodeConfiguration",
+    "Kernel",
     "LearnableParameter",
     "Model",
     "ModelConfiguration",
     "Node",
+    "NodeBase",
     "NodeConfiguration",
     "NodeInferenceResult",
     "Parameter",
