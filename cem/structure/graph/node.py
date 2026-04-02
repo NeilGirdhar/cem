@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Generic, Self, TypeVar
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Generic, Self, TypeVar, override
 
 import equinox as eqx
 import jax.numpy as jnp
 from tjax import JaxArray, RngStream
-from tjax.dataclasses import dataclass
+from tjax.dataclasses import dataclass, field
 
 if TYPE_CHECKING:
     from .model import Model
@@ -35,28 +35,9 @@ class NodeInferenceResult(Generic[_C_co]):  # noqa: UP046
     state: eqx.nn.State
 
 
-class Node[ConfigurationT: NodeConfiguration = NodeConfiguration](eqx.Module):
-    """A node is the fundamental computational unit of a model."""
-
+class NodeBase[ConfigurationT: NodeConfiguration = NodeConfiguration](eqx.Module):
     name: str = eqx.field(static=True)
     _output_state_index: eqx.nn.StateIndex
-
-    @classmethod
-    def zero_configuration(cls) -> ConfigurationT:
-        """Return a placeholder configuration matching this node's output shape."""
-        raise NotImplementedError
-
-    @classmethod
-    def create(
-        cls,
-        *,
-        name: str,
-        streams: Mapping[str, RngStream],
-    ) -> Self:
-        return cls(
-            name=name,
-            _output_state_index=eqx.nn.StateIndex(cls.zero_configuration()),
-        )
 
     def infer(
         self,
@@ -69,15 +50,6 @@ class Node[ConfigurationT: NodeConfiguration = NodeConfiguration](eqx.Module):
     ) -> NodeInferenceResult[ConfigurationT]:
         raise NotImplementedError
 
-    def set_input(self, field_name: str, new_value: object, state: eqx.nn.State) -> eqx.nn.State:
-        """Write one externally supplied input field into the node's state."""
-        raise NotImplementedError
-
-    def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> object:
-        """Extract one named externally visible output field from the model configuration."""
-        msg = f"{type(self).__name__} does not expose output field {field_name!r}"
-        raise ValueError(msg)
-
     def write_output_to_state(
         self, configuration: NodeConfiguration, state: eqx.nn.State
     ) -> eqx.nn.State:
@@ -87,3 +59,83 @@ class Node[ConfigurationT: NodeConfiguration = NodeConfiguration](eqx.Module):
     def read_output_from_state(self, state: eqx.nn.State) -> NodeConfiguration:
         """Read this node's most recent output configuration from state."""
         return state.get(self._output_state_index)
+
+    def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> object:
+        raise NotImplementedError
+
+
+class Binding(eqx.Module):
+    source_node: str = field(static=True)
+    source_field: str = field(static=True)
+
+    def fetch(self, model: Model, state: eqx.nn.State) -> object:
+        node = model.get_node(self.source_node)
+        return node.get_output(node.read_output_from_state(state), self.source_field)
+
+
+class Kernel[ConfigurationT: NodeConfiguration](eqx.Module):
+    def infer(self, **kwargs: list[object]) -> ConfigurationT:
+        raise NotImplementedError
+
+    def zero_configuration(self) -> ConfigurationT:
+        """Return a placeholder configuration matching this node's output shape."""
+        raise NotImplementedError
+
+    def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> object:
+        """Extract one named externally visible output field from the node configuration."""
+        msg = f"{type(self).__name__} does not expose output field {field_name!r}"
+        raise ValueError(msg)
+
+
+class Node[ConfigurationT: NodeConfiguration = NodeConfiguration](NodeBase[ConfigurationT]):
+    """A node is the fundamental computational unit of a model."""
+
+    kernel: Kernel[ConfigurationT]
+    _bindings: Mapping[str, tuple[Binding, ...]]
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        name: str,
+        kernel: Kernel[ConfigurationT],
+        bindings: Mapping[str, Sequence[tuple[str, str]]],
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        del streams
+        resolved = {
+            field_name: tuple(
+                Binding(source_node=source_node, source_field=source_field)
+                for source_node, source_field in sources
+            )
+            for field_name, sources in bindings.items()
+        }
+        return cls(
+            name=name,
+            kernel=kernel,
+            _output_state_index=eqx.nn.StateIndex(kernel.zero_configuration()),
+            _bindings=resolved,
+        )
+
+    def infer(
+        self,
+        model: Model,
+        streams: Mapping[str, RngStream],
+        state: eqx.nn.State,
+        *,
+        use_signal_noise: bool,
+        return_samples: bool,
+    ) -> NodeInferenceResult[ConfigurationT]:
+        del streams, use_signal_noise, return_samples
+        result = self.kernel.infer(
+            **{
+                name: [binding.fetch(model, state) for binding in bindings]
+                for name, bindings in self._bindings.items()
+            }
+        )
+        return NodeInferenceResult(result, state)
+
+    @override
+    def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> object:
+        """Extract one named externally visible output field from the node configuration."""
+        return self.kernel.get_output(node_configuration, field_name)

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import KW_ONLY, fields, is_dataclass, replace
 from typing import Any, Self, cast
 
 import equinox as eqx
 import jax.random as jr
 from optuna.distributions import BaseDistribution, FloatDistribution, IntDistribution
+from tjax import RngStream, create_streams
 from tjax.gradient import Adam
 
 from cem.structure.graph import (
@@ -15,7 +17,7 @@ from cem.structure.graph import (
     Model,
     ParameterType,
 )
-from cem.structure.problem import DataSource, ModelCreator, Problem
+from cem.structure.problem import DataSource, Problem
 from cem.structure.solution import (
     ExecutionPacket,
     InferenceResults,
@@ -69,6 +71,15 @@ class Solver[P: Problem](eqx.Module):
     def problem(self) -> P:
         raise NotImplementedError
 
+    def create_model(
+        self,
+        data_source: DataSource,
+        problem: Problem,
+        *,
+        streams: Mapping[str, RngStream],
+    ) -> Model:
+        raise NotImplementedError
+
     def solution(self) -> TrainingSolution:
         """Return the solution for this solver.
 
@@ -83,8 +94,10 @@ class Solver[P: Problem](eqx.Module):
         problem = self.problem()
         parameters_key = jr.key(self.parameters_seed)
         data_source = problem.create_data_source()
-        creator = self.model_creator(data_source, problem)
-        return TrainingSolution.create(creator, parameters_key, self.gradient_transformations())
+        keys = {"parameters": parameters_key, "example": jr.key(0)}
+        streams = create_streams(keys)
+        model = self.create_model(data_source, problem, streams=streams)
+        return TrainingSolution.create(problem, model, self.gradient_transformations())
 
     def gradient_transformations(self) -> DisGradientTransformation:
         return DisGradientTransformation(
@@ -93,9 +106,6 @@ class Solver[P: Problem](eqx.Module):
                 (ParameterType(LearnableParameter), Adam[Model](self.learning_rate)),
             ]
         )
-
-    def model_creator(self, data_source: DataSource, problem: Problem) -> ModelCreator[Any]:
-        raise NotImplementedError
 
     def inference_results(
         self, solution_state: SolutionState, *, packet: ExecutionPacket

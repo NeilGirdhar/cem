@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
-
 import equinox as eqx
-import jax.random as jr
-from tjax import KeyArray, create_streams
 
 from cem.structure.graph import (
     DisGradientTransformation,
@@ -13,7 +9,7 @@ from cem.structure.graph import (
     is_parameter,
     verify_model_has_no_free_parameters,
 )
-from cem.structure.problem import ModelCreator, Problem
+from cem.structure.problem import Problem
 from cem.structure.solution.inference import Inference, SolutionState
 
 
@@ -34,14 +30,11 @@ class TrainingSolution(eqx.Module):
     @classmethod
     def create(
         cls,
-        creator: ModelCreator[Any],
-        parameters_key: KeyArray,
+        problem: Problem,
+        model: Model,
         gradient_transformations: DisGradientTransformation,
     ) -> TrainingSolution:
-        keys = {"parameters": parameters_key, "example": jr.key(0)}
-        model, initial_memory = eqx.nn.make_with_state(Model.create)(
-            creator=creator, streams=create_streams(keys)
-        )
+        model, initial_memory = eqx.nn.make_with_state(lambda: model)()
         verify_model_has_no_free_parameters(model)
         learnable_parameters, fixed_parameters = eqx.partition(
             model,
@@ -54,7 +47,7 @@ class TrainingSolution(eqx.Module):
         return TrainingSolution(
             gradient_transformations,
             Inference(fixed_parameters, initial_memory),
-            creator.problem,
+            problem,
             SolutionState.create(gradient_transformations, dissassembled),
         )
 
