@@ -3,16 +3,49 @@
 Instrument discovery via adversarial factor purification with phasor-based evidence tracking.
 Built with JAX + Equinox on Python 3.14.
 
-## Documentation
+## Stable context
 
-Read these files to understand the theory and architecture before implementing:
+Assume these facts are stable unless this file or the user says otherwise:
 
-- @~/src/typst/thesis.typ
-- @~/src/typst/architecture_figures.typ
+- CEM uses JAX + Equinox on Python 3.14.
+- Primary references: `@~/src/typst/thesis.typ`, `@~/src/typst/architecture_figures.typ`.
+- Prior implementation: `@~/backup/cem`.
+- Run all project commands with `uv run`.
+- Use the import aliases in this file; ruff enforces them.
 
-## Prior work
+Do not re-scan the repo to rediscover these facts unless they appear inconsistent.
 
-`@~/backup/cem` is the old version of this project. Draw on it heavily when implementing — it contains working code and patterns to reference.
+## Token discipline
+
+- Prefer targeted reads over broad repo scans.
+- Avoid recursive discovery unless the task requires it.
+- Reuse established context instead of rereading the same files.
+- Keep summaries short and avoid repeating unchanged conclusions.
+
+## Resume discipline
+
+If interrupted, rate-limited, or resuming after a pause:
+
+1. Continue from the last completed step.
+2. Do not restart with repo-wide discovery.
+3. Reuse the stable context and prior verified facts.
+4. Read only the minimum additional files needed.
+5. Verify specific files or symbols rather than rescanning the project.
+
+## Clear discipline
+
+For a new unrelated task, clear working context and rebuild only from:
+
+- this `CLAUDE.md`
+- the user’s request
+- the specific files needed for the task
+
+Do not carry incidental context across unrelated tasks.
+
+## Long-session discipline
+
+- Every 10 turns, compress the working context into a short summary before continuing.
+- Include only: current task, relevant files, decisions made, next step.
 
 ## Setup
 
@@ -20,44 +53,18 @@ Read these files to understand the theory and architecture before implementing:
 uv sync --all-extras
 ```
 
-All commands must be run via `uv run`.
-
 ## Common commands
 
 ```bash
-uv run pytest                        # tests
-uv run ruff check --fix              # lint (auto-fix)
-uv run ruff format                   # format
-uv run ty check                      # type-check
-uv run lefthook run pre-commit       # run all pre-commit checks
+uv run pytest
+uv run ruff check --fix
+uv run ruff format
+uv run ty check
+uv run lefthook run pre-commit
 ```
-
-## Import aliases
-
-Always use these aliases — they are enforced by ruff:
-
-| Alias  | Module                        |
-|--------|-------------------------------|
-| `xpx`  | `array_api_extra`             |
-| `ct`   | `ctypes`                      |
-| `dt`   | `datetime`                    |
-| `eqx`  | `equinox`                     |
-| `it`   | `itertools`                   |
-| `jnp`  | `jax.numpy`                   |
-| `jr`   | `jax.random`                  |
-| `jss`  | `jax.scipy.special`           |
-| `nx`   | `networkx`                    |
-| `npt`  | `numpy.typing`                |
-| `optx` | `optimistix`                  |
-| `op`   | `optype`                      |
-| `onp`  | `optype.numpy`                |
-| `npc`  | `optype.numpy.compat`         |
-| `opt`  | `optype.typing`               |
-| `sc`   | `scipy.special`               |
-| `sns`  | `seaborn`                     |
 
 ## Style
 
 - Line length: 100
-- Docstring style: Google
-- Don't move imports into `TYPE_CHECKING` blocks (TC001–TC003 suppressed)
+- Google docstrings
+- Do not move imports into TYPE_CHECKING blocks
