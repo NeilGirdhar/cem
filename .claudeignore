@@ -1,0 +1,14 @@
+*.lock
+*.log
+*.pdf
+.codex
+.git/
+.jax_cache/
+.optune_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.wandb_cache/
+LICENSE
+__pycache__/
+dist/
