@@ -6,35 +6,36 @@ from tjax import JaxArray
 
 
 def select(keys: JaxArray, query: JaxArray) -> JaxArray:
-    """Compute softmax selection weights from key-query phasor concordance.
+    """Compute per-head softmax selection weights from key-query phasor concordance.
 
-    s = Re(K conj(q)),  p = softmax(s)
+    s^(i) = Re(K^(i) conj(q^(i))),  p^(i) = softmax(s^(i))
 
-    Each score s_i measures how well the i-th key row aligns with the query via constructive
-    and destructive interference across channels.  The softmax induces competition among
-    candidates, producing a probability distribution over them.
+    Each head operates independently: scores measure concordance between each candidate key and
+    the head's query, and softmax induces competition among candidates within each head.
 
     Args:
-        keys: Key phasors, shape (m, n).
-        query: Query phasor, shape (n,).
+        keys: Key phasors, shape (*batch, h, m, n) — h heads, m candidates, n alignment features.
+        query: Query phasors, shape (*batch, h, n) — one query vector per head.
 
     Returns:
-        Selection weights, shape (m,).
+        Selection weights, shape (*batch, h, m) — a probability distribution over candidates per
+        head.
     """
-    scores = jnp.real(keys @ jnp.conj(query))  # (m,)
-    return jax.nn.softmax(scores)
+    scores = jnp.real(jnp.einsum("...hmn,...hn->...hm", keys, jnp.conj(query)))
+    return jax.nn.softmax(scores, axis=-1)
 
 
 def interpolate(weights: JaxArray, content: JaxArray) -> JaxArray:
-    """Compute a convex combination of content rows using selection weights.
+    """Compute a convex combination of content rows per head and concatenate across heads.
 
-    y = p^T V
+    y^(i) = p^(i)^T V^(i),  y = (y^(1), ..., y^(h))
 
     Args:
-        weights: Selection weights (e.g. from select()), shape (m,).
-        content: Content phasors, shape (m, d).
+        weights: Selection weights (e.g. from select()), shape (*batch, h, m).
+        content: Content phasors, shape (*batch, h, m, d) — one content matrix per head.
 
     Returns:
-        Weighted combination, shape (d,).
+        Concatenated per-head outputs, shape (*batch, h * d).
     """
-    return weights @ content
+    per_head = jnp.einsum("...hm,...hmd->...hd", weights, content)
+    return per_head.reshape((*per_head.shape[:-2], -1))

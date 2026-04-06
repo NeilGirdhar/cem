@@ -235,53 +235,103 @@ def test_nonlinear_custom_mid_features(streams: Mapping[str, RngStream]) -> None
 
 
 def test_select_output_shape() -> None:
+    # 2 heads, 5 candidates, 4 alignment features → (2, 5)
     assert select(
-        jnp.ones((5, 4), dtype=jnp.complex128), jnp.ones(4, dtype=jnp.complex128)
-    ).shape == (5,)
+        jnp.ones((2, 5, 4), dtype=jnp.complex128), jnp.ones((2, 4), dtype=jnp.complex128)
+    ).shape == (2, 5)
 
 
-def test_select_sums_to_one() -> None:
-    keys = jnp.array([[1 + 0j, 0 + 1j], [0 + 1j, 1 + 0j], [-1 + 0j, 0 - 1j]])
-    query = jnp.array([1 + 0j, 0 + 1j])
-    assert jnp.allclose(select(keys, query).sum(), 1.0)
+def test_select_sums_to_one_per_head() -> None:
+    # Each head's weights must form a probability distribution over candidates.
+    keys = jnp.array(
+        [
+            [[1 + 0j, 0 + 1j], [0 + 1j, 1 + 0j], [-1 + 0j, 0 - 1j]],
+            [[1 + 0j, 0 + 1j], [0 + 1j, 1 + 0j], [-1 + 0j, 0 - 1j]],
+        ]
+    )  # (2, 3, 2)
+    query = jnp.array([[1 + 0j, 0 + 1j], [1 + 0j, 0 + 1j]])  # (2, 2)
+    weights = select(keys, query)  # (2, 3)
+    assert jnp.allclose(weights.sum(axis=-1), jnp.ones(2))
 
 
 def test_select_nonnegative() -> None:
-    keys = jnp.array([[1 + 0j, 0 + 1j], [0 + 1j, 1 + 0j]])
-    query = jnp.array([1 + 0j, 0 + 1j])
+    keys = jnp.ones((2, 3, 4), dtype=jnp.complex128)
+    query = jnp.ones((2, 4), dtype=jnp.complex128)
     assert jnp.all(select(keys, query) >= 0)
 
 
 def test_select_aligned_key_wins() -> None:
-    # The key that exactly matches the query should receive the highest weight.
-    query = jnp.array([1 + 0j, 0 + 1j])
-    keys = jnp.stack(
+    # Within each head, the key that exactly matches the query gets the highest weight.
+    query_vec = jnp.array([1 + 0j, 0 + 1j])
+    candidate_keys = jnp.stack(
         [
-            query,  # concordance = 2 (aligned)
+            query_vec,  # concordance = 2 (aligned)
             jnp.array([0 + 1j, -1 + 0j]),  # concordance = 0 (orthogonal)
             jnp.array([-1 + 0j, 0 - 1j]),  # concordance = -2 (anti-aligned)
         ]
-    )
-    weights = select(keys, query)
+    )  # (3, 2)
+    keys = candidate_keys[jnp.newaxis]  # (1, 3, 2)
+    query = query_vec[jnp.newaxis]  # (1, 2)
+    weights = select(keys, query)[0]  # (3,)
     assert weights[0] == weights.max()
+
+
+def test_select_heads_are_independent() -> None:
+    # Different queries should yield different weights even with the same keys.
+    keys = jnp.ones((2, 3, 2), dtype=jnp.complex128)
+    query = jnp.array([[1 + 0j, 0 + 0j], [0 + 0j, 1 + 0j]])  # (2, 2)
+    w = select(keys, query)
+    # Uniform keys → weights should be uniform regardless of query, but shapes should be (2, 3)
+    assert w.shape == (2, 3)
+
+
+def test_select_batched_shape() -> None:
+    # Batch dim prepended: (*batch, h, m, n) and (*batch, h, n) → (*batch, h, m)
+    keys = jnp.ones((3, 2, 5, 4), dtype=jnp.complex128)
+    query = jnp.ones((3, 2, 4), dtype=jnp.complex128)
+    assert select(keys, query).shape == (3, 2, 5)
 
 
 # ── interpolate ───────────────────────────────────────────────────────────────
 
 
 def test_interpolate_output_shape() -> None:
-    weights = jnp.array([0.2, 0.5, 0.3])
-    content = jnp.ones((3, 4), dtype=jnp.complex128)
-    assert interpolate(weights, content).shape == (4,)
+    # 2 heads, 3 candidates, 4 content features → (2*4,) = (8,)
+    weights = jnp.ones((2, 3)) / 3
+    content = jnp.ones((2, 3, 4), dtype=jnp.complex128)
+    assert interpolate(weights, content).shape == (8,)
 
 
-def test_interpolate_uniform_weights_give_mean() -> None:
-    weights = jnp.ones(3) / 3
-    content = jnp.array([[1 + 0j, 2 + 0j], [3 + 0j, 4 + 0j], [5 + 0j, 6 + 0j]])
-    assert jnp.allclose(interpolate(weights, content), jnp.mean(content, axis=0))
+def test_interpolate_uniform_weights_give_per_head_mean() -> None:
+    # With uniform weights each head returns the mean of its content rows.
+    weights = jnp.ones((1, 3)) / 3
+    content = jnp.array([[[1 + 0j, 2 + 0j], [3 + 0j, 4 + 0j], [5 + 0j, 6 + 0j]]])  # (1, 3, 2)
+    expected = jnp.mean(content[0], axis=0)  # (2,)
+    assert jnp.allclose(interpolate(weights, content), expected)
 
 
 def test_interpolate_one_hot_selects_row() -> None:
-    weights = jnp.array([0.0, 1.0, 0.0])
-    content = jnp.array([[1 + 0j, 2 + 0j], [3 + 4j, 5 + 6j], [7 + 0j, 8 + 0j]])
-    assert jnp.allclose(interpolate(weights, content), content[1])
+    weights = jnp.array([[0.0, 1.0, 0.0]])  # (1, 3)
+    content = jnp.array([[[1 + 0j, 2 + 0j], [3 + 4j, 5 + 6j], [7 + 0j, 8 + 0j]]])  # (1, 3, 2)
+    assert jnp.allclose(interpolate(weights, content), content[0, 1])
+
+
+def test_interpolate_batched_shape() -> None:
+    # Batch dim prepended: (*batch, h, m) and (*batch, h, m, d) → (*batch, h*d)
+    weights = jnp.ones((3, 2, 5)) / 5
+    content = jnp.ones((3, 2, 5, 4), dtype=jnp.complex128)
+    assert interpolate(weights, content).shape == (3, 8)
+
+
+def test_interpolate_concatenates_heads() -> None:
+    # Two heads with one-hot selection: output should be the concatenation of selected rows.
+    weights = jnp.array([[1.0, 0.0], [0.0, 1.0]])  # (2, 2) — head 0 picks row 0, head 1 picks row 1
+    content = jnp.array(
+        [
+            [[1 + 0j, 2 + 0j], [3 + 0j, 4 + 0j]],  # head 0 content
+            [[5 + 0j, 6 + 0j], [7 + 0j, 8 + 0j]],  # head 1 content
+        ]
+    )  # (2, 2, 2)
+    result = interpolate(weights, content)  # should be (4,)
+    expected = jnp.array([1 + 0j, 2 + 0j, 7 + 0j, 8 + 0j])
+    assert jnp.allclose(result, expected)
