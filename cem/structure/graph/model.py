@@ -107,7 +107,6 @@ class Model(eqx.Module):
         streams: Mapping[str, RngStream],
         state: eqx.nn.State,
         *,
-        use_signal_noise: bool,
         return_samples: bool,
     ) -> ModelInferenceResult:
         """Run one forward pass through every node in alphabetical order.
@@ -119,7 +118,6 @@ class Model(eqx.Module):
         Args:
             streams: RNG streams passed to each node's ``infer`` method.
             state: Current model state. Updated in-place across nodes.
-            use_signal_noise: Passed through to each node's ``infer``.
             return_samples: Passed through to each node's ``infer``.
 
         Returns:
@@ -132,7 +130,6 @@ class Model(eqx.Module):
                 self,
                 streams,
                 state,
-                use_signal_noise=use_signal_noise,
                 return_samples=return_samples,
             )
             configuration = inference_result.configuration

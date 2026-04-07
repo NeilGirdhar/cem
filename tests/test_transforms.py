@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
@@ -10,6 +11,7 @@ from tjax import RngStream
 from cem.transforms import (
     Accumulator,
     Linear,
+    LinearWithDropout,
     Nonlinear,
     RivalryGroups,
     RivalryNorm,
@@ -150,13 +152,37 @@ def test_linear_is_linear(streams: Mapping[str, RngStream]) -> None:
     z1 = jr.normal(stream.key(), (4,)) + 1j * jr.normal(stream.key(), (4,))
     z2 = jr.normal(stream.key(), (4,)) + 1j * jr.normal(stream.key(), (4,))
     a, b = 2.0 + 1j, -1.0 + 0.5j
-    assert jnp.allclose(f.infer(a * z1 + b * z2), a * f.infer(z1) + b * f.infer(z2))
+    assert jnp.allclose(
+        f.infer(a * z1 + b * z2),
+        a * f.infer(z1) + b * f.infer(z2),
+    )
 
 
 def test_linear_weight_shape(streams: Mapping[str, RngStream]) -> None:
     f = Linear.create(3, 5, streams=streams)
     assert f.weight.value.shape == (5, 3)
     assert f.bias.value.shape == (5,)
+
+
+# ── LinearWithDropout ─────────────────────────────────────────────────────────
+
+
+def test_linear_with_dropout_output_shape(streams: Mapping[str, RngStream]) -> None:
+    f = LinearWithDropout.create(3, 5, streams=streams)
+    assert f.infer(jnp.ones(3, dtype=jnp.complex128), streams=streams).shape == (5,)
+
+
+def test_linear_with_dropout_zero_rate_gives_bias(streams: Mapping[str, RngStream]) -> None:
+    f = LinearWithDropout.create(3, 5, dropout_rate=0.0, streams=streams)
+    assert jnp.allclose(f.infer(jnp.zeros(3, dtype=jnp.complex128), streams=streams), f.bias.value)
+
+
+def test_linear_with_dropout_inference_mode_skips_dropout(streams: Mapping[str, RngStream]) -> None:
+
+    f = LinearWithDropout.create(3, 5, dropout_rate=0.9, streams=streams)
+    f_eval = eqx.nn.inference_mode(f)
+    z = jnp.ones(3, dtype=jnp.complex128)
+    assert jnp.allclose(f_eval.infer(z, streams=streams), f_eval.infer(z, streams=streams))
 
 
 # ── RivalryGroups ─────────────────────────────────────────────────────────────
@@ -213,22 +239,22 @@ def test_rivalry_norm_batched_shape(rivalry_norm: RivalryNorm) -> None:
 
 def test_nonlinear_output_shape(streams: Mapping[str, RngStream]) -> None:
     f = Nonlinear.create(4, 6, 3, streams=streams)
-    assert f.infer(jnp.ones(4, dtype=jnp.complex128)).shape == (6,)
+    assert f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams).shape == (6,)
 
 
 def test_nonlinear_output_dtype(streams: Mapping[str, RngStream]) -> None:
     f = Nonlinear.create(4, 6, 3, streams=streams)
-    assert f.infer(jnp.ones(4, dtype=jnp.complex128)).dtype == jnp.complex128
+    assert f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams).dtype == jnp.complex128
 
 
 def test_nonlinear_batched_shape(streams: Mapping[str, RngStream]) -> None:
     f = Nonlinear.create(4, 6, 3, streams=streams)
-    assert f.infer(jnp.ones((5, 4), dtype=jnp.complex128)).shape == (5, 6)
+    assert f.infer(jnp.ones((5, 4), dtype=jnp.complex128), streams=streams).shape == (5, 6)
 
 
 def test_nonlinear_custom_mid_features(streams: Mapping[str, RngStream]) -> None:
     f = Nonlinear.create(4, 6, 3, mid_features=8, streams=streams)
-    assert f.infer(jnp.ones(4, dtype=jnp.complex128)).shape == (6,)
+    assert f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams).shape == (6,)
 
 
 # ── select ────────────────────────────────────────────────────────────────────

@@ -1,0 +1,3 @@
+- Transform sets of phasors at inputs into sets of phasors (by linear transform), and then merge
+- Ensure that loss is properly measured by reprojecting the phasor back to a dist
+- Write a test to compare the performance of ordinary 2-layer MLP with a NonlinearLink of phasors.

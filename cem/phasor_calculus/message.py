@@ -212,7 +212,7 @@ class PhasorMessage(eqx.Module):
         """
         return jnp.real(self.data * jnp.conj(other.data))
 
-    def dropout(self, key: JaxArray, rate: float) -> PhasorMessage:
+    def dropout(self, key: JaxArray, rate: float | JaxRealArray) -> PhasorMessage:
         """Apply phasor dropout: zero with probability rate, scale by 1/(1-rate) otherwise.
 
         Preserves expected phasor value while corrupting only along the ray (not by rotation),

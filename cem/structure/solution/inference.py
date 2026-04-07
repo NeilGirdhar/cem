@@ -220,14 +220,16 @@ class Inference(eqx.Module, JaxAbstractClass):
         inference_key: KeyArray,
         state: eqx.nn.State,
         learnable_parameters: Model,
-        use_signal_noise: bool,  # noqa: FBT001
         return_samples: bool,  # noqa: FBT001
+        inference: bool,  # noqa: FBT001
     ) -> tuple[JaxArray, eqx.nn.State]:
         keys = {"inference": inference_key}
         streams = create_streams(keys)
         model = self.assemble_model(learnable_parameters)
+        if inference:
+            model = eqx.nn.inference_mode(model)
         model_inference_result = model.infer_one_time_step(
-            streams, state, use_signal_noise=use_signal_noise, return_samples=return_samples
+            streams, state, return_samples=return_samples
         )
         return model_inference_result.loss, model_inference_result.state
 
@@ -238,13 +240,13 @@ class Inference(eqx.Module, JaxAbstractClass):
         state: eqx.nn.State,
         learnable_parameters: Model,
         *,
-        use_signal_noise: bool,
         return_samples: bool,
+        inference: bool = False,
     ) -> tuple[JaxArray, eqx.nn.State]:
         inference_keys = jr.split(inference_key, batch_size)
         f = vmap(self._infer, in_axes=(0, 0, None, None, None), out_axes=(0, 0))
         model_losses, state = f(
-            inference_keys, state, learnable_parameters, use_signal_noise, return_samples
+            inference_keys, state, learnable_parameters, return_samples, inference
         )
         model_loss = jnp.mean(model_losses)
         return model_loss, state
@@ -263,7 +265,6 @@ class Inference(eqx.Module, JaxAbstractClass):
             batch_size,
             inference_key,
             state,
-            use_signal_noise=True,
             return_samples=return_samples,
         )
         f = cast("Callable[[Model], tuple[Model, eqx.nn.State]]", grad(bound_infer, has_aux=True))
@@ -282,8 +283,8 @@ class Inference(eqx.Module, JaxAbstractClass):
             inference_state.inference_key,
             inference_state.state,
             learnable_parameters,
-            use_signal_noise=False,
             return_samples=return_samples,
+            inference=True,
         )
         return state
 

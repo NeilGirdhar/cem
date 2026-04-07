@@ -46,10 +46,9 @@ class InputNode(NodeBase[InputNodeConfiguration]):
         streams: Mapping[str, RngStream],
         state: eqx.nn.State,
         *,
-        use_signal_noise: bool,
         return_samples: bool,
     ) -> NodeInferenceResult[InputNodeConfiguration]:
-        del model, streams, use_signal_noise, return_samples
+        del model, streams, return_samples
         values = tuple(state.get(idx) for idx in self._state_indices)
         return NodeInferenceResult(InputNodeConfiguration(values=values), state)
 

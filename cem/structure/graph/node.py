@@ -45,7 +45,6 @@ class NodeBase[ConfigurationT: NodeConfiguration = NodeConfiguration](eqx.Module
         streams: Mapping[str, RngStream],
         state: eqx.nn.State,
         *,
-        use_signal_noise: bool,
         return_samples: bool,
     ) -> NodeInferenceResult[ConfigurationT]:
         raise NotImplementedError
@@ -74,7 +73,7 @@ class Binding(eqx.Module):
 
 
 class Kernel[ConfigurationT: NodeConfiguration](eqx.Module):
-    def infer(self, **kwargs: list[object]) -> ConfigurationT:
+    def infer(self, *, streams: Mapping[str, RngStream], **kwargs: list[object]) -> ConfigurationT:
         raise NotImplementedError
 
     def zero_configuration(self) -> ConfigurationT:
@@ -123,15 +122,15 @@ class Node[ConfigurationT: NodeConfiguration = NodeConfiguration](NodeBase[Confi
         streams: Mapping[str, RngStream],
         state: eqx.nn.State,
         *,
-        use_signal_noise: bool,
         return_samples: bool,
     ) -> NodeInferenceResult[ConfigurationT]:
-        del streams, use_signal_noise, return_samples
+        del return_samples
         result = self.kernel.infer(
+            streams=streams,
             **{
                 name: [binding.fetch(model, state) for binding in bindings]
                 for name, bindings in self._bindings.items()
-            }
+            },
         )
         return NodeInferenceResult(result, state)
 

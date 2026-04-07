@@ -4,7 +4,10 @@ from collections.abc import Mapping
 from typing import Self
 
 import equinox as eqx
-from tjax import JaxArray, RngStream
+import jax.numpy as jnp
+from tjax import JaxArray, JaxRealArray, RngStream
+
+from cem.phasor_calculus.message import PhasorMessage
 
 from .gate import phasor_gate
 from .linear import Linear
@@ -12,25 +15,29 @@ from .rivalry import RivalryNorm
 
 
 class Nonlinear(eqx.Module):
-    """GLU-style nonlinear projection followed by rivalry normalization.
+    """GLU-style nonlinear projection followed by rivalry normalization, with optional dropout.
 
-    h(z) = r(f3(g(f1(z), f2(z))))
+    h(z) = d(r(f3(g(f1(z), f2(z)))))
 
-    where f1, f2, f3 are linear links, g is a phasor gate, and r is rivalry normalization.
-    f1 produces the gate signal; f2 produces the content; their gated product is projected by f3
-    and then normalized.
+    where f1, f2, f3 are linear links, g is a phasor gate, r is rivalry normalization,
+    and d is an optional final phasor dropout.  Call
+    ``eqx.nn.inference_mode(model, True)`` to disable all dropout without recompilation.
 
     Attributes:
         f1: Gate signal projection, in_features → mid_features.
         f2: Content projection, in_features → mid_features.
         f3: Output projection, mid_features → out_features.
         rivalry_norm: Rivalry normalization applied to the output.
+        dropout_rate: Fraction of outputs zeroed after rivalry normalization.  0.0 disables.
+        inference: When True, the final dropout is skipped entirely.
     """
 
     f1: Linear
     f2: Linear
     f3: Linear
     rivalry_norm: RivalryNorm
+    dropout_rate: JaxRealArray
+    inference: bool
 
     @classmethod
     def create(
@@ -40,6 +47,7 @@ class Nonlinear(eqx.Module):
         num_groups: int,
         *,
         mid_features: int | None = None,
+        dropout_rate: float = 0.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
         if mid_features is None:
@@ -49,16 +57,21 @@ class Nonlinear(eqx.Module):
             f2=Linear.create(in_features, mid_features, streams=streams),
             f3=Linear.create(mid_features, out_features, streams=streams),
             rivalry_norm=RivalryNorm.create(out_features, num_groups, streams=streams),
+            dropout_rate=jnp.asarray(dropout_rate),
+            inference=False,
         )
 
-    def infer(self, z: JaxArray) -> JaxArray:
-        """Apply GLU-style nonlinear transform with rivalry normalization.
+    def infer(self, z: JaxArray, *, streams: Mapping[str, RngStream]) -> JaxArray:
+        """Apply GLU-style nonlinear transform with rivalry normalization and optional dropout.
 
         Args:
             z: Input phasors, shape (..., in_features).
+            streams: RNG streams; the ``"inference"`` stream is used for dropout.
 
         Returns:
             Output phasors, shape (..., out_features).
         """
         gated = phasor_gate(self.f1.infer(z), self.f2.infer(z))
-        return self.rivalry_norm.infer(self.f3.infer(gated))
+        result = self.rivalry_norm.infer(self.f3.infer(gated))
+        dropped = PhasorMessage(result).dropout(streams["inference"].key(), self.dropout_rate).data
+        return jnp.where(self.inference, result, dropped)
