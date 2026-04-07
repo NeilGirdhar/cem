@@ -12,13 +12,13 @@ if TYPE_CHECKING:
     from .model import Model
 
 
-class InputNodeConfiguration[ValueT](NodeConfiguration):
+class InputConfiguration[ValueT](NodeConfiguration):
     """Holds the environment-provided input values for an input node."""
 
     values: frozendict[str, ValueT]
 
 
-class InputNode[ValueT](Node[InputNodeConfiguration[ValueT]]):
+class InputNode[ValueT](Node[InputConfiguration[ValueT]]):
     """Dummy node that holds environment-provided inputs as named state slots.
 
     Other nodes read from it via Binding(source_node=<name>, source_field=<field_name>).
@@ -39,7 +39,7 @@ class InputNode[ValueT](Node[InputNodeConfiguration[ValueT]]):
         state_indices = frozendict(
             {field: eqx.nn.StateIndex(v) for field, v in field_defaults.items()}
         )
-        zero_config = InputNodeConfiguration(values=frozendict(field_defaults))
+        zero_config = InputConfiguration(values=frozendict(field_defaults))
         return cls(
             name=name,
             _state_indices=state_indices,
@@ -56,15 +56,15 @@ class InputNode[ValueT](Node[InputNodeConfiguration[ValueT]]):
         state: eqx.nn.State,
         *,
         inference: bool,
-    ) -> NodeInferenceResult[InputNodeConfiguration[ValueT]]:
-        """Read all field values from state and package them as an InputNodeConfiguration.
+    ) -> NodeInferenceResult[InputConfiguration[ValueT]]:
+        """Read all field values from state and package them as an InputConfiguration.
 
         The model, streams, and inference arguments are unused; input nodes
         have no computation — they simply expose values written by :meth:`set_input`.
         """
         del model, streams, inference
         values = frozendict(self.gather_local_inputs(state))
-        return NodeInferenceResult(InputNodeConfiguration(values=values), state)
+        return NodeInferenceResult(InputConfiguration(values=values), state)
 
     def set_input(self, field_name: str, new_value: ValueT, state: eqx.nn.State) -> eqx.nn.State:
         """Write one environment-provided value into this node's state."""
@@ -72,5 +72,5 @@ class InputNode[ValueT](Node[InputNodeConfiguration[ValueT]]):
 
     @override
     def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> ValueT:
-        assert isinstance(node_configuration, InputNodeConfiguration)
+        assert isinstance(node_configuration, InputConfiguration)
         return node_configuration.values[field_name]

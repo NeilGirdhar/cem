@@ -7,7 +7,7 @@ import equinox as eqx
 from efax import Flattener, NaturalParametrization
 from tjax import JaxRealArray, frozendict
 
-from cem.structure.graph.input_node import InputNode, InputNodeConfiguration
+from cem.structure.graph.input_node import InputConfiguration, InputNode
 
 
 class PerceptronInputNode(InputNode[JaxRealArray]):
@@ -44,7 +44,7 @@ class PerceptronInputNode(InputNode[JaxRealArray]):
         state_indices = frozendict(
             {field: eqx.nn.StateIndex(v) for field, v in flat_defaults.items()}
         )
-        zero_config: InputNodeConfiguration[JaxRealArray] = InputNodeConfiguration(
+        zero_config: InputConfiguration[JaxRealArray] = InputConfiguration(
             values=frozendict(flat_defaults)
         )
         return cls(
