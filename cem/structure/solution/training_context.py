@@ -49,8 +49,6 @@ def train_one_episode(
     inference_key: KeyArray,
     data_source: DataSource,
     telemetries: tuple[Telemetry, ...],
-    *,
-    return_samples: bool,
 ) -> tuple[SolutionState, dict[Telemetry, Any], JaxArray, JaxArray]:
     result = solution.inference.train_one_episode(
         batch_size,
@@ -60,7 +58,6 @@ def train_one_episode(
         data_source,
         solution.problem,
         solution.solution_state,
-        return_samples=return_samples,
     )
     snapshots = training_snapshots(solution, telemetries, result)
     finite_parameters = is_all_finite_tree(result.solution_state.dis_learnable_parameters)
@@ -68,7 +65,7 @@ def train_one_episode(
     return result.solution_state, snapshots, finite_parameters, finite_inference_result
 
 
-j_train_one_episode = jit(train_one_episode, static_argnames=("batch_size", "return_samples"))
+j_train_one_episode = jit(train_one_episode, static_argnames=("batch_size",))
 
 
 def train_episodes(
@@ -107,7 +104,6 @@ def train_episodes(
                     inference_key,
                     data_source,
                     packet.telemetries.telemetries,
-                    return_samples=False,
                 )
             )
             solution = replace(solution, solution_state=solution_state)
@@ -130,7 +126,6 @@ def train_episodes(
                         data_source,
                         solution.problem,
                         solution_state,
-                        return_samples=False,
                     )
                     infinite_inference_result = eqx.filter(
                         result.inference_result, all_finite, inverse=True

@@ -49,10 +49,14 @@ class InputNode(NodeBase[InputNodeConfiguration]):
         streams: Mapping[str, RngStream],
         state: eqx.nn.State,
         *,
-        use_signal_noise: bool,
-        return_samples: bool,
+        inference: bool,
     ) -> NodeInferenceResult[InputNodeConfiguration]:
-        del model, streams, use_signal_noise, return_samples
+        """Read all field values from state and package them as an InputNodeConfiguration.
+
+        The model, streams, and inference arguments are unused; input nodes
+        have no computation — they simply expose values written by :meth:`set_input`.
+        """
+        del model, streams, inference
         values = frozendict({f: state.get(idx) for f, idx in self._state_indices.items()})
         return NodeInferenceResult(InputNodeConfiguration(values=values), state)
 

@@ -103,8 +103,6 @@ class Inference(eqx.Module, JaxAbstractClass):
         data_source: DataSource,
         learnable_parameters: Model,
         problem: Problem,
-        *,
-        return_samples: bool,
     ) -> InferenceResult:
         """Run one batched inference episode with shared model parameters.
 
@@ -118,7 +116,6 @@ class Inference(eqx.Module, JaxAbstractClass):
             self._inference_body_fun,
             batch_size,
             learnable_parameters,
-            return_samples=return_samples,
         )
         return self._infer_one_episode(
             learnable_parameters, problem_state, problem, inference_state, body_function
@@ -133,8 +130,6 @@ class Inference(eqx.Module, JaxAbstractClass):
         data_source: DataSource,
         problem: Problem,
         solution_state: SolutionState,
-        *,
-        return_samples: bool,
     ) -> TrainingResult:
         """Run one batched training episode.
 
@@ -149,7 +144,6 @@ class Inference(eqx.Module, JaxAbstractClass):
             self._training_body_fun,
             batch_size,
             gradient_transformations,
-            return_samples=return_samples,
         )
         new_training_state = self._train_one_episode(
             problem, training_state, training_body_function
@@ -220,15 +214,12 @@ class Inference(eqx.Module, JaxAbstractClass):
         inference_key: KeyArray,
         state: eqx.nn.State,
         learnable_parameters: Model,
-        use_signal_noise: bool,  # noqa: FBT001
-        return_samples: bool,  # noqa: FBT001
+        inference: bool,  # noqa: FBT001
     ) -> tuple[JaxArray, eqx.nn.State]:
         keys = {"inference": inference_key}
         streams = create_streams(keys)
         model = self.assemble_model(learnable_parameters)
-        model_inference_result = model.infer_one_time_step(
-            streams, state, use_signal_noise=use_signal_noise, return_samples=return_samples
-        )
+        model_inference_result = model.infer_one_time_step(streams, state, inference=inference)
         return model_inference_result.loss, model_inference_result.state
 
     def _v_infer(
@@ -238,14 +229,11 @@ class Inference(eqx.Module, JaxAbstractClass):
         state: eqx.nn.State,
         learnable_parameters: Model,
         *,
-        use_signal_noise: bool,
-        return_samples: bool,
+        inference: bool,
     ) -> tuple[JaxArray, eqx.nn.State]:
         inference_keys = jr.split(inference_key, batch_size)
-        f = vmap(self._infer, in_axes=(0, 0, None, None, None), out_axes=(0, 0))
-        model_losses, state = f(
-            inference_keys, state, learnable_parameters, use_signal_noise, return_samples
-        )
+        f = vmap(self._infer, in_axes=(0, 0, None, None), out_axes=(0, 0))
+        model_losses, state = f(inference_keys, state, learnable_parameters, inference)
         model_loss = jnp.mean(model_losses)
         return model_loss, state
 
@@ -255,16 +243,13 @@ class Inference(eqx.Module, JaxAbstractClass):
         inference_key: KeyArray,
         state: eqx.nn.State,
         learnable_parameters: Model,
-        *,
-        return_samples: bool,
     ) -> tuple[Model, eqx.nn.State]:
         bound_infer = partial(
             self._v_infer,
             batch_size,
             inference_key,
             state,
-            use_signal_noise=True,
-            return_samples=return_samples,
+            inference=False,
         )
         f = cast("Callable[[Model], tuple[Model, eqx.nn.State]]", grad(bound_infer, has_aux=True))
         return f(learnable_parameters)
@@ -274,16 +259,13 @@ class Inference(eqx.Module, JaxAbstractClass):
         batch_size: int,
         learnable_parameters: Model,
         inference_state: _InferenceState,
-        *,
-        return_samples: bool,
     ) -> eqx.nn.State:
         _, state = self._v_infer(
             batch_size,
             inference_state.inference_key,
             inference_state.state,
             learnable_parameters,
-            use_signal_noise=False,
-            return_samples=return_samples,
+            inference=True,
         )
         return state
 
@@ -292,8 +274,6 @@ class Inference(eqx.Module, JaxAbstractClass):
         batch_size: int,
         gradient_transformations: DisGradientTransformation,
         training_state: _TrainingState,
-        *,
-        return_samples: bool,
     ) -> _TrainingState:
         inference_state = training_state.inference_state
         solution_state = training_state.solution_state
@@ -304,7 +284,6 @@ class Inference(eqx.Module, JaxAbstractClass):
             inference_state.inference_key,
             inference_state.state,
             solution_state.dis_learnable_parameters.assembled(),
-            return_samples=return_samples,
         )
 
         # Update the model parameters.
