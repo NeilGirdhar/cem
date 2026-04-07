@@ -9,13 +9,23 @@ from cem.phasor_calculus.loss import (
     strength_loss,
 )
 from cem.phasor_calculus.message import PhasorMessage, geometric_frequencies
+from cem.phasor_calculus.score import (
+    ObservedScoreNode,
+    ObservedScoreOutput,
+    ScoreOutput,
+    latent_score,
+)
 
 __all__ = [
+    "ObservedScoreNode",
+    "ObservedScoreOutput",
     "PhasorMessage",
+    "ScoreOutput",
     "centering_loss",
     "decorrelation_loss",
     "expectation_params",
     "geometric_frequencies",
+    "latent_score",
     "reconstruction_loss",
     "score",
     "strength_loss",
