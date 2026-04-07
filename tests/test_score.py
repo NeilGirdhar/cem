@@ -159,7 +159,7 @@ def test_observed_score_node_predicted_exp_recovers_mean(
     dist = NormalNP(jnp.array(mu / sigma2), jnp.array(-0.5 / sigma2))
     z_hat = PhasorMessage.from_distribution(dist, freqs)
     out = observed_node.infer(dist.to_exp(), z_hat)
-    assert jnp.allclose(out.predicted_exp.mean, jnp.array(mu), atol=1e-2)  # ty: ignore
+    assert jnp.allclose(out.predicted_exp.mean, jnp.array(mu), atol=1e-2)
 
 
 def test_observed_score_node_score_equals_gradient(

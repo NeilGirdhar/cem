@@ -8,7 +8,7 @@ from cem.phasor_calculus.loss import (
     score,
     strength_loss,
 )
-from cem.phasor_calculus.message import PhasorMessage, geometric_frequencies
+from cem.phasor_calculus.message import PhasorMessage, geometric_frequencies, make_frequency_grid
 from cem.phasor_calculus.score import (
     ObservedScoreNode,
     ObservedScoreOutput,
@@ -26,6 +26,7 @@ __all__ = [
     "expectation_params",
     "geometric_frequencies",
     "latent_score",
+    "make_frequency_grid",
     "reconstruction_loss",
     "score",
     "strength_loss",
