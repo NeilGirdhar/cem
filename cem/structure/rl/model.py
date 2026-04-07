@@ -5,7 +5,7 @@ from typing import Any, Self
 import equinox as eqx
 from tjax import frozendict
 
-from cem.structure.graph import NodeBase
+from cem.structure.graph import Node
 from cem.structure.graph.model import Model
 from cem.structure.problem.data_source import ProblemState
 
@@ -24,7 +24,7 @@ class RLModel[ProblemStateT: ProblemState](Model):
     @classmethod
     def create_rl(
         cls,
-        nodes: frozendict[str, NodeBase],
+        nodes: frozendict[str, Node],
         output_routing: frozendict[str, tuple[str, str]],
         reward_routing: frozendict[str, tuple[str, str]],
         action_routing: frozendict[str, tuple[str, str]],

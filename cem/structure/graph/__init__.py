@@ -8,12 +8,10 @@ from cem.structure.graph.disassembled import (
     verify_model_has_no_free_parameters,
 )
 from cem.structure.graph.input_node import InputNode, InputNodeConfiguration
+from cem.structure.graph.kernel_node import Binding, Kernel, KernelNode
 from cem.structure.graph.model import Model, ModelConfiguration
 from cem.structure.graph.node import (
-    Binding,
-    Kernel,
     Node,
-    NodeBase,
     NodeConfiguration,
     NodeInferenceResult,
 )
@@ -34,11 +32,11 @@ __all__ = [
     "InputNode",
     "InputNodeConfiguration",
     "Kernel",
+    "KernelNode",
     "LearnableParameter",
     "Model",
     "ModelConfiguration",
     "Node",
-    "NodeBase",
     "NodeConfiguration",
     "NodeInferenceResult",
     "Parameter",

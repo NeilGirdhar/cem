@@ -6,7 +6,8 @@ from typing import Self, override
 import equinox as eqx
 from tjax import RngStream, frozendict
 
-from .node import NodeBase, NodeConfiguration, NodeInferenceResult
+from .model import Model
+from .node import Node, NodeConfiguration, NodeInferenceResult
 
 
 class InputNodeConfiguration(NodeConfiguration):
@@ -15,7 +16,7 @@ class InputNodeConfiguration(NodeConfiguration):
     values: frozendict[str, object]
 
 
-class InputNode(NodeBase[InputNodeConfiguration]):
+class InputNode(Node[InputNodeConfiguration]):
     """Dummy node that holds environment-provided inputs as named state slots.
 
     Other nodes read from it via Binding(source_node=<name>, source_field=<field_name>).
@@ -43,9 +44,12 @@ class InputNode(NodeBase[InputNodeConfiguration]):
             _output_state_index=eqx.nn.StateIndex(zero_config),
         )
 
+    def gather_local_inputs(self, state: eqx.nn.State) -> Mapping[str, object]:
+        return {f: state.get(idx) for f, idx in self._state_indices.items()}
+
     def infer(
         self,
-        model: object,
+        model: Model,
         streams: Mapping[str, RngStream],
         state: eqx.nn.State,
         *,
@@ -57,7 +61,7 @@ class InputNode(NodeBase[InputNodeConfiguration]):
         have no computation — they simply expose values written by :meth:`set_input`.
         """
         del model, streams, inference
-        values = frozendict({f: state.get(idx) for f, idx in self._state_indices.items()})
+        values = frozendict(self.gather_local_inputs(state))
         return NodeInferenceResult(InputNodeConfiguration(values=values), state)
 
     def set_input(self, field_name: str, new_value: object, state: eqx.nn.State) -> eqx.nn.State:

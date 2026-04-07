@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from tjax import JaxArray, RngStream, frozendict
 
 from .input_node import InputNode
-from .node import Node, NodeBase, NodeConfiguration
+from .node import Node, NodeConfiguration
 
 ModelConfiguration = Mapping[str, NodeConfiguration]
 
@@ -28,14 +28,14 @@ class Model(eqx.Module):
     each field to the correct node automatically via ``_input_routing``.
     """
 
-    _nodes: frozendict[str, NodeBase] = eqx.field(static=True)
+    _nodes: frozendict[str, Node] = eqx.field(static=True)
     _output_routing: frozendict[str, tuple[str, str]] = eqx.field(static=True)
     _input_routing: frozendict[str, str] = eqx.field(static=True)
 
     @classmethod
     def create(
         cls,
-        nodes: frozendict[str, NodeBase],
+        nodes: frozendict[str, Node],
         output_routing: frozendict[str, tuple[str, str]],
     ) -> Self:
         """Construct a Model from a pre-built node dictionary.
@@ -67,7 +67,7 @@ class Model(eqx.Module):
         )
 
     @staticmethod
-    def build_input_routing(nodes: frozendict[str, NodeBase]) -> frozendict[str, str]:
+    def build_input_routing(nodes: frozendict[str, Node]) -> frozendict[str, str]:
         routing: dict[str, str] = {}
         for node_name, node in nodes.items():
             if isinstance(node, InputNode):
@@ -83,15 +83,15 @@ class Model(eqx.Module):
 
     # Accessing methods ----------------------------------------------------------------------------
     @overload
-    def get_node(self, node_name: str) -> NodeBase: ...
+    def get_node(self, node_name: str) -> Node: ...
 
     @overload
-    def get_node(self, node_name: str, node_type: None) -> NodeBase: ...
+    def get_node(self, node_name: str, node_type: None) -> Node: ...
 
     @overload
     def get_node[NT: Node](self, node_name: str, node_type: type[NT]) -> NT: ...
 
-    def get_node(self, node_name: str, node_type: type[Node] | None = None) -> NodeBase:
+    def get_node(self, node_name: str, node_type: type[Node] | None = None) -> Node:
         """Retrieve a node by name, with optional type narrowing.
 
         Args:
@@ -115,7 +115,7 @@ class Model(eqx.Module):
             raise TypeError(msg)
         return node
 
-    def ordered_nodes(self) -> Iterable[tuple[str, NodeBase]]:
+    def ordered_nodes(self) -> Iterable[tuple[str, Node]]:
         """Return all nodes sorted alphabetically by name.
 
         Inference always processes nodes in this order, so bindings from node A to node B
