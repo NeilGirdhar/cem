@@ -28,13 +28,14 @@ class InputNode(NodeBase[InputNodeConfiguration]):
     @classmethod
     def create(
         cls,
+        name: str,
         field_defaults: Mapping[str, object],
     ) -> Self:
         field_names = tuple(field_defaults.keys())
         defaults = tuple(field_defaults.values())
         zero_config = InputNodeConfiguration(values=defaults)
         return cls(
-            name="input",
+            name=name,
             field_names=field_names,
             _state_indices=tuple(eqx.nn.StateIndex(v) for v in defaults),
             _output_state_index=eqx.nn.StateIndex(zero_config),

@@ -24,12 +24,13 @@ class Model(eqx.Module):
     """The entire model.
 
     The model is stored as a dictionary of nodes. Inference proceeds in alphabetical order
-    by node name. The caller is responsible for including an 'input' node that holds
-    environment-provided inputs; see :meth:`create` for an example.
+    by node name. One or more InputNodes hold environment-provided inputs; the model routes
+    each field to the correct node automatically via ``_input_routing``.
     """
 
     _nodes: frozendict[str, NodeBase] = eqx.field(static=True)
     _output_routing: frozendict[str, tuple[str, str]] = eqx.field(static=True)
+    _input_routing: frozendict[str, str] = eqx.field(static=True)
 
     @classmethod
     def create(
@@ -39,25 +40,46 @@ class Model(eqx.Module):
     ) -> Self:
         """Construct a Model from a pre-built node dictionary.
 
-        The caller is responsible for creating and including the ``'input'`` node.
-        Use :class:`~cem.structure.graph.input_node.InputNode` for this::
+        Any nodes that are :class:`~cem.structure.graph.input_node.InputNode` instances
+        are automatically registered for input routing.  Field names must be unique across
+        all InputNodes::
 
             zero = jnp.zeros(1, dtype=jnp.complex128)
-            input_node = InputNode.create(field_defaults={"x": zero, "y": zero})
+            input_node = InputNode.create("input", field_defaults={"x": zero, "y": zero})
             model = Model.create(
                 frozendict({"input": input_node, "encoder": encoder_node}),
                 frozendict({"z": ("encoder", "latent")}),
             )
 
         Args:
-            nodes: All nodes in the model, keyed by name. Must include an ``'input'`` node.
+            nodes: All nodes in the model, keyed by name.
             output_routing: Maps each externally visible output field name to
                 ``(node_name, node_field_name)``.
 
         Returns:
             A new Model instance.
+
         """
-        return cls(_nodes=nodes, _output_routing=output_routing)
+        return cls(
+            _nodes=nodes,
+            _output_routing=output_routing,
+            _input_routing=Model.build_input_routing(nodes),
+        )
+
+    @staticmethod
+    def build_input_routing(nodes: frozendict[str, NodeBase]) -> frozendict[str, str]:
+        routing: dict[str, str] = {}
+        for node_name, node in nodes.items():
+            if isinstance(node, InputNode):
+                for field_name in node.field_names:
+                    if field_name in routing:
+                        msg = (
+                            f"Input field '{field_name}' declared in both"
+                            f" '{routing[field_name]}' and '{node_name}'"
+                        )
+                        raise ValueError(msg)
+                    routing[field_name] = node_name
+        return frozendict(routing)
 
     # Accessing methods ----------------------------------------------------------------------------
     @overload
@@ -143,23 +165,23 @@ class Model(eqx.Module):
         return ModelInferenceResult(total_loss, state)
 
     def set_input(self, field_values: Mapping[str, Any], state: eqx.nn.State) -> eqx.nn.State:
-        """Write environment-provided values into the ``'input'`` node's state.
+        """Write environment-provided values into the appropriate InputNode state slots.
 
-        Must be called before :meth:`infer_one_time_step` whenever the environment
-        observation changes.
+        Routes each field to whichever InputNode declared it.  Must be called before
+        :meth:`infer_one_time_step` whenever the environment observation changes.
 
         Args:
-            field_values: Mapping from input field name to the new value. Must be a
-                subset of the field names declared in the ``'input'`` node.
+            field_values: Mapping from input field name to the new value.
             state: Current model state.
 
         Returns:
             Updated state with the new input values written in.
         """
-        input_node = self._nodes["input"]
-        assert isinstance(input_node, InputNode)
         for field_name, value in field_values.items():
-            state = input_node.set_input(field_name, value, state)
+            node_name = self._input_routing[field_name]
+            node = self._nodes[node_name]
+            assert isinstance(node, InputNode)
+            state = node.set_input(field_name, value, state)
         return state
 
     def configuration_from_state(self, state: eqx.nn.State) -> ModelConfiguration:

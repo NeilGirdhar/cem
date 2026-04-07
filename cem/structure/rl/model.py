@@ -35,7 +35,7 @@ class RLModel[ProblemStateT: ProblemState](Model):
         Use :class:`~cem.structure.graph.input_node.InputNode` for this::
 
             zero = jnp.zeros(1, dtype=jnp.complex128)
-            input_node = InputNode.create(field_defaults={"obs": zero})
+            input_node = InputNode.create("input", field_defaults={"obs": zero})
             model = RLModel.create_rl(
                 frozendict({"input": input_node, "policy": policy_node}),
                 output_routing=frozendict({}),
@@ -58,6 +58,7 @@ class RLModel[ProblemStateT: ProblemState](Model):
         return cls(
             _nodes=nodes,
             _output_routing=output_routing,
+            _input_routing=Model.build_input_routing(nodes),
             _reward_routing=reward_routing,
             _action_routing=action_routing,
         )
