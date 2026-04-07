@@ -6,63 +6,32 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from efax import Flattener, HasEntropyEP, NaturalParametrization
-from tjax import JaxArray, JaxRealArray
+from tjax import JaxArray
 
-from cem.phasor_calculus.loss import reconstruction_loss
-from cem.phasor_calculus.message import PhasorMessage, make_frequency_grid
+from cem.phasor.frequency import make_frequency_grid
+from cem.phasor.message import PhasorMessage
 from cem.structure.graph.node import NodeConfiguration
 
 
-class ScoreOutput(NodeConfiguration):
-    """Base class for score node outputs: phasor-space score and reconstruction loss.
+class PhasorTargetConfiguration[EP: HasEntropyEP](NodeConfiguration):
+    """Output of a PhasorTargetNode: score, loss, and recovered predicted distribution.
 
     Attributes:
         score: ∂loss/∂ẑ — gradient of the loss w.r.t. predicted phasors.
-        loss: Reconstruction loss between observation and prediction.
+        loss: Per-element reconstruction loss between observation and prediction.
+        predicted_exp: Expectation parameters of the predicted distribution, recovered from z_hat.
     """
 
     score: PhasorMessage
     loss: JaxArray
+    predicted_exp: EP
 
     def total_loss(self) -> JaxArray:
         return jnp.sum(self.loss)
 
 
-class ObservedScoreOutput[EP: HasEntropyEP](ScoreOutput):
-    """Score node output for observed variables, adding the recovered predicted distribution.
-
-    Attributes:
-        predicted_exp: Expectation parameters of the predicted distribution, recovered from z_hat.
-    """
-
-    predicted_exp: EP
-
-
-def latent_score(observed: PhasorMessage, z_hat: PhasorMessage) -> ScoreOutput:
-    """Compute score and reconstruction loss for a latent variable in phasor space.
-
-    No distribution family is assumed.  Observed and predicted phasors are treated as von Mises
-    natural parameters.  The score ∂loss/∂ẑ is the gradient of the total (summed) reconstruction
-    loss w.r.t. the predicted phasors; the per-element losses are stored in the output.
-
-    Args:
-        observed: Observed phasors.
-        z_hat: Predicted phasors from the network.
-
-    Returns:
-        ScoreOutput with score ∂loss/∂ẑ and per-element reconstruction cross-entropy.
-    """
-
-    def loss_fn(z: PhasorMessage) -> tuple[JaxArray, JaxArray]:
-        losses = reconstruction_loss(observed.data, z.data)
-        return jnp.sum(losses), losses
-
-    (_, losses), score = jax.value_and_grad(loss_fn, has_aux=True)(z_hat)
-    return ScoreOutput(score=score, loss=losses)
-
-
-class ObservedScoreNode(eqx.Module):
-    """Score node for observed variables: recovers distributions via a known family and frequencies.
+class PhasorTargetNode(eqx.Module):
+    """Target node for observed variables: scores predictions against a known distribution family.
 
     Stores the frequency grid needed to recover expectation parameters from predicted phasors via
     PhasorMessage.to_distribution.  The score ∂loss/∂ẑ is in phasor space, computed by
@@ -79,7 +48,7 @@ class ObservedScoreNode(eqx.Module):
     def create(
         cls,
         flattener: Flattener[NaturalParametrization[Any, Any]],
-        frequencies: JaxRealArray,
+        frequencies: JaxArray,
     ) -> Self:
         """Build the frequency grid from a flattener and frequency array.
 
@@ -89,21 +58,22 @@ class ObservedScoreNode(eqx.Module):
             frequencies: Geometric frequency grid, shape (m,).
 
         Returns:
-            ObservedScoreNode with t of shape (m * d,).
+            PhasorTargetNode with t of shape (m * d,).
         """
         return cls(t=make_frequency_grid(flattener, frequencies))
 
     def infer[EP: HasEntropyEP](
         self, observed_exp: EP, z_hat: PhasorMessage
-    ) -> ObservedScoreOutput[EP]:
-        """Compute score and reconstruction loss.
+    ) -> PhasorTargetConfiguration[EP]:
+        """Compute score, loss, and predicted distribution from a predicted phasor.
 
         Args:
             observed_exp: Expectation parameters of the observed distribution, e.g. dist.to_exp().
             z_hat: Predicted phasors from the network.
 
         Returns:
-            ObservedScoreOutput with score ∂loss/∂ẑ and per-element reconstruction cross-entropy.
+            PhasorTargetConfiguration with score ∂loss/∂ẑ, per-element reconstruction
+            cross-entropy, and recovered expectation parameters.
         """
 
         def forward(z: PhasorMessage) -> tuple[JaxArray, tuple[JaxArray, EP]]:
@@ -113,4 +83,4 @@ class ObservedScoreNode(eqx.Module):
             return jnp.sum(losses), (losses, predicted_exp)
 
         (_, (losses, predicted_exp)), score = jax.value_and_grad(forward, has_aux=True)(z_hat)
-        return ObservedScoreOutput(predicted_exp=predicted_exp, score=score, loss=losses)
+        return PhasorTargetConfiguration(score=score, loss=losses, predicted_exp=predicted_exp)

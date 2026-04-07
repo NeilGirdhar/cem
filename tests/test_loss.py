@@ -1,88 +1,14 @@
 from __future__ import annotations
 
-import jax
 import jax.numpy as jnp
 import jax.scipy.special as jss
 
-from cem.phasor_calculus.loss import (
+from cem.phasor.loss import (
     centering_loss,
     decorrelation_loss,
-    expectation_params,
     reconstruction_loss,
-    score,
     strength_loss,
 )
-
-# ── expectation_params ────────────────────────────────────────────────────────
-
-
-def test_expectation_params_zero_input_is_zero() -> None:
-    assert jnp.allclose(expectation_params(jnp.zeros(3, dtype=jnp.complex128)), 0.0)
-
-
-def test_expectation_params_preserves_phase() -> None:
-    z = jnp.array([1 + 1j, -2 + 0j, 0 - 3j, 1 - 1j])
-    g = expectation_params(z)
-    assert jnp.allclose(jnp.angle(g), jnp.angle(z), atol=1e-7)
-
-
-def test_expectation_params_magnitude_less_than_one() -> None:
-    z = jnp.array([0.1 + 0j, 1 + 1j, 10 + 0j, 0 + 0.01j])
-    g = expectation_params(z)
-    assert jnp.all(jnp.abs(g) < 1.0)
-
-
-def test_expectation_params_magnitude_less_than_input() -> None:
-    z = jnp.array([0.5 + 0j, 1 + 1j, 5 + 0j])
-    assert jnp.all(jnp.abs(expectation_params(z)) < jnp.abs(z))
-
-
-def test_expectation_params_small_r_limit() -> None:
-    # At z → 0, scale → 1/2, so g(z) ≈ z / 2.
-    z = jnp.array([1e-8 + 0j, 0 + 1e-8j])
-    assert jnp.allclose(expectation_params(z), 0.5 * z, rtol=1e-4)
-
-
-def test_expectation_params_large_r_limit() -> None:
-    # At large r, A₁(r) → 1, so |g(z)| → 1.
-    z = jnp.array([1000.0 + 0j, 0 + 1000j])
-    assert jnp.allclose(jnp.abs(expectation_params(z)), jnp.ones(2), atol=1e-3)
-
-
-def test_expectation_params_output_shape() -> None:
-    z = jnp.ones((3, 4), dtype=jnp.complex128)
-    assert expectation_params(z).shape == (3, 4)
-
-
-# ── score ─────────────────────────────────────────────────────────────────────
-
-
-def test_score_self_is_zero() -> None:
-    z = jnp.array([1 + 1j, -2 + 0j, 0 + 3j])
-    assert jnp.allclose(score(z, z), jnp.zeros(3, dtype=jnp.complex128))
-
-
-def test_score_antisymmetry() -> None:
-    # score(z, z_hat) = g(z_hat) - g(z) = -score(z_hat, z)
-    z = jnp.array([1 + 1j, -2 + 0j])
-    z_hat = jnp.array([0.5 - 0.5j, 1 + 2j])
-    assert jnp.allclose(score(z, z_hat), -score(z_hat, z))
-
-
-def test_score_output_shape() -> None:
-    z = jnp.ones((2, 3), dtype=jnp.complex128)
-    z_hat = jnp.ones((2, 3), dtype=jnp.complex128)
-    assert score(z, z_hat).shape == (2, 3)
-
-
-def test_score_points_toward_observation() -> None:
-    # When z_hat is closer to origin than z, score should have nonzero magnitude.
-    z = jnp.array([5 + 0j])  # far from origin
-    z_hat = jnp.array([0.1 + 0j])  # near origin
-    s = score(z, z_hat)
-    # g(z) ≈ 1, g(z_hat) ≈ 0.05; score ≈ -0.95, pointing away from z
-    assert jnp.real(s[0]) < 0
-
 
 # ── reconstruction_loss ───────────────────────────────────────────────────────
 
@@ -110,22 +36,6 @@ def test_reconstruction_loss_self_is_minimum() -> None:
     z = jnp.array([1.0 + 0j])
     z_hat = jnp.array([1.1 + 0j])
     assert reconstruction_loss(z, z)[0] <= reconstruction_loss(z, z_hat)[0]
-
-
-def test_reconstruction_loss_gradient_is_score() -> None:
-    # The Wirtinger derivative w.r.t. conj(z_hat) equals (g(z_hat) - g(z)) / 2.
-    # Equivalently: dL/d(Re z_hat) evaluated via JAX grad should match Re(score) / 2.
-    z = jnp.array([1.0 + 0j, 0.5 + 0.5j])
-
-    def loss_sum(z_hat_real: jnp.ndarray) -> jnp.ndarray:
-        z_hat = z_hat_real.astype(jnp.complex128)
-        return jnp.sum(reconstruction_loss(z, z_hat))
-
-    z_hat_real = jnp.array([0.8, 0.6])
-    grad = jax.grad(loss_sum)(z_hat_real)
-    z_hat = z_hat_real.astype(jnp.complex128)
-    expected = jnp.real(score(z, z_hat))
-    assert jnp.allclose(grad, expected, atol=1e-5)
 
 
 # ── centering_loss ────────────────────────────────────────────────────────────

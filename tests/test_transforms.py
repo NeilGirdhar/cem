@@ -7,7 +7,7 @@ import jax.random as jr
 import pytest
 from tjax import RngStream
 
-from cem.transforms import (
+from cem.phasor import (
     Accumulator,
     Linear,
     LinearWithDropout,

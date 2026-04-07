@@ -7,11 +7,10 @@ import equinox as eqx
 import jax.numpy as jnp
 from tjax import JaxArray, JaxRealArray, RngStream
 
-from cem.phasor_calculus.message import PhasorMessage
-
-from .gate import phasor_gate
-from .linear import Linear
-from .rivalry import RivalryNorm
+from cem.phasor.gate import phasor_gate
+from cem.phasor.linear import Linear
+from cem.phasor.message import PhasorMessage
+from cem.phasor.rivalry import RivalryNorm
 
 
 class Nonlinear(eqx.Module):

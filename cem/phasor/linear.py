@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax.nn.initializers import variance_scaling
 from tjax import JaxArray, JaxRealArray, RngStream
 
-from cem.phasor_calculus.message import PhasorMessage
+from cem.phasor.message import PhasorMessage
 from cem.structure.graph import LearnableParameter
 
 # Each real/imaginary component uses Lecun variance (0.5 * 1/fan_in), giving correct

@@ -6,7 +6,8 @@ import jax.numpy as jnp
 from efax import Flattener, NormalNP
 from tjax import RngStream
 
-from cem.phasor_calculus.message import PhasorMessage, geometric_frequencies, make_frequency_grid
+from cem.phasor.frequency import geometric_frequencies, make_frequency_grid
+from cem.phasor.message import PhasorMessage
 
 # ── from_distribution / to_distribution ──────────────────────────────────────
 

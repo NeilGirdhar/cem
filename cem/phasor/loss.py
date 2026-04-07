@@ -1,43 +1,51 @@
 from __future__ import annotations
 
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 from efax import ComplexVonMisesNP
 from tjax import JaxArray
 
+from cem.phasor.message import PhasorMessage
 
-def expectation_params(z: JaxArray) -> JaxArray:
-    """Map von Mises natural parameters to expectation parameters.
 
-    g(z) = A₁(|z|) / |z| * z,  where A₁(r) = I₁(r) / I₀(r).
+class LossAndScore(eqx.Module):
+    """Reconstruction loss and its phasor-space gradient, computed jointly via autodiff.
 
-    The magnitude |g(z)| = A₁(|z|) lies in [0, 1); phase is preserved.
+    Attributes:
+        loss: Per-element reconstruction cross-entropy, same shape as the input phasors.
+        score: ∂loss/∂ẑ — gradient of the summed loss w.r.t. predicted phasors.
+    """
+
+    loss: JaxArray
+    score: PhasorMessage
+
+    def total_loss(self) -> JaxArray:
+        """Return the summed scalar reconstruction loss."""
+        return jnp.sum(self.loss)
+
+
+def reconstruction_loss_and_score(observed: PhasorMessage, z_hat: PhasorMessage) -> LossAndScore:
+    """Compute reconstruction loss and score jointly for a latent variable in phasor space.
+
+    No distribution family is assumed.  Observed and predicted phasors are treated as von Mises
+    natural parameters.  Uses ``jax.value_and_grad`` to obtain both the per-element losses and
+    the score ∂loss/∂ẑ in a single pass.
 
     Args:
-        z: Natural-parameter phasors, any shape.
+        observed: Observed phasors.
+        z_hat: Predicted phasors from the network.
 
     Returns:
-        Expectation-parameter phasors, same shape as z.
+        LossAndScore with per-element reconstruction cross-entropy and score ∂loss/∂ẑ.
     """
-    return ComplexVonMisesNP(z).to_exp().mean
 
+    def loss_fn(z: PhasorMessage) -> tuple[JaxArray, JaxArray]:
+        losses = reconstruction_loss(observed.data, z.data)
+        return jnp.sum(losses), losses
 
-def score(z: JaxArray, z_hat: JaxArray) -> JaxArray:
-    """Von Mises score: difference of expectation parameters.
-
-    Score(z, ẑ) = g(ẑ) − g(z)
-
-    Points from the predicted distribution toward the observation in natural-parameter space.
-    Serves as both a learning cotangent for the predictor and a primal signal for
-    predictive-coding inference.
-
-    Args:
-        z: Observed phasors.
-        z_hat: Predicted phasors.
-
-    Returns:
-        Score, same shape as z and z_hat.
-    """
-    return expectation_params(z_hat) - expectation_params(z)
+    (_, losses), score = jax.value_and_grad(loss_fn, has_aux=True)(z_hat)
+    return LossAndScore(loss=losses, score=score)
 
 
 def reconstruction_loss(z: JaxArray, z_hat: JaxArray) -> JaxArray:
