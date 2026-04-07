@@ -10,7 +10,7 @@ from tjax import JaxRealArray, frozendict
 from cem.structure.graph.input_node import InputNode, InputNodeConfiguration
 
 
-class PerceptronInputNode(InputNode):
+class PerceptronInputNode(InputNode[JaxRealArray]):
     """InputNode whose fields hold flat real-valued distribution encodings.
 
     Each field stores a ``JaxRealArray`` in ``mapped_to_plane=True`` coordinates, i.e. the
@@ -19,7 +19,7 @@ class PerceptronInputNode(InputNode):
     """
 
     @classmethod
-    def create(  # type: ignore[override]
+    def create(  # type: ignore[override]  # ty: ignore
         cls,
         name: str,
         field_defaults: Mapping[str, NaturalParametrization[Any, Any]],
@@ -44,7 +44,9 @@ class PerceptronInputNode(InputNode):
         state_indices = frozendict(
             {field: eqx.nn.StateIndex(v) for field, v in flat_defaults.items()}
         )
-        zero_config = InputNodeConfiguration(values=frozendict(flat_defaults))
+        zero_config: InputNodeConfiguration[JaxRealArray] = InputNodeConfiguration(
+            values=frozendict(flat_defaults)
+        )
         return cls(
             name=name,
             _state_indices=state_indices,

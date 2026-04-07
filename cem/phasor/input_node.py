@@ -5,14 +5,22 @@ from typing import Any, Self, override
 
 import equinox as eqx
 import jax
-from efax import Flattener, NaturalParametrization
-from tjax import JaxRealArray, frozendict
+from efax import ExpectationParametrization, Flattener, NaturalParametrization
+from tjax import JaxRealArray, RngStream, frozendict
 
 from cem.phasor.message import PhasorMessage
 from cem.structure.graph.input_node import InputNode, InputNodeConfiguration
+from cem.structure.graph.model import Model
+from cem.structure.graph.node import NodeInferenceResult
 
 
-class PhasorInputNode(InputNode):
+class PhasorInputConfiguration(InputNodeConfiguration[PhasorMessage]):
+    """Holds the environment-provided input values for an input node."""
+
+    observed_distributions: frozendict[str, ExpectationParametrization]
+
+
+class PhasorInputNode(InputNode[PhasorMessage]):
     """InputNode whose fields hold PhasorMessage encodings of distributions.
 
     Callers create this node by supplying one ``NaturalParametrization`` per field as the
@@ -33,6 +41,27 @@ class PhasorInputNode(InputNode):
 
     _flatteners: frozendict[str, Flattener[Any]] = eqx.field(static=True)
     frequencies: JaxRealArray
+
+    @staticmethod
+    def _prepare_phasor_fields(
+        field_defaults: Mapping[str, NaturalParametrization[Any, Any]],
+        frequencies: JaxRealArray,
+    ) -> tuple[dict[str, Flattener[Any]], dict[str, JaxRealArray], dict[str, PhasorMessage]]:
+        flatteners: dict[str, Flattener[Any]] = {}
+        flat_defaults: dict[str, JaxRealArray] = {}
+        phasor_defaults: dict[str, PhasorMessage] = {}
+        for field_name, dist in field_defaults.items():
+            flattener, flat = Flattener.flatten(dist, mapped_to_plane=True)
+            flatteners[field_name] = flattener
+            flat_defaults[field_name] = flat
+            phasor_defaults[field_name] = PhasorMessage.from_distribution(dist, frequencies)
+        return flatteners, flat_defaults, phasor_defaults
+
+    @staticmethod
+    def _make_state_indices(
+        flat_defaults: Mapping[str, JaxRealArray],
+    ) -> frozendict[str, eqx.nn.StateIndex]:
+        return frozendict({field: eqx.nn.StateIndex(v) for field, v in flat_defaults.items()})
 
     @classmethod
     def create(  # type: ignore[override]  # ty: ignore
@@ -55,20 +84,18 @@ class PhasorInputNode(InputNode):
 
         Returns:
             A new :class:`PhasorInputNode` whose state slots are initialised with
-            ``PhasorMessage`` encodings of the supplied priors.
+            flat real arrays encoding the supplied priors (consistent with what
+            :meth:`~cem.structure.graph.input_node.InputNode.set_input` writes).
         """
         assert frequencies.ndim == 1
-        flatteners: dict[str, Flattener[Any]] = {}
-        phasor_defaults: dict[str, PhasorMessage] = {}
-        for field_name, dist in field_defaults.items():
-            flattener, _ = Flattener.flatten(dist, mapped_to_plane=True)
-            flatteners[field_name] = flattener
-            phasor_defaults[field_name] = PhasorMessage.from_distribution(dist, frequencies)
-
-        state_indices = frozendict(
-            {field: eqx.nn.StateIndex(v) for field, v in phasor_defaults.items()}
+        flatteners, flat_defaults, phasor_defaults = cls._prepare_phasor_fields(
+            field_defaults, frequencies
         )
-        zero_config = InputNodeConfiguration(values=frozendict(phasor_defaults))
+        state_indices = cls._make_state_indices(flat_defaults)
+        zero_config = PhasorInputConfiguration(
+            values=frozendict(phasor_defaults),
+            observed_distributions=frozendict({f: d.to_exp() for f, d in field_defaults.items()}),
+        )
         return cls(
             name=name,
             _state_indices=state_indices,
@@ -78,24 +105,26 @@ class PhasorInputNode(InputNode):
         )
 
     @override
-    def set_input(self, field_name: str, new_value: object, state: eqx.nn.State) -> eqx.nn.State:
-        """Update a field from a flat real-valued distribution encoding.
-
-        Unflattens ``new_value`` from ``mapped_to_plane=True`` coordinates back to a
-        ``NaturalParametrization``, encodes it as a
-        :class:`~cem.phasor.message.PhasorMessage`, and writes the result into state.
-
-        Args:
-            field_name: Name of the field to update.
-            new_value: Flat ``JaxRealArray`` in ``mapped_to_plane=True`` coordinates, as
-                produced by ``Flattener.flatten(dist, mapped_to_plane=True)[1]``.
-            state: Current model state.
-
-        Returns:
-            Updated state with the field set to a ``PhasorMessage`` encoding of the
-            unflattened distribution.
-        """
-        assert isinstance(new_value, jax.Array)
-        dist = self._flatteners[field_name].unflatten(new_value)
-        phasor = PhasorMessage.from_distribution(dist, self.frequencies)
-        return super().set_input(field_name, phasor, state)
+    def infer(
+        self,
+        model: Model,
+        streams: Mapping[str, RngStream],
+        state: eqx.nn.State,
+        *,
+        inference: bool,
+    ) -> NodeInferenceResult[PhasorInputConfiguration]:
+        del model, streams, inference
+        values = self.gather_local_inputs(state)
+        distributions = {}
+        phasors = {}
+        for field_name, value in values.items():
+            assert isinstance(value, jax.Array)
+            distribution = self._flatteners[field_name].unflatten(value)
+            distributions[field_name] = distribution.to_exp()
+            phasors[field_name] = PhasorMessage.from_distribution(distribution, self.frequencies)
+        return NodeInferenceResult(
+            PhasorInputConfiguration(
+                values=frozendict(phasors), observed_distributions=frozendict(distributions)
+            ),
+            state,
+        )
