@@ -17,9 +17,9 @@ from .plotter import Plotter
 
 
 class ProjectionOptions(eqx.Module):
-    projection_seed: int = eqx.field(static=True)
-    clustering_seed: int = eqx.field(static=True)
-    clustering_iterations: int = eqx.field(static=True)
+    projection_seed: int
+    clustering_seed: int
+    clustering_iterations: int
 
     def cluster_with_k_means(self, points: JaxArray, clustering_modes: int) -> JaxArray:
         key = jr.key(self.clustering_seed)

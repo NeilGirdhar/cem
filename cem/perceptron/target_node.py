@@ -36,7 +36,7 @@ class PerceptronTargetNode(eqx.Module):
         flattener: Flattener for the distribution family, with ``mapped_to_plane=True``.
     """
 
-    flattener: Flattener[Any] = eqx.field(static=True)
+    flattener: Flattener[Any]
 
     @classmethod
     def create(

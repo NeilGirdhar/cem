@@ -26,7 +26,7 @@ class LayerNorm(eqx.Module):
 
     scale: LearnableParameter[JaxRealArray]
     bias: LearnableParameter[JaxRealArray]
-    eps: float = eqx.field(static=True)
+    eps: float
 
     @classmethod
     def create(cls, features: int, *, eps: float = 1e-5) -> Self:

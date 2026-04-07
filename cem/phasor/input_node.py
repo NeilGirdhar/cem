@@ -39,7 +39,7 @@ class PhasorInputNode(InputNode[PhasorMessage]):
             :meth:`~cem.phasor.message.PhasorMessage.from_distribution`.
     """
 
-    _flatteners: frozendict[str, Flattener[Any]] = eqx.field(static=True)
+    _flatteners: frozendict[str, Flattener[Any]]
     frequencies: JaxRealArray
 
     @staticmethod

@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest
 from efax import Flattener, NormalNP
+from jax import tree
 from tjax import frozendict
 
+from cem.perceptron.nonlinear import LayerNorm
+from cem.perceptron.target_node import PerceptronTargetNode
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.loss import LossAndScore, reconstruction_loss, reconstruction_loss_and_score
 from cem.phasor.message import PhasorMessage
 from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
-from cem.structure.graph import InputNode, Model
+from cem.structure.graph import InputNode, LearnableParameter, Model, ParameterType
 
 _M = 8
 _BASE = 1e-4
@@ -270,3 +274,43 @@ def test_phasor_target_node_multi_field_score_is_joined_on_last_dimension(
         {"x": x_phasor, "y": y_phasor},
     )
     assert out.score.data.shape == (x_phasor.data.shape[-1] + y_phasor.data.shape[-1],)
+
+
+def test_perceptron_target_node_partition_round_trip_preserves_flattener() -> None:
+    dist = NormalNP(jnp.asarray(0.25), jnp.asarray(-0.5))
+    flattener, y_hat = Flattener.flatten(dist, mapped_to_plane=True)
+    node = PerceptronTargetNode.create(flattener)
+
+    def is_flattener(x: object) -> bool:
+        return isinstance(x, Flattener)
+
+    extracted, remainder = eqx.partition(node, is_flattener, is_leaf=is_flattener)
+    leaves = tree.leaves(extracted, is_leaf=is_flattener)
+    round_tripped = eqx.combine(extracted, remainder, is_leaf=is_flattener)
+
+    assert leaves == [flattener]
+
+    expected = node.infer(dist.to_exp(), y_hat)
+    out = round_tripped.infer(dist.to_exp(), y_hat)
+    assert jnp.allclose(out.total_loss(), expected.total_loss())
+    assert jnp.allclose(out.predicted_exp.mean, expected.predicted_exp.mean)
+
+
+def test_layer_norm_partition_round_trip_preserves_eps() -> None:
+    layer_norm = LayerNorm.create(2, eps=1e-3)
+    extracted, remainder = eqx.partition(layer_norm, lambda x: isinstance(x, float))
+    round_tripped = eqx.combine(extracted, remainder)
+
+    assert tree.leaves(extracted) == [1e-3]
+
+    x = jnp.asarray([1.0, 3.0])
+    assert jnp.allclose(round_tripped.infer(x), layer_norm.infer(x))
+
+
+def test_parameter_type_partition_round_trip_preserves_type() -> None:
+    parameter_type = ParameterType(LearnableParameter)
+    extracted, remainder = eqx.partition(parameter_type, lambda x: isinstance(x, type))
+    round_tripped = eqx.combine(extracted, remainder)
+
+    assert tree.leaves(extracted) == [LearnableParameter]
+    assert round_tripped.t is LearnableParameter
