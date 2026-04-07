@@ -6,21 +6,17 @@ import jax.numpy as jnp
 from efax import Flattener, NormalNP
 from tjax import RngStream
 
-from cem.phasor_calculus.message import PhasorMessage, geometric_frequencies
+from cem.phasor_calculus.message import PhasorMessage, geometric_frequencies, make_frequency_grid
 
 # ── from_distribution / to_distribution ──────────────────────────────────────
 
 
 def _normal_t(m: int, base: float = 2.0 * float(jnp.pi)) -> NormalNP:
     """Frequency grid t for NormalNP with m frequencies, d=2 sufficient statistics."""
-    frequencies = geometric_frequencies(m, base=base)
     flattener, _ = Flattener.flatten(
         NormalNP(jnp.array(0.0), jnp.array(0.0)), mapped_to_plane=False
     )
-    d = flattener.final_dimension_size()
-    eye = jnp.eye(d, dtype=jnp.float64)
-    t_flat = (frequencies[:, None, None] * eye[None, :, :]).reshape(m * d, d)
-    return flattener.unflatten(t_flat)
+    return make_frequency_grid(flattener, geometric_frequencies(m, base=base))
 
 
 def test_from_distribution_shape() -> None:

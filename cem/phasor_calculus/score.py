@@ -9,7 +9,7 @@ from efax import Flattener, HasEntropyEP, NaturalParametrization
 from tjax import JaxArray, JaxRealArray
 
 from cem.phasor_calculus.loss import reconstruction_loss
-from cem.phasor_calculus.message import PhasorMessage
+from cem.phasor_calculus.message import PhasorMessage, make_frequency_grid
 from cem.structure.graph.node import NodeConfiguration
 
 
@@ -91,13 +91,7 @@ class ObservedScoreNode(eqx.Module):
         Returns:
             ObservedScoreNode with t of shape (m * d,).
         """
-        assert not flattener.mapped_to_plane
-        assert frequencies.ndim == 1
-        d = flattener.final_dimension_size()
-        m = frequencies.shape[0]
-        eye = jnp.eye(d, dtype=frequencies.dtype)
-        t_flat = (frequencies[:, None, None] * eye[None, :, :]).reshape(m * d, d)
-        return cls(t=flattener.unflatten(t_flat))
+        return cls(t=make_frequency_grid(flattener, frequencies))
 
     def infer[EP: HasEntropyEP](
         self, observed_exp: EP, z_hat: PhasorMessage
