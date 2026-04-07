@@ -20,30 +20,14 @@ class Binding(eqx.Module):
         return node.get_output(node.read_output_from_state(state), self.source_field)
 
 
-class Kernel[ConfigurationT: NodeConfiguration](eqx.Module):
-    def infer(
-        self,
-        *,
-        streams: Mapping[str, RngStream],
-        inference: bool,
-        inputs: Mapping[str, list[object]],
-    ) -> ConfigurationT:
-        raise NotImplementedError
+class NodeWithBindings[ConfigurationT: NodeConfiguration = NodeConfiguration](Node[ConfigurationT]):
+    """Node that reads inputs from peer nodes via named bindings.
 
-    def zero_configuration(self) -> ConfigurationT:
-        """Return a placeholder configuration matching this node's output shape."""
-        raise NotImplementedError
+    Provides :meth:`resolve_bindings` (static constructor helper) and
+    :meth:`gather_bound_inputs` (runtime fetch).  Subclasses supply the ``infer``
+    implementation that uses these inputs.
+    """
 
-    def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> object:
-        """Extract one named externally visible output field from the node configuration."""
-        msg = f"{type(self).__name__} does not expose output field {field_name!r}"
-        raise ValueError(msg)
-
-
-class KernelNode[ConfigurationT: NodeConfiguration = NodeConfiguration](Node[ConfigurationT]):
-    """Graph node implementation backed by a Kernel and binding-based inputs."""
-
-    kernel: Kernel[ConfigurationT] | None = eqx.field(default=None, kw_only=True)
     _bindings: Mapping[str, tuple[Binding, ...]] = eqx.field(kw_only=True)
 
     @staticmethod
@@ -65,6 +49,34 @@ class KernelNode[ConfigurationT: NodeConfiguration = NodeConfiguration](Node[Con
             name: [binding.fetch(model, state) for binding in bindings]
             for name, bindings in self._bindings.items()
         }
+
+
+class Kernel[ConfigurationT: NodeConfiguration](eqx.Module):
+    def infer(
+        self,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+        inputs: Mapping[str, list[object]],
+    ) -> ConfigurationT:
+        raise NotImplementedError
+
+    def zero_configuration(self) -> ConfigurationT:
+        """Return a placeholder configuration matching this node's output shape."""
+        raise NotImplementedError
+
+    def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> object:
+        """Extract one named externally visible output field from the node configuration."""
+        msg = f"{type(self).__name__} does not expose output field {field_name!r}"
+        raise ValueError(msg)
+
+
+class KernelNode[ConfigurationT: NodeConfiguration = NodeConfiguration](
+    NodeWithBindings[ConfigurationT]
+):
+    """Graph node implementation backed by a Kernel and binding-based inputs."""
+
+    kernel: Kernel[ConfigurationT] = eqx.field(kw_only=True)
 
     @classmethod
     def create(
@@ -91,7 +103,6 @@ class KernelNode[ConfigurationT: NodeConfiguration = NodeConfiguration](Node[Con
         *,
         inference: bool,
     ) -> NodeInferenceResult[ConfigurationT]:
-        assert self.kernel is not None
         result = self.kernel.infer(
             streams=streams,
             inference=inference,
@@ -102,5 +113,4 @@ class KernelNode[ConfigurationT: NodeConfiguration = NodeConfiguration](Node[Con
     @override
     def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> object:
         """Extract one named externally visible output field from the node configuration."""
-        assert self.kernel is not None
         return self.kernel.get_output(node_configuration, field_name)
