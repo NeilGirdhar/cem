@@ -19,7 +19,7 @@ class PerceptronInputNode(InputNode):
     """
 
     @classmethod
-    def create(  # type: ignore[override]  # ty: ignore
+    def create(  # type: ignore[override]
         cls,
         name: str,
         field_defaults: Mapping[str, NaturalParametrization[Any, Any]],

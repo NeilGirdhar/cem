@@ -1,22 +1,24 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Self, override
+from typing import TYPE_CHECKING, Self, override
 
 import equinox as eqx
 from tjax import RngStream, frozendict
 
-from .model import Model
 from .node import Node, NodeConfiguration, NodeInferenceResult
 
+if TYPE_CHECKING:
+    from .model import Model
 
-class InputNodeConfiguration(NodeConfiguration):
+
+class InputNodeConfiguration[ValueT](NodeConfiguration):
     """Holds the environment-provided input values for an input node."""
 
-    values: frozendict[str, object]
+    values: frozendict[str, ValueT]
 
 
-class InputNode(Node[InputNodeConfiguration]):
+class InputNode[ValueT](Node[InputNodeConfiguration[ValueT]]):
     """Dummy node that holds environment-provided inputs as named state slots.
 
     Other nodes read from it via Binding(source_node=<name>, source_field=<field_name>).
@@ -32,7 +34,7 @@ class InputNode(Node[InputNodeConfiguration]):
     def create(
         cls,
         name: str,
-        field_defaults: Mapping[str, object],
+        field_defaults: Mapping[str, ValueT],
     ) -> Self:
         state_indices = frozendict(
             {field: eqx.nn.StateIndex(v) for field, v in field_defaults.items()}
@@ -44,7 +46,7 @@ class InputNode(Node[InputNodeConfiguration]):
             _output_state_index=eqx.nn.StateIndex(zero_config),
         )
 
-    def gather_local_inputs(self, state: eqx.nn.State) -> Mapping[str, object]:
+    def gather_local_inputs(self, state: eqx.nn.State) -> Mapping[str, ValueT]:
         return {f: state.get(idx) for f, idx in self._state_indices.items()}
 
     def infer(
@@ -54,7 +56,7 @@ class InputNode(Node[InputNodeConfiguration]):
         state: eqx.nn.State,
         *,
         inference: bool,
-    ) -> NodeInferenceResult[InputNodeConfiguration]:
+    ) -> NodeInferenceResult[InputNodeConfiguration[ValueT]]:
         """Read all field values from state and package them as an InputNodeConfiguration.
 
         The model, streams, and inference arguments are unused; input nodes
@@ -64,11 +66,11 @@ class InputNode(Node[InputNodeConfiguration]):
         values = frozendict(self.gather_local_inputs(state))
         return NodeInferenceResult(InputNodeConfiguration(values=values), state)
 
-    def set_input(self, field_name: str, new_value: object, state: eqx.nn.State) -> eqx.nn.State:
+    def set_input(self, field_name: str, new_value: ValueT, state: eqx.nn.State) -> eqx.nn.State:
         """Write one environment-provided value into this node's state."""
         return state.set(self._state_indices[field_name], new_value)
 
     @override
-    def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> object:
+    def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> ValueT:
         assert isinstance(node_configuration, InputNodeConfiguration)
         return node_configuration.values[field_name]
