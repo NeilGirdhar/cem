@@ -8,7 +8,7 @@ import jax
 from efax import Flattener, NaturalParametrization
 from tjax import JaxRealArray, frozendict
 
-from cem.phasor_calculus.message import PhasorMessage
+from cem.phasor.message import PhasorMessage
 from cem.structure.graph.input_node import InputNode, InputNodeConfiguration
 
 
@@ -17,7 +17,7 @@ class PhasorInputNode(InputNode):
 
     Callers create this node by supplying one ``NaturalParametrization`` per field as the
     prior distribution.  Each prior is encoded as a
-    :class:`~cem.phasor_calculus.message.PhasorMessage` via the characteristic-function encoding and
+    :class:`~cem.phasor.message.PhasorMessage` via the characteristic-function encoding and
     stored as the initial field state.
 
     When the environment provides a new observation for a field it passes a ``JaxRealArray``
@@ -28,7 +28,7 @@ class PhasorInputNode(InputNode):
         _flatteners: One per field (``mapped_to_plane=True``), used to unflatten flat-array
             inputs in :meth:`set_input`.
         frequencies: Geometric frequency grid forwarded to
-            :meth:`~cem.phasor_calculus.message.PhasorMessage.from_distribution`.
+            :meth:`~cem.phasor.message.PhasorMessage.from_distribution`.
     """
 
     _flatteners: frozendict[str, Flattener[Any]] = eqx.field(static=True)
@@ -45,14 +45,13 @@ class PhasorInputNode(InputNode):
 
         For each field, builds an :class:`efax.Flattener` (``mapped_to_plane=True``) from the
         prior distribution and encodes that prior as a
-        :class:`~cem.phasor_calculus.message.PhasorMessage` for the initial state.
+        :class:`~cem.phasor.message.PhasorMessage` for the initial state.
 
         Args:
             name: Node name, used for graph routing.
             field_defaults: Mapping from field name to the prior distribution.
             frequencies: Geometric frequency grid, shape ``(m,)``.  Use
-                :func:`~cem.phasor_calculus.message.geometric_frequencies` to generate a standard
-                grid.
+                :func:`~cem.phasor.frequency.geometric_frequencies` to generate a standard grid.
 
         Returns:
             A new :class:`PhasorInputNode` whose state slots are initialised with
@@ -84,7 +83,7 @@ class PhasorInputNode(InputNode):
 
         Unflattens ``new_value`` from ``mapped_to_plane=True`` coordinates back to a
         ``NaturalParametrization``, encodes it as a
-        :class:`~cem.phasor_calculus.message.PhasorMessage`, and writes the result into state.
+        :class:`~cem.phasor.message.PhasorMessage`, and writes the result into state.
 
         Args:
             field_name: Name of the field to update.

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -13,6 +11,8 @@ from efax import (
     expectation_parameters_from_characteristic_function,
 )
 from tjax import JaxArray, JaxComplexArray, JaxRealArray
+
+from cem.phasor.frequency import make_frequency_grid
 
 
 class PhasorMessage(eqx.Module):
@@ -87,19 +87,10 @@ class PhasorMessage(eqx.Module):
         """
         assert frequencies.ndim == 1
         flattener, _ = Flattener.flatten(dist, mapped_to_plane=False)
-        d = flattener.final_dimension_size()
-        m = frequencies.shape[0]
-
-        # Build t_flat of shape (m * d, d): row (j * d + k) is f_j * e_k.
-        # eye[k, :] is e_k; frequencies[j] scales it.
-        eye = jnp.eye(d, dtype=frequencies.dtype)  # (d, d)
-        t_flat = (frequencies[:, None, None] * eye[None, :, :]).reshape(m * d, d)  # (m*d, d)
-
-        t = flattener.unflatten(t_flat)  # shape (m * d,)
+        t = make_frequency_grid(flattener, frequencies)
 
         # vmap over all batch dims of dist so each scalar element sees t of shape (m*d,),
         # producing output shape (*s, m*d).
-
         cf_fn = lambda d: d.characteristic_function(t)  # noqa: E731
         for _ in dist.shape:
             cf_fn = jax.vmap(cf_fn)
@@ -241,44 +232,3 @@ class PhasorMessage(eqx.Module):
         of the von Mises distribution.
         """
         return jnp.concat([jnp.real(self.data), jnp.imag(self.data)], axis=-1)
-
-
-def make_frequency_grid[NP: NaturalParametrization[Any, Any]](
-    flattener: Flattener[NP],
-    frequencies: JaxRealArray,
-) -> NP:
-    """Build the frequency grid ``t`` used by ``to_distribution``.
-
-    Constructs a NaturalParametrization of shape ``(m * d,)`` where element ``j * d + k``
-    equals ``frequencies[j] * e_k`` — the k-th standard basis vector scaled by the j-th
-    frequency.  This is the ``t`` argument expected by
-    :meth:`~cem.phasor_calculus.message.PhasorMessage.to_distribution`.
-
-    Args:
-        flattener: Flattener for the distribution family, with ``mapped_to_plane=False``.
-            Defines the natural-parameter dimension d and the pytree structure of t.
-        frequencies: Geometric frequency grid, shape ``(m,)``.
-
-    Returns:
-        NaturalParametrization of shape ``(m * d,)``.
-    """
-    assert not flattener.mapped_to_plane
-    assert frequencies.ndim == 1
-    d = flattener.final_dimension_size()
-    m = frequencies.shape[0]
-    eye = jnp.eye(d, dtype=frequencies.dtype)  # (d, d)
-    t_flat = (frequencies[:, None, None] * eye[None, :, :]).reshape(m * d, d)  # (m*d, d)
-    return flattener.unflatten(t_flat)
-
-
-def geometric_frequencies(num_features: int, base: float = 2.0 * jnp.pi) -> JaxArray:
-    """Generate geometrically spaced frequencies k_j = base * 2^j for scalar encoding.
-
-    Args:
-        num_features: Number of frequency components m.
-        base: Base frequency. Default is 2*pi as in the thesis.
-
-    Returns:
-        Float array of shape (m,) with k_j = base * 2^j for j = 0, ..., m-1.
-    """
-    return base * jnp.pow(2.0, jnp.arange(num_features, dtype=jnp.float64))

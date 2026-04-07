@@ -1,6 +1,5 @@
 """Graph primitives: computation graph, nodes, parameters, and training/inference engine."""
 
-from cem.phasor_calculus.input_node import PhasorInputNode
 from cem.structure.graph.disassembled import (
     DisGradientState,
     DisGradientTransformation,
@@ -44,7 +43,6 @@ __all__ = [
     "NodeInferenceResult",
     "Parameter",
     "ParameterType",
-    "PhasorInputNode",
     "apply_to_parameters",
     "is_parameter",
     "verify_model_has_no_free_parameters",
