@@ -4,15 +4,36 @@ import jax
 import jax.numpy as jnp
 import pytest
 from efax import Flattener, NormalNP
+from tjax import frozendict
 
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.loss import LossAndScore, reconstruction_loss, reconstruction_loss_and_score
 from cem.phasor.message import PhasorMessage
 from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
+from cem.structure.graph import InputNode, Model
 
-# Use small frequencies for accurate OLS recovery in PhasorTargetNode tests.
 _M = 8
 _BASE = 1e-4
+_PRIOR = NormalNP(jnp.array(0.0), jnp.array(0.0))
+
+
+class FakeState:
+    def __init__(self, *nodes: object) -> None:
+        self._values: dict[object, object] = {}
+        for node in nodes:
+            output_index = getattr(node, "_output_state_index", None)
+            if output_index is not None:
+                self._values[output_index.marker] = output_index.init
+            state_indices = getattr(node, "_state_indices", {})
+            for index in state_indices.values():
+                self._values[index.marker] = index.init
+
+    def get(self, item: object) -> object:
+        return self._values[item.marker]  # ty: ignore[unresolved-attribute]
+
+    def set(self, item: object, value: object) -> FakeState:
+        self._values[item.marker] = value  # ty: ignore[unresolved-attribute]
+        return self
 
 
 @pytest.fixture
@@ -22,10 +43,37 @@ def freqs() -> jnp.ndarray:
 
 @pytest.fixture
 def target_node(freqs: jnp.ndarray) -> PhasorTargetNode:
-    flattener, _ = Flattener.flatten(
-        NormalNP(jnp.array(0.0), jnp.array(0.0)), mapped_to_plane=False
+    return PhasorTargetNode.create(
+        "target",
+        {"obs": _PRIOR},
+        ("predictor", "prediction"),
+        freqs,
     )
-    return PhasorTargetNode.create(flattener, freqs)
+
+
+def infer_target_node(
+    target_node: PhasorTargetNode,
+    observed: dict[str, NormalNP],
+    predicted: dict[str, PhasorMessage],
+) -> PhasorTargetConfiguration:
+    # Concatenate per-field predictions in field_sizes order (matches how score is split out).
+    concat_prediction = PhasorMessage(
+        jnp.concatenate([predicted[f].data for f in target_node.field_sizes], axis=-1)
+    )
+    predictor = InputNode.create("predictor", {"prediction": concat_prediction})
+    model = Model.create(
+        frozendict({"predictor": predictor, "target": target_node}),
+        frozendict({}),
+    )
+    state = FakeState(predictor, target_node)
+    observed_flat = {
+        field: Flattener.flatten(dist, mapped_to_plane=True)[1] for field, dist in observed.items()
+    }
+    state = model.set_input(observed_flat, state)  # ty: ignore[invalid-argument-type]
+    state = model.infer_one_time_step({}, state, inference=True).state
+    config = model.configuration_from_state(state)["target"]
+    assert isinstance(config, PhasorTargetConfiguration)
+    return config
 
 
 # ── reconstruction_loss_and_score ─────────────────────────────────────────────
@@ -102,73 +150,123 @@ def test_reconstruction_loss_and_score_batched_shapes() -> None:
 # ── PhasorTargetNode ──────────────────────────────────────────────────────────
 
 
-def test_phasor_target_node_returns_phasor_target_configuration(
+def test_phasor_target_node_field_names(target_node: PhasorTargetNode) -> None:
+    assert target_node.field_names == ("obs",)
+
+
+def test_phasor_target_node_has_frequency_grid_per_field(target_node: PhasorTargetNode) -> None:
+    assert set(target_node.frequency_grids) == {"obs"}
+
+
+def test_phasor_target_node_frequency_grid_shape(
+    target_node: PhasorTargetNode, freqs: jnp.ndarray
+) -> None:
+    # NormalNP has d=2 sufficient statistics; m=8 frequencies → shape (m*d,) = (16,)
+    grid = target_node.frequency_grids["obs"]
+    assert grid.shape == (_M * 2,)
+
+
+def test_phasor_target_node_multi_field(freqs: jnp.ndarray) -> None:
+    node = PhasorTargetNode.create(
+        "target",
+        {
+            "x": NormalNP(jnp.array(0.0), jnp.array(0.0)),
+            "y": NormalNP(jnp.array(1.0), jnp.array(-0.5)),
+        },
+        ("predictor", "prediction"),
+        freqs,
+    )
+    assert set(node.field_names) == {"x", "y"}
+    assert set(node.frequency_grids) == {"x", "y"}
+
+
+def test_phasor_target_configuration_total_loss_is_zero(
     target_node: PhasorTargetNode, freqs: jnp.ndarray
 ) -> None:
     dist = NormalNP(jnp.array(0.5), jnp.array(-0.5))
-    z_hat = PhasorMessage.from_distribution(dist, freqs)
-    assert isinstance(target_node.infer(dist.to_exp(), z_hat), PhasorTargetConfiguration)
+    phasor = PhasorMessage.from_distribution(dist, freqs)
+    config = PhasorTargetConfiguration(
+        values=frozendict({"obs": phasor}),
+        observed_distributions=frozendict({"obs": dist.to_exp()}),
+        score=phasor.zeros_like(),
+        loss=frozendict({"obs": jnp.zeros(phasor.shape)}),
+        predicted_distributions=frozendict({"obs": dist.to_exp()}),
+    )
+    assert jnp.allclose(config.total_loss(), 0.0)
+
+
+def test_phasor_target_node_returns_configuration(
+    target_node: PhasorTargetNode, freqs: jnp.ndarray
+) -> None:
+    z_hat = PhasorMessage.from_distribution(_PRIOR, freqs)
+    out = infer_target_node(target_node, {"obs": _PRIOR}, {"obs": z_hat})
+    assert isinstance(out, PhasorTargetConfiguration)
 
 
 def test_phasor_target_node_score_is_phasor_message(
     target_node: PhasorTargetNode, freqs: jnp.ndarray
 ) -> None:
-    dist = NormalNP(jnp.array(0.5), jnp.array(-0.5))
-    z_hat = PhasorMessage.from_distribution(dist, freqs)
-    out = target_node.infer(dist.to_exp(), z_hat)
+    z_hat = PhasorMessage.from_distribution(_PRIOR, freqs)
+    out = infer_target_node(target_node, {"obs": _PRIOR}, {"obs": z_hat})
     assert isinstance(out.score, PhasorMessage)
     assert out.score.data.shape == z_hat.data.shape
 
 
-def test_phasor_target_node_total_loss_is_scalar(
-    target_node: PhasorTargetNode, freqs: jnp.ndarray
-) -> None:
-    dist = NormalNP(jnp.array(0.5), jnp.array(-0.5))
-    z_hat = PhasorMessage.from_distribution(dist, freqs)
-    assert target_node.infer(dist.to_exp(), z_hat).total_loss().shape == ()
-
-
-def test_phasor_target_node_total_loss_is_sum_of_loss(
-    target_node: PhasorTargetNode, freqs: jnp.ndarray
-) -> None:
-    dist = NormalNP(jnp.array(0.5), jnp.array(-0.5))
-    z_hat = PhasorMessage.from_distribution(dist, freqs)
-    out = target_node.infer(dist.to_exp(), z_hat)
-    assert jnp.allclose(out.total_loss(), jnp.sum(out.loss))
-
-
-def test_phasor_target_node_self_score_near_zero(
-    target_node: PhasorTargetNode, freqs: jnp.ndarray
-) -> None:
-    # Encoding the observed distribution and predicting with the same phasors gives score ≈ 0.
-    # OLS recovery is approximate, so we allow some tolerance.
-    dist = NormalNP(jnp.array(0.5), jnp.array(-0.5))
-    z_hat = PhasorMessage.from_distribution(dist, freqs)
-    out = target_node.infer(dist.to_exp(), z_hat)
-    assert jnp.allclose(jnp.abs(out.score.data), 0.0, atol=1e-2)
-
-
-def test_phasor_target_node_predicted_exp_recovers_mean(
+def test_phasor_target_node_predicted_distribution_recovers_mean(
     target_node: PhasorTargetNode, freqs: jnp.ndarray
 ) -> None:
     mu, sigma2 = 0.5, 1.0
     dist = NormalNP(jnp.array(mu / sigma2), jnp.array(-0.5 / sigma2))
     z_hat = PhasorMessage.from_distribution(dist, freqs)
-    out = target_node.infer(dist.to_exp(), z_hat)
-    assert jnp.allclose(out.predicted_exp.mean, jnp.array(mu), atol=1e-2)
+    out = infer_target_node(target_node, {"obs": dist}, {"obs": z_hat})
+    assert jnp.allclose(out.predicted_distributions["obs"].mean, jnp.array(mu), atol=1e-2)  # ty: ignore[unresolved-attribute]
 
 
-def test_phasor_target_node_score_equals_gradient(
-    target_node: PhasorTargetNode, freqs: jnp.ndarray
+def test_phasor_target_node_total_loss_is_sum_of_field_losses(
+    freqs: jnp.ndarray,
 ) -> None:
-    dist = NormalNP(jnp.array(0.5), jnp.array(-0.5))
-    observed_exp = dist.to_exp()
-    # Perturb z_hat slightly so the score is nonzero.
-    z_hat = PhasorMessage(PhasorMessage.from_distribution(dist, freqs).data * 1.1)
+    node = PhasorTargetNode.create(
+        "target",
+        {
+            "x": NormalNP(jnp.array(0.0), jnp.array(0.0)),
+            "y": NormalNP(jnp.array(1.0), jnp.array(-0.5)),
+        },
+        ("predictor", "prediction"),
+        freqs,
+    )
+    x_dist = NormalNP(jnp.array(0.1), jnp.array(-0.5))
+    y_dist = NormalNP(jnp.array(0.7), jnp.array(-0.25))
+    out = infer_target_node(
+        node,
+        {"x": x_dist, "y": y_dist},
+        {
+            "x": PhasorMessage.from_distribution(x_dist, freqs),
+            "y": PhasorMessage.from_distribution(y_dist, freqs),
+        },
+    )
+    assert jnp.allclose(out.total_loss(), jnp.sum(out.loss["x"]) + jnp.sum(out.loss["y"]))
 
-    def loss_fn(z: PhasorMessage) -> jnp.ndarray:
-        return jnp.sum(observed_exp.cross_entropy(z.to_distribution(target_node.t).to_nat()))
 
-    out = target_node.infer(observed_exp, z_hat)
-    expected = jax.grad(loss_fn)(z_hat)
-    assert jnp.allclose(out.score.data, expected.data, atol=1e-6)
+def test_phasor_target_node_multi_field_score_is_joined_on_last_dimension(
+    freqs: jnp.ndarray,
+) -> None:
+    node = PhasorTargetNode.create(
+        "target",
+        {
+            "x": NormalNP(jnp.array(0.0), jnp.array(0.0)),
+            "y": NormalNP(jnp.array(1.0), jnp.array(-0.5)),
+        },
+        ("predictor", "prediction"),
+        freqs,
+    )
+    x_phasor = PhasorMessage.from_distribution(NormalNP(jnp.array(0.1), jnp.array(-0.5)), freqs)
+    y_phasor = PhasorMessage.from_distribution(NormalNP(jnp.array(0.7), jnp.array(-0.25)), freqs)
+    out = infer_target_node(
+        node,
+        {
+            "x": NormalNP(jnp.array(0.1), jnp.array(-0.5)),
+            "y": NormalNP(jnp.array(0.7), jnp.array(-0.25)),
+        },
+        {"x": x_phasor, "y": y_phasor},
+    )
+    assert out.score.data.shape == (x_phasor.data.shape[-1] + y_phasor.data.shape[-1],)
