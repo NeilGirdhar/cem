@@ -6,7 +6,7 @@ from typing import Any, Self, override
 import equinox as eqx
 import jax
 from efax import Flattener, NaturalParametrization
-from tjax import JaxRealArray
+from tjax import JaxRealArray, frozendict
 
 from cem.phasor_calculus.message import PhasorMessage
 from cem.structure.graph.input_node import InputNode, InputNodeConfiguration
@@ -25,13 +25,13 @@ class PhasorInputNode(InputNode):
     unflattens that array back to a distribution and re-encodes it as a ``PhasorMessage``.
 
     Attributes:
-        _flatteners: One per field, built from the prior distribution to record the fixed
-            structure needed to unflatten future flat-array inputs.
+        _flatteners: One per field (``mapped_to_plane=True``), used to unflatten flat-array
+            inputs in :meth:`set_input`.
         frequencies: Geometric frequency grid forwarded to
             :meth:`~cem.phasor_calculus.message.PhasorMessage.from_distribution`.
     """
 
-    _flatteners: tuple[Flattener[Any], ...] = eqx.field(static=True)
+    _flatteners: frozendict[str, Flattener[Any]] = eqx.field(static=True)
     frequencies: JaxRealArray
 
     @classmethod
@@ -59,22 +59,22 @@ class PhasorInputNode(InputNode):
             ``PhasorMessage`` encodings of the supplied priors.
         """
         assert frequencies.ndim == 1
-        flatteners: list[Flattener[Any]] = []
+        flatteners: dict[str, Flattener[Any]] = {}
         phasor_defaults: dict[str, PhasorMessage] = {}
         for field_name, dist in field_defaults.items():
             flattener, _ = Flattener.flatten(dist, mapped_to_plane=True)
-            flatteners.append(flattener)
+            flatteners[field_name] = flattener
             phasor_defaults[field_name] = PhasorMessage.from_distribution(dist, frequencies)
 
-        field_names = tuple(phasor_defaults.keys())
-        defaults = tuple(phasor_defaults.values())
-        zero_config = InputNodeConfiguration(values=defaults)
+        state_indices = frozendict(
+            {field: eqx.nn.StateIndex(v) for field, v in phasor_defaults.items()}
+        )
+        zero_config = InputNodeConfiguration(values=frozendict(phasor_defaults))
         return cls(
             name=name,
-            field_names=field_names,
-            _state_indices=tuple(eqx.nn.StateIndex(v) for v in defaults),
+            _state_indices=state_indices,
             _output_state_index=eqx.nn.StateIndex(zero_config),
-            _flatteners=tuple(flatteners),
+            _flatteners=frozendict(flatteners),
             frequencies=frequencies,
         )
 
@@ -97,7 +97,6 @@ class PhasorInputNode(InputNode):
             unflattened distribution.
         """
         assert isinstance(new_value, jax.Array)
-        idx = self.field_names.index(field_name)
-        dist = self._flatteners[idx].unflatten(new_value)
+        dist = self._flatteners[field_name].unflatten(new_value)
         phasor = PhasorMessage.from_distribution(dist, self.frequencies)
-        return state.set(self._state_indices[idx], phasor)
+        return super().set_input(field_name, phasor, state)
