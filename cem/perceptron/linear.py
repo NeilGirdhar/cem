@@ -67,7 +67,7 @@ class LinearWithDropout(Linear):
     dropout_rate: JaxRealArray
 
     @classmethod
-    def create(  # type: ignore[override]
+    def create(
         cls,
         in_features: int,
         out_features: int,
@@ -78,7 +78,7 @@ class LinearWithDropout(Linear):
         base = Linear.create(in_features, out_features, streams=streams)
         return cls(weight=base.weight, bias=base.bias, dropout_rate=jnp.asarray(dropout_rate))
 
-    def infer(  # type: ignore[override]  # ty: ignore[invalid-method-override]
+    def infer(  # ty: ignore[invalid-method-override]
         self, x: JaxRealArray, *, streams: Mapping[str, RngStream], inference: bool
     ) -> JaxRealArray:
         """Apply affine transform followed by dropout.

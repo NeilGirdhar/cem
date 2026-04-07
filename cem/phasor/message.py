@@ -60,7 +60,7 @@ class PhasorMessage(eqx.Module):
     @classmethod
     def from_distribution(
         cls,
-        dist: NaturalParametrization,  # type: ignore[type-arg]
+        dist: NaturalParametrization,
         frequencies: JaxRealArray,
     ) -> PhasorMessage:
         """Encode a belief distribution as a matrix of phasors via the characteristic function.
@@ -99,8 +99,8 @@ class PhasorMessage(eqx.Module):
 
     def to_distribution(
         self,
-        t: NaturalParametrization,  # type: ignore[type-arg]
-    ) -> ExpectationParametrization:  # type: ignore[type-arg]
+        t: NaturalParametrization,
+    ) -> ExpectationParametrization:
         """Recover a belief distribution from phasors via OLS on the characteristic function.
 
         Inverts ``from_distribution`` by solving the overdetermined linear system

@@ -64,7 +64,7 @@ class PhasorInputNode(InputNode[PhasorMessage]):
         return frozendict({field: eqx.nn.StateIndex(v) for field, v in flat_defaults.items()})
 
     @classmethod
-    def create(  # type: ignore[override]  # ty: ignore
+    def create(  # ty: ignore
         cls,
         name: str,
         field_defaults: Mapping[str, NaturalParametrization[Any, Any]],
