@@ -19,7 +19,7 @@ class PerceptronInputNode(InputNode[JaxRealArray]):
     """
 
     @classmethod
-    def create(  # type: ignore[override]  # ty: ignore
+    def create(  # ty: ignore
         cls,
         name: str,
         field_defaults: Mapping[str, NaturalParametrization[Any, Any]],

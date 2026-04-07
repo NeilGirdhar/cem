@@ -47,7 +47,7 @@ class PhasorTargetNode(PhasorInputNode, NodeWithBindings):
     field_sizes: frozendict[str, int] = eqx.field(static=True)
 
     @classmethod
-    def create(  # type: ignore[override]  # ty: ignore
+    def create(  # ty: ignore
         cls,
         name: str,
         field_defaults: Mapping[str, NaturalParametrization[Any, Any]],
