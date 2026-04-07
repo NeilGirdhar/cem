@@ -9,12 +9,12 @@ from efax import ExpectationParametrization, Flattener, NaturalParametrization
 from tjax import JaxRealArray, RngStream, frozendict
 
 from cem.phasor.message import PhasorMessage
-from cem.structure.graph.input_node import InputNode, InputNodeConfiguration
+from cem.structure.graph.input_node import InputConfiguration, InputNode
 from cem.structure.graph.model import Model
 from cem.structure.graph.node import NodeInferenceResult
 
 
-class PhasorInputConfiguration(InputNodeConfiguration[PhasorMessage]):
+class PhasorInputConfiguration(InputConfiguration[PhasorMessage]):
     """Holds the environment-provided input values for an input node."""
 
     observed_distributions: frozendict[str, ExpectationParametrization]
