@@ -37,6 +37,7 @@ class PhasorInputNode(InputNode):
     @classmethod
     def create(  # type: ignore[override]  # ty: ignore
         cls,
+        name: str,
         field_defaults: Mapping[str, NaturalParametrization[Any, Any]],
         frequencies: JaxRealArray,
     ) -> Self:
@@ -47,6 +48,7 @@ class PhasorInputNode(InputNode):
         :class:`~cem.phasor_calculus.message.PhasorMessage` for the initial state.
 
         Args:
+            name: Node name, used for graph routing.
             field_defaults: Mapping from field name to the prior distribution.
             frequencies: Geometric frequency grid, shape ``(m,)``.  Use
                 :func:`~cem.phasor_calculus.message.geometric_frequencies` to generate a standard
@@ -59,16 +61,16 @@ class PhasorInputNode(InputNode):
         assert frequencies.ndim == 1
         flatteners: list[Flattener[Any]] = []
         phasor_defaults: dict[str, PhasorMessage] = {}
-        for name, dist in field_defaults.items():
+        for field_name, dist in field_defaults.items():
             flattener, _ = Flattener.flatten(dist, mapped_to_plane=True)
             flatteners.append(flattener)
-            phasor_defaults[name] = PhasorMessage.from_distribution(dist, frequencies)
+            phasor_defaults[field_name] = PhasorMessage.from_distribution(dist, frequencies)
 
         field_names = tuple(phasor_defaults.keys())
         defaults = tuple(phasor_defaults.values())
         zero_config = InputNodeConfiguration(values=defaults)
         return cls(
-            name="input",
+            name=name,
             field_names=field_names,
             _state_indices=tuple(eqx.nn.StateIndex(v) for v in defaults),
             _output_state_index=eqx.nn.StateIndex(zero_config),

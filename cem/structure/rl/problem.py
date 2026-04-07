@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import equinox as eqx
-from efax import ExpectationParametrization
 from tjax import JaxArray, JaxBooleanArray, KeyArray
 
 from cem.structure.problem.data_source import ProblemState
@@ -26,12 +25,6 @@ class RLProblem[
     ProblemRewardT: ProblemReward,
 ](Problem):
     """This class encodes a reinforcement learning environment."""
-
-    def action_distributions(self) -> Mapping[str, ExpectationParametrization[Any]]:
-        raise NotImplementedError
-
-    def reward_distributions(self) -> Mapping[str, ExpectationParametrization[Any]]:
-        raise NotImplementedError
 
     def max_episode_steps(self) -> int:
         """The episode terminates when this many steps have been done."""
