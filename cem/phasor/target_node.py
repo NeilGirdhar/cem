@@ -43,7 +43,7 @@ class PhasorTargetNode(PhasorInputNode, NodeWithBindings):
             ``field_defaults`` passed to :meth:`create`.
     """
 
-    frequency_grids: frozendict[str, NaturalParametrization[Any, Any]] = eqx.field(static=True)
+    frequency_grids: frozendict[str, NaturalParametrization[Any, Any]]
     field_sizes: frozendict[str, int] = eqx.field(static=True)
 
     @classmethod

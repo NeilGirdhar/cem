@@ -28,7 +28,7 @@ class Model(eqx.Module):
     each field to the correct node automatically via ``_input_routing``.
     """
 
-    _nodes: frozendict[str, Node] = eqx.field(static=True)
+    _nodes: frozendict[str, Node]
     _output_routing: frozendict[str, tuple[str, str]] = eqx.field(static=True)
     _input_routing: frozendict[str, str] = eqx.field(static=True)
 

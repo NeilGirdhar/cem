@@ -24,7 +24,7 @@ class InputNode[ValueT](Node[InputNodeConfiguration[ValueT]]):
     Other nodes read from it via Binding(source_node=<name>, source_field=<field_name>).
     """
 
-    _state_indices: frozendict[str, eqx.nn.StateIndex] = eqx.field(static=True)
+    _state_indices: frozendict[str, eqx.nn.StateIndex]
 
     @property
     def field_names(self) -> tuple[str, ...]:
