@@ -32,7 +32,7 @@ def inference_snapshots(
     return snapshots
 
 
-@partial(jit, static_argnames=("batch_size", "return_samples"))
+@partial(jit, static_argnames=("batch_size",))
 def infer_one_episode(
     inference: Inference,
     batch_size: int,
@@ -42,8 +42,6 @@ def infer_one_episode(
     learnable_parameters: Model,
     problem: Problem,
     telemetries: tuple[Telemetry, ...],
-    *,
-    return_samples: bool,
 ) -> dict[Telemetry, Any]:
     result = inference.infer_one_episode(
         batch_size,
@@ -52,7 +50,6 @@ def infer_one_episode(
         data_source,
         learnable_parameters,
         problem,
-        return_samples=False,
     )
     return inference_snapshots(inference, telemetries, result)
 
@@ -107,7 +104,6 @@ def infer_episodes(
                 learnable_parameters,
                 problem,
                 packet.telemetries.telemetries,
-                return_samples=False,
             )
             execution_context.append_result(snapshots)
     return InferenceResults(execution_context.episodes_done(), execution_context.telemetries())

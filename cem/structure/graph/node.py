@@ -13,11 +13,7 @@ if TYPE_CHECKING:
 
 
 class NodeConfiguration(eqx.Module):
-    """The configuration of a node.
-
-    The NodeConfiguration is produced by node inference and returned in a reinforcement learning
-    trajectory.
-    """
+    """The output produced by a node during one inference step."""
 
     def total_loss(self) -> JaxArray:
         """Return this node's contribution to the scalar model loss."""
@@ -45,8 +41,7 @@ class NodeBase[ConfigurationT: NodeConfiguration = NodeConfiguration](eqx.Module
         streams: Mapping[str, RngStream],
         state: eqx.nn.State,
         *,
-        use_signal_noise: bool,
-        return_samples: bool,
+        inference: bool,
     ) -> NodeInferenceResult[ConfigurationT]:
         raise NotImplementedError
 
@@ -74,7 +69,9 @@ class Binding(eqx.Module):
 
 
 class Kernel[ConfigurationT: NodeConfiguration](eqx.Module):
-    def infer(self, **kwargs: list[object]) -> ConfigurationT:
+    def infer(
+        self, *, streams: Mapping[str, RngStream], inference: bool, **kwargs: list[object]
+    ) -> ConfigurationT:
         raise NotImplementedError
 
     def zero_configuration(self) -> ConfigurationT:
@@ -123,15 +120,15 @@ class Node[ConfigurationT: NodeConfiguration = NodeConfiguration](NodeBase[Confi
         streams: Mapping[str, RngStream],
         state: eqx.nn.State,
         *,
-        use_signal_noise: bool,
-        return_samples: bool,
+        inference: bool,
     ) -> NodeInferenceResult[ConfigurationT]:
-        del streams, use_signal_noise, return_samples
         result = self.kernel.infer(
+            streams=streams,
+            inference=inference,
             **{
                 name: [binding.fetch(model, state) for binding in bindings]
                 for name, bindings in self._bindings.items()
-            }
+            },
         )
         return NodeInferenceResult(result, state)
 

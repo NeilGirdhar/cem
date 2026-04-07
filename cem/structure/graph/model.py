@@ -129,8 +129,7 @@ class Model(eqx.Module):
         streams: Mapping[str, RngStream],
         state: eqx.nn.State,
         *,
-        use_signal_noise: bool,
-        return_samples: bool,
+        inference: bool,
     ) -> ModelInferenceResult:
         """Run one forward pass through every node in alphabetical order.
 
@@ -141,8 +140,7 @@ class Model(eqx.Module):
         Args:
             streams: RNG streams passed to each node's ``infer`` method.
             state: Current model state. Updated in-place across nodes.
-            use_signal_noise: Passed through to each node's ``infer``.
-            return_samples: Passed through to each node's ``infer``.
+            inference: Passed through to each node's ``infer``.
 
         Returns:
             A :class:`ModelInferenceResult` with the summed scalar loss and updated state.
@@ -154,8 +152,7 @@ class Model(eqx.Module):
                 self,
                 streams,
                 state,
-                use_signal_noise=use_signal_noise,
-                return_samples=return_samples,
+                inference=inference,
             )
             configuration = inference_result.configuration
             state = inference_result.state

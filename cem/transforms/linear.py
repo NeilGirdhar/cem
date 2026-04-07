@@ -6,8 +6,9 @@ from typing import Self
 import equinox as eqx
 import jax.numpy as jnp
 from jax.nn.initializers import variance_scaling
-from tjax import JaxArray, RngStream
+from tjax import JaxArray, JaxRealArray, RngStream
 
+from cem.phasor_calculus.message import PhasorMessage
 from cem.structure.graph import LearnableParameter
 
 # Each real/imaginary component uses Lecun variance (0.5 * 1/fan_in), giving correct
@@ -44,7 +45,7 @@ class Linear(eqx.Module):
         )
 
     def infer(self, z: JaxArray) -> JaxArray:
-        """Apply linear transform.
+        """Apply affine transform.
 
         Args:
             z: Input phasors, shape (..., in_features).
@@ -55,3 +56,45 @@ class Linear(eqx.Module):
         y = z @ self.weight.value.T
         broadcasted_bias = jnp.reshape(self.bias.value, (1,) * (y.ndim - 1) + (-1,))
         return y + broadcasted_bias
+
+
+class LinearWithDropout(Linear):
+    """Complex-valued affine transform with phasor dropout.
+
+    Dropout is applied to the output after the affine transform.  The default rate of 0.1
+    provides light regularization; set it to 0.0 to disable dropout entirely, or pass
+    ``inference=True`` to :meth:`infer` to skip it at eval time.
+
+    Attributes:
+        dropout_rate: Scalar probability in [0, 1) of zeroing each output phasor.
+    """
+
+    dropout_rate: JaxRealArray
+
+    @classmethod
+    def create(  # type: ignore[override]
+        cls,
+        in_features: int,
+        out_features: int,
+        *,
+        dropout_rate: float = 0.1,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        base = Linear.create(in_features, out_features, streams=streams)
+        return cls(weight=base.weight, bias=base.bias, dropout_rate=jnp.asarray(dropout_rate))
+
+    def infer(self, z: JaxArray, *, streams: Mapping[str, RngStream], inference: bool) -> JaxArray:  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        """Apply affine transform followed by phasor dropout.
+
+        Args:
+            z: Input phasors, shape (..., in_features).
+            streams: RNG streams; the ``"inference"`` stream is used for dropout.
+            inference: When ``True``, dropout is skipped.
+
+        Returns:
+            Output phasors, shape (..., out_features).
+        """
+        result = super().infer(z)
+        if inference:
+            return result
+        return PhasorMessage(result).dropout(streams["inference"].key(), self.dropout_rate).data
