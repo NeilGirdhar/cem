@@ -56,6 +56,7 @@ class PhasorInputNode(InputNode):
             A new :class:`PhasorInputNode` whose state slots are initialised with
             ``PhasorMessage`` encodings of the supplied priors.
         """
+        assert frequencies.ndim == 1
         flatteners: list[Flattener[Any]] = []
         phasor_defaults: dict[str, PhasorMessage] = {}
         for name, dist in field_defaults.items():

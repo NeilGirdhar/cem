@@ -83,6 +83,7 @@ class PhasorMessage(eqx.Module):
             The phasor at flat index ``j * d + k`` encodes sufficient statistic T(x)_k at
             frequency ``frequencies[j]``, for j in 0..m-1 and k in 0..d-1.
         """
+        assert frequencies.ndim == 1
         flattener, _ = Flattener.flatten(dist, mapped_to_plane=False)
         d = flattener.final_dimension_size()
         m = frequencies.shape[0]
@@ -167,6 +168,7 @@ class PhasorMessage(eqx.Module):
         Returns:
             PhasorMessage with shape (..., m).
         """
+        assert frequencies.ndim == 1
         phases = x[..., jnp.newaxis] * jnp.reshape(frequencies, (1,) * x.ndim + (-1,))  # (..., m)
         return cls(presence[..., jnp.newaxis] * jnp.exp(1j * phases))
 
