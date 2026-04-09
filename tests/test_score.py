@@ -4,12 +4,12 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest
-from efax import Flattener, NormalNP
+from efax import Flattener, NormalEP, NormalNP
 from jax import tree
 from tjax import frozendict
 
 from cem.perceptron.nonlinear import LayerNorm
-from cem.perceptron.target_node import PerceptronTargetNode
+from cem.perceptron.target_node import PerceptronTargetConfiguration, PerceptronTargetNode
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.loss import LossAndScore, reconstruction_loss, reconstruction_loss_and_score
 from cem.phasor.message import PhasorMessage
@@ -276,24 +276,47 @@ def test_phasor_target_node_multi_field_score_is_joined_on_last_dimension(
     assert out.score.data.shape == (x_phasor.data.shape[-1] + y_phasor.data.shape[-1],)
 
 
-def test_perceptron_target_node_partition_round_trip_preserves_flattener() -> None:
+def infer_perceptron_target_node(
+    target_node: PerceptronTargetNode,
+    observed: dict[str, NormalNP],
+    predicted: dict[str, jnp.ndarray],
+) -> PerceptronTargetConfiguration:
+    concat_prediction = jnp.concatenate([predicted[f] for f in target_node.field_sizes], axis=-1)
+    predictor = InputNode.create("predictor", {"prediction": concat_prediction})
+    model = Model.create(
+        frozendict({"predictor": predictor, "target": target_node}),
+        frozendict({}),
+    )
+    state = FakeState(predictor, target_node)
+    observed_flat = {
+        field: Flattener.flatten(dist, mapped_to_plane=True)[1] for field, dist in observed.items()
+    }
+    state = model.set_input(observed_flat, state)  # ty: ignore[invalid-argument-type]
+    state = model.infer_one_time_step({}, state, inference=True).state
+    config = model.configuration_from_state(state)["target"]
+    assert isinstance(config, PerceptronTargetConfiguration)
+    return config
+
+
+def test_perceptron_target_node_partition_round_trip_preserves_behavior() -> None:
+    # _flatteners is a frozendict (opaque to JAX), so Flattener leaves are not individually
+    # partitionable — this mirrors PhasorInputNode.  Test that array partition/combine
+    # preserves end-to-end behavior instead.
     dist = NormalNP(jnp.asarray(0.25), jnp.asarray(-0.5))
-    flattener, y_hat = Flattener.flatten(dist, mapped_to_plane=True)
-    node = PerceptronTargetNode.create(flattener)
+    _, y_hat = Flattener.flatten(dist, mapped_to_plane=True)
+    node = PerceptronTargetNode.create("target", {"obs": dist}, ("predictor", "prediction"))
 
-    def is_flattener(x: object) -> bool:
-        return isinstance(x, Flattener)
+    extracted, remainder = eqx.partition(node, eqx.is_array)
+    round_tripped = eqx.combine(extracted, remainder)
 
-    extracted, remainder = eqx.partition(node, is_flattener, is_leaf=is_flattener)
-    leaves = tree.leaves(extracted, is_leaf=is_flattener)
-    round_tripped = eqx.combine(extracted, remainder, is_leaf=is_flattener)
-
-    assert leaves == [flattener]
-
-    expected = node.infer(dist.to_exp(), y_hat)
-    out = round_tripped.infer(dist.to_exp(), y_hat)
+    expected = infer_perceptron_target_node(node, {"obs": dist}, {"obs": y_hat})
+    out = infer_perceptron_target_node(round_tripped, {"obs": dist}, {"obs": y_hat})
     assert jnp.allclose(out.total_loss(), expected.total_loss())
-    assert jnp.allclose(out.predicted_exp.mean, expected.predicted_exp.mean)
+    predicted_d = out.predicted_distributions["obs"]
+    expected_d = expected.predicted_distributions["obs"]
+    assert isinstance(predicted_d, NormalEP)
+    assert isinstance(expected_d, NormalEP)
+    assert jnp.allclose(predicted_d.mean, expected_d.mean)
 
 
 def test_layer_norm_partition_round_trip_preserves_eps() -> None:

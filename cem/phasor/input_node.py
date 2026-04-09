@@ -9,7 +9,7 @@ from efax import ExpectationParametrization, Flattener, NaturalParametrization
 from tjax import JaxRealArray, RngStream, frozendict
 
 from cem.phasor.message import PhasorMessage
-from cem.structure.graph.input_node import InputConfiguration, InputNode
+from cem.structure.graph.input_node import FlatEncodedInputNode, InputConfiguration
 from cem.structure.graph.model import Model
 from cem.structure.graph.node import NodeInferenceResult
 
@@ -20,7 +20,7 @@ class PhasorInputConfiguration(InputConfiguration[PhasorMessage]):
     observed_distributions: frozendict[str, ExpectationParametrization]
 
 
-class PhasorInputNode(InputNode[PhasorMessage]):
+class PhasorInputNode(FlatEncodedInputNode[PhasorMessage]):
     """InputNode whose fields hold PhasorMessage encodings of distributions.
 
     Callers create this node by supplying one ``NaturalParametrization`` per field as the
@@ -39,29 +39,20 @@ class PhasorInputNode(InputNode[PhasorMessage]):
             :meth:`~cem.phasor.message.PhasorMessage.from_distribution`.
     """
 
-    _flatteners: frozendict[str, Flattener[Any]]
     frequencies: JaxRealArray
 
-    @staticmethod
+    @classmethod
     def _prepare_phasor_fields(
+        cls,
         field_defaults: Mapping[str, NaturalParametrization[Any, Any]],
         frequencies: JaxRealArray,
     ) -> tuple[dict[str, Flattener[Any]], dict[str, JaxRealArray], dict[str, PhasorMessage]]:
-        flatteners: dict[str, Flattener[Any]] = {}
-        flat_defaults: dict[str, JaxRealArray] = {}
-        phasor_defaults: dict[str, PhasorMessage] = {}
-        for field_name, dist in field_defaults.items():
-            flattener, flat = Flattener.flatten(dist, mapped_to_plane=True)
-            flatteners[field_name] = flattener
-            flat_defaults[field_name] = flat
-            phasor_defaults[field_name] = PhasorMessage.from_distribution(dist, frequencies)
+        flatteners, flat_defaults = cls._prepare_flat_fields(field_defaults)
+        phasor_defaults: dict[str, PhasorMessage] = {
+            field_name: PhasorMessage.from_distribution(dist, frequencies)
+            for field_name, dist in field_defaults.items()
+        }
         return flatteners, flat_defaults, phasor_defaults
-
-    @staticmethod
-    def _make_state_indices(
-        flat_defaults: Mapping[str, JaxRealArray],
-    ) -> frozendict[str, eqx.nn.StateIndex]:
-        return frozendict({field: eqx.nn.StateIndex(v) for field, v in flat_defaults.items()})
 
     @classmethod
     def create(  # ty: ignore

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Self, override
+from typing import TYPE_CHECKING, Any, Self, override
 
 import equinox as eqx
-from tjax import RngStream, frozendict
+from efax import Flattener, NaturalParametrization
+from tjax import JaxRealArray, RngStream, frozendict
 
 from .node import Node, NodeConfiguration, NodeInferenceResult
 
@@ -74,3 +75,46 @@ class InputNode[ValueT](Node[InputConfiguration[ValueT]]):
     def get_output(self, node_configuration: NodeConfiguration, field_name: str) -> ValueT:
         assert isinstance(node_configuration, InputConfiguration)
         return node_configuration.values[field_name]
+
+
+class FlatEncodedInputNode[MessageT](InputNode[MessageT]):
+    """InputNode base for nodes that store flat distribution encodings per field.
+
+    Provides a :class:`efax.Flattener` per field (``mapped_to_plane=True``) and helpers
+    for building state indices from flat distribution arrays.  Subclasses supply the
+    ``infer`` override that converts the stored flat arrays to domain-specific messages.
+
+    Attributes:
+        _flatteners: One per field, used to unflatten stored flat arrays back to
+            :class:`efax.NaturalParametrization` instances.
+    """
+
+    _flatteners: frozendict[str, Flattener[Any]]
+
+    @staticmethod
+    def _make_state_indices(
+        flat_defaults: Mapping[str, JaxRealArray],
+    ) -> frozendict[str, eqx.nn.StateIndex]:
+        """Build a StateIndex per field from a mapping of default flat arrays."""
+        return frozendict({field: eqx.nn.StateIndex(v) for field, v in flat_defaults.items()})
+
+    @staticmethod
+    def _prepare_flat_fields(
+        field_defaults: Mapping[str, NaturalParametrization[Any, Any]],
+    ) -> tuple[dict[str, Flattener[Any]], dict[str, JaxRealArray]]:
+        """Flatten each prior distribution to build flatteners and flat default arrays.
+
+        Args:
+            field_defaults: Mapping from field name to prior distribution.
+
+        Returns:
+            A pair ``(flatteners, flat_defaults)`` where each value uses
+            ``mapped_to_plane=True`` coordinates.
+        """
+        flatteners: dict[str, Flattener[Any]] = {}
+        flat_defaults: dict[str, JaxRealArray] = {}
+        for field_name, dist in field_defaults.items():
+            flattener, flat = Flattener.flatten(dist, mapped_to_plane=True)
+            flatteners[field_name] = flattener
+            flat_defaults[field_name] = flat
+        return flatteners, flat_defaults
