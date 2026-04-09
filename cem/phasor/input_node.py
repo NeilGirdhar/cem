@@ -5,7 +5,7 @@ from typing import Any, Self, override
 
 import equinox as eqx
 import jax
-from efax import ExpectationParametrization, Flattener, NaturalParametrization
+from efax import Flattener, NaturalParametrization
 from tjax import JaxRealArray, RngStream, frozendict
 
 from cem.phasor.message import PhasorMessage
@@ -16,8 +16,6 @@ from cem.structure.graph.node import NodeInferenceResult
 
 class PhasorInputConfiguration(InputConfiguration[PhasorMessage]):
     """Holds the environment-provided input values for an input node."""
-
-    observed_distributions: frozendict[str, ExpectationParametrization]
 
 
 class PhasorInputNode(FlatEncodedInputNode[PhasorMessage]):
@@ -83,10 +81,7 @@ class PhasorInputNode(FlatEncodedInputNode[PhasorMessage]):
             field_defaults, frequencies
         )
         state_indices = cls._make_state_indices(flat_defaults)
-        zero_config = PhasorInputConfiguration(
-            values=frozendict(phasor_defaults),
-            observed_distributions=frozendict({f: d.to_exp() for f, d in field_defaults.items()}),
-        )
+        zero_config = PhasorInputConfiguration(values=frozendict(phasor_defaults))
         return cls(
             name=name,
             _state_indices=state_indices,
@@ -106,16 +101,12 @@ class PhasorInputNode(FlatEncodedInputNode[PhasorMessage]):
     ) -> NodeInferenceResult[PhasorInputConfiguration]:
         del model, streams, inference
         values = self.gather_local_inputs(state)
-        distributions = {}
         phasors = {}
         for field_name, value in values.items():
             assert isinstance(value, jax.Array)
             distribution = self._flatteners[field_name].unflatten(value)
-            distributions[field_name] = distribution.to_exp()
             phasors[field_name] = PhasorMessage.from_distribution(distribution, self.frequencies)
         return NodeInferenceResult(
-            PhasorInputConfiguration(
-                values=frozendict(phasors), observed_distributions=frozendict(distributions)
-            ),
+            PhasorInputConfiguration(values=frozendict(phasors)),
             state,
         )

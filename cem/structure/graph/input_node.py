@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Self, override
 
 import equinox as eqx
+import jax.numpy as jnp
 from efax import Flattener, NaturalParametrization
 from tjax import JaxRealArray, RngStream, frozendict
 
@@ -118,3 +119,15 @@ class FlatEncodedInputNode[MessageT](InputNode[MessageT]):
             flatteners[field_name] = flattener
             flat_defaults[field_name] = flat
         return flatteners, flat_defaults
+
+    @staticmethod
+    def _split_by_field_sizes(
+        data: JaxRealArray,
+        field_sizes: frozendict[str, int],
+    ) -> dict[str, JaxRealArray]:
+        """Split a concatenated flat array into per-field slices."""
+        running, split_points = 0, []
+        for s in list(field_sizes.values())[:-1]:
+            running += s
+            split_points.append(running)
+        return dict(zip(field_sizes, jnp.split(data, split_points, axis=-1), strict=True))

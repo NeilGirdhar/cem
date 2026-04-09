@@ -14,6 +14,7 @@ from cem.structure.graph.node import (
     Node,
     NodeConfiguration,
     NodeInferenceResult,
+    TargetConfiguration,
 )
 from cem.structure.graph.parameters import (
     FixedParameter,
@@ -42,6 +43,7 @@ __all__ = [
     "NodeWithBindings",
     "Parameter",
     "ParameterType",
+    "TargetConfiguration",
     "apply_to_parameters",
     "is_parameter",
     "verify_model_has_no_free_parameters",
