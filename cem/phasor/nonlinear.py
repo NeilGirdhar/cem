@@ -5,7 +5,7 @@ from typing import Self
 
 import equinox as eqx
 import jax.numpy as jnp
-from tjax import JaxArray, JaxRealArray, RngStream
+from tjax import JaxRealArray, RngStream
 
 from cem.phasor.gate import phasor_gate
 from cem.phasor.linear import Linear
@@ -57,7 +57,9 @@ class Nonlinear(eqx.Module):
             dropout_rate=jnp.asarray(dropout_rate),
         )
 
-    def infer(self, z: JaxArray, *, streams: Mapping[str, RngStream], inference: bool) -> JaxArray:
+    def infer(
+        self, z: PhasorMessage, *, streams: Mapping[str, RngStream], inference: bool
+    ) -> PhasorMessage:
         """Apply GLU-style nonlinear transform with rivalry normalization and optional dropout.
 
         Args:
@@ -68,8 +70,9 @@ class Nonlinear(eqx.Module):
         Returns:
             Output phasors, shape (..., out_features).
         """
-        gated = phasor_gate(self.f1.infer(z), self.f2.infer(z))
-        result = self.rivalry_norm.infer(self.f3.infer(gated))
+        data = z.data
+        gated = phasor_gate(self.f1.infer(data), self.f2.infer(data))
+        result = PhasorMessage(self.rivalry_norm.infer(self.f3.infer(gated)))
         if inference:
             return result
-        return PhasorMessage(result).dropout(streams["inference"].key(), self.dropout_rate).data
+        return result.dropout(streams["inference"].key(), self.dropout_rate)

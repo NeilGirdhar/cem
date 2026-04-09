@@ -12,6 +12,7 @@ from cem.phasor import (
     Linear,
     LinearWithDropout,
     Nonlinear,
+    PhasorMessage,
     RivalryGroups,
     RivalryNorm,
     interpolate,
@@ -252,13 +253,17 @@ def test_rivalry_norm_batched_shape(rivalry_norm: RivalryNorm) -> None:
 
 def test_nonlinear_output_shape(streams: Mapping[str, RngStream]) -> None:
     f = Nonlinear.create(4, 6, 3, streams=streams)
-    assert f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams, inference=True).shape == (6,)
+    assert f.infer(
+        PhasorMessage(jnp.ones(4, dtype=jnp.complex128)), streams=streams, inference=True
+    ).shape == (6,)
 
 
 def test_nonlinear_output_dtype(streams: Mapping[str, RngStream]) -> None:
     f = Nonlinear.create(4, 6, 3, streams=streams)
     assert (
-        f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams, inference=True).dtype
+        f.infer(
+            PhasorMessage(jnp.ones(4, dtype=jnp.complex128)), streams=streams, inference=True
+        ).data.dtype
         == jnp.complex128
     )
 
@@ -266,13 +271,15 @@ def test_nonlinear_output_dtype(streams: Mapping[str, RngStream]) -> None:
 def test_nonlinear_batched_shape(streams: Mapping[str, RngStream]) -> None:
     f = Nonlinear.create(4, 6, 3, streams=streams)
     assert f.infer(
-        jnp.ones((5, 4), dtype=jnp.complex128), streams=streams, inference=True
+        PhasorMessage(jnp.ones((5, 4), dtype=jnp.complex128)), streams=streams, inference=True
     ).shape == (5, 6)
 
 
 def test_nonlinear_custom_mid_features(streams: Mapping[str, RngStream]) -> None:
     f = Nonlinear.create(4, 6, 3, mid_features=8, streams=streams)
-    assert f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams, inference=True).shape == (6,)
+    assert f.infer(
+        PhasorMessage(jnp.ones(4, dtype=jnp.complex128)), streams=streams, inference=True
+    ).shape == (6,)
 
 
 # ── select ────────────────────────────────────────────────────────────────────
