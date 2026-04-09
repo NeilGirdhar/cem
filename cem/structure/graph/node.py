@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Generic, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
-from tjax import JaxArray, RngStream
+from tjax import JaxArray, RngStream, frozendict
 from tjax.dataclasses import dataclass
 
 if TYPE_CHECKING:
@@ -18,6 +18,15 @@ class NodeConfiguration(eqx.Module):
     def total_loss(self) -> JaxArray:
         """Return this node's contribution to the scalar model loss."""
         return jnp.zeros(())
+
+
+class TargetConfiguration(NodeConfiguration):
+    """NodeConfiguration mixin for nodes that compute a per-field loss."""
+
+    loss: frozendict[str, JaxArray]
+
+    def total_loss(self) -> JaxArray:
+        return sum((jnp.sum(v) for v in self.loss.values()), start=jnp.asarray(0.0))
 
 
 _C_co = TypeVar("_C_co", covariant=True, bound=NodeConfiguration, default=NodeConfiguration)

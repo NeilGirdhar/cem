@@ -7,23 +7,19 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from efax import ExpectationParametrization, HasEntropyEP, NaturalParametrization
-from tjax import JaxArray, JaxRealArray, RngStream, frozendict
+from tjax import JaxArray, RngStream, frozendict
 
 from cem.perceptron.input_node import PerceptronInputConfiguration, PerceptronInputNode
 from cem.structure.graph.kernel_node import NodeWithBindings
 from cem.structure.graph.model import Model
-from cem.structure.graph.node import NodeInferenceResult
+from cem.structure.graph.node import NodeInferenceResult, TargetConfiguration
 
 
-class PerceptronTargetConfiguration(PerceptronInputConfiguration):
+class PerceptronTargetConfiguration(PerceptronInputConfiguration, TargetConfiguration):
     """Scored perceptron targets, keyed by field name."""
 
     observed_distributions: frozendict[str, ExpectationParametrization]
-    loss: frozendict[str, JaxArray]
     predicted_distributions: frozendict[str, HasEntropyEP]
-
-    def total_loss(self) -> JaxArray:
-        return sum((jnp.sum(loss) for loss in self.loss.values()), start=jnp.asarray(0.0))
 
 
 class PerceptronTargetNode(PerceptronInputNode, NodeWithBindings):
@@ -100,18 +96,7 @@ class PerceptronTargetNode(PerceptronInputNode, NodeWithBindings):
             )
             raise TypeError(msg)
 
-        # Split the combined prediction into per-field flat arrays.
-        running, split_points = 0, []
-        for s in list(self.field_sizes.values())[:-1]:
-            running += s
-            split_points.append(running)
-        field_values: dict[str, JaxRealArray] = dict(
-            zip(
-                self.field_sizes,
-                jnp.split(y_hat_combined, split_points, axis=-1),
-                strict=True,
-            )
-        )
+        field_values = self._split_by_field_sizes(y_hat_combined, self.field_sizes)
 
         losses: dict[str, JaxArray] = {}
         observed_distributions: dict[str, ExpectationParametrization] = {}

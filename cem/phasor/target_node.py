@@ -6,7 +6,7 @@ from typing import Any, Self
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from efax import Flattener, HasEntropyEP, NaturalParametrization
+from efax import ExpectationParametrization, Flattener, HasEntropyEP, NaturalParametrization
 from tjax import JaxArray, JaxRealArray, RngStream, frozendict
 
 from cem.phasor.frequency import make_frequency_grid
@@ -14,18 +14,15 @@ from cem.phasor.input_node import PhasorInputConfiguration, PhasorInputNode
 from cem.phasor.message import PhasorMessage
 from cem.structure.graph.kernel_node import NodeWithBindings
 from cem.structure.graph.model import Model
-from cem.structure.graph.node import NodeInferenceResult
+from cem.structure.graph.node import NodeInferenceResult, TargetConfiguration
 
 
-class PhasorTargetConfiguration(PhasorInputConfiguration):
+class PhasorTargetConfiguration(PhasorInputConfiguration, TargetConfiguration):
     """Scored phasor targets, keyed by field name."""
 
+    observed_distributions: frozendict[str, ExpectationParametrization]
     score: PhasorMessage
-    loss: frozendict[str, JaxArray]
     predicted_distributions: frozendict[str, HasEntropyEP]
-
-    def total_loss(self) -> JaxArray:
-        return sum((jnp.sum(loss) for loss in self.loss.values()), start=jnp.asarray(0.0))
 
 
 class PhasorTargetNode(PhasorInputNode, NodeWithBindings):
@@ -105,7 +102,7 @@ class PhasorTargetNode(PhasorInputNode, NodeWithBindings):
             field_sizes=field_sizes,
         )
 
-    def infer(
+    def infer(  # noqa: PLR0914
         self,
         model: Model,
         streams: Mapping[str, RngStream],
@@ -123,25 +120,23 @@ class PhasorTargetNode(PhasorInputNode, NodeWithBindings):
             )
             raise TypeError(msg)
 
-        # Split the combined prediction into per-field phasors.
-        running, split_points = 0, []
-        for s in list(self.field_sizes.values())[:-1]:
-            running += s
-            split_points.append(running)
         field_phasors = {
             f: PhasorMessage(p)
-            for f, p in zip(
-                self.field_sizes, jnp.split(z_hat_combined.data, split_points, axis=-1), strict=True
-            )
+            for f, p in self._split_by_field_sizes(z_hat_combined.data, self.field_sizes).items()
         }
 
+        flat_observed = self.gather_local_inputs(state)
         scores: list[PhasorMessage] = []
         losses: dict[str, JaxArray] = {}
+        observed_distributions: dict[str, ExpectationParametrization] = {}
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
-        for field_name, observed_exp in super_result.configuration.observed_distributions.items():
+        for field_name, z_hat in field_phasors.items():
+            flat_value = flat_observed[field_name]
+            assert isinstance(flat_value, jax.Array)
+            observed_np = self._flatteners[field_name].unflatten(flat_value)
+            observed_exp = observed_np.to_exp()
             assert isinstance(observed_exp, HasEntropyEP)
-            z_hat = field_phasors[field_name]
 
             def forward(
                 z: PhasorMessage,
@@ -156,6 +151,7 @@ class PhasorTargetNode(PhasorInputNode, NodeWithBindings):
             (_, (field_losses, predicted_exp)), score = jax.value_and_grad(forward, has_aux=True)(
                 z_hat
             )
+            observed_distributions[field_name] = observed_exp
             scores.append(score)
             losses[field_name] = field_losses
             predicted_distributions[field_name] = predicted_exp
@@ -163,7 +159,7 @@ class PhasorTargetNode(PhasorInputNode, NodeWithBindings):
         return NodeInferenceResult(
             PhasorTargetConfiguration(
                 values=super_result.configuration.values,
-                observed_distributions=super_result.configuration.observed_distributions,
+                observed_distributions=frozendict(observed_distributions),
                 score=PhasorMessage(jnp.concatenate([s.data for s in scores], axis=-1)),
                 loss=frozendict(losses),
                 predicted_distributions=frozendict(predicted_distributions),
