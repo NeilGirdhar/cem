@@ -4,7 +4,7 @@ from cem.phasor.accumulator import Accumulator
 from cem.phasor.attention import interpolate, select
 from cem.phasor.frequency import geometric_frequencies, make_frequency_grid
 from cem.phasor.gate import phasor_gate, rotate_by_location
-from cem.phasor.input_node import PhasorInputNode
+from cem.phasor.input_node import PhasorInputConfiguration
 from cem.phasor.linear import Linear, LinearWithDropout
 from cem.phasor.loss import (
     LossAndScore,
@@ -25,7 +25,7 @@ __all__ = [
     "LinearWithDropout",
     "LossAndScore",
     "Nonlinear",
-    "PhasorInputNode",
+    "PhasorInputConfiguration",
     "PhasorMessage",
     "PhasorTargetConfiguration",
     "PhasorTargetNode",

@@ -14,30 +14,11 @@ from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.loss import LossAndScore, reconstruction_loss, reconstruction_loss_and_score
 from cem.phasor.message import PhasorMessage
 from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
-from cem.structure.graph import InputNode, LearnableParameter, Model, ParameterType
+from cem.structure.graph import LearnableParameter, ParameterType
 
 _M = 8
 _BASE = 1e-4
 _PRIOR = NormalNP(jnp.array(0.0), jnp.array(0.0))
-
-
-class FakeState:
-    def __init__(self, *nodes: object) -> None:
-        self._values: dict[object, object] = {}
-        for node in nodes:
-            output_index = getattr(node, "_output_state_index", None)
-            if output_index is not None:
-                self._values[output_index.marker] = output_index.init
-            state_indices = getattr(node, "_state_indices", {})
-            for index in state_indices.values():
-                self._values[index.marker] = index.init
-
-    def get(self, item: object) -> object:
-        return self._values[item.marker]  # ty: ignore[unresolved-attribute]
-
-    def set(self, item: object, value: object) -> FakeState:
-        self._values[item.marker] = value  # ty: ignore[unresolved-attribute]
-        return self
 
 
 @pytest.fixture
@@ -47,12 +28,7 @@ def freqs() -> jnp.ndarray:
 
 @pytest.fixture
 def target_node(freqs: jnp.ndarray) -> PhasorTargetNode:
-    return PhasorTargetNode.create(
-        "target",
-        {"obs": _PRIOR},
-        ("predictor", "prediction"),
-        freqs,
-    )
+    return PhasorTargetNode.create({"obs": _PRIOR}, freqs)
 
 
 def infer_target_node(
@@ -60,24 +36,16 @@ def infer_target_node(
     observed: dict[str, NormalNP],
     predicted: dict[str, PhasorMessage],
 ) -> PhasorTargetConfiguration:
-    # Concatenate per-field predictions in field_sizes order (matches how score is split out).
-    concat_prediction = PhasorMessage(
+    flat_observed = frozendict(
+        {
+            field: Flattener.flatten(dist, mapped_to_plane=True)[1]
+            for field, dist in observed.items()
+        }
+    )
+    z_hat_combined = PhasorMessage(
         jnp.concatenate([predicted[f].data for f in target_node.field_sizes], axis=-1)
     )
-    predictor = InputNode.create("predictor", {"prediction": concat_prediction})
-    model = Model.create(
-        frozendict({"predictor": predictor, "target": target_node}),
-        frozendict({}),
-    )
-    state = FakeState(predictor, target_node)
-    observed_flat = {
-        field: Flattener.flatten(dist, mapped_to_plane=True)[1] for field, dist in observed.items()
-    }
-    state = model.set_input(observed_flat, state)  # ty: ignore[invalid-argument-type]
-    state = model.infer_one_time_step({}, state, inference=True).state
-    config = model.configuration_from_state(state)["target"]
-    assert isinstance(config, PhasorTargetConfiguration)
-    return config
+    return target_node.infer(flat_observed, z_hat_combined)
 
 
 # ── reconstruction_loss_and_score ─────────────────────────────────────────────
@@ -155,7 +123,7 @@ def test_reconstruction_loss_and_score_batched_shapes() -> None:
 
 
 def test_phasor_target_node_field_names(target_node: PhasorTargetNode) -> None:
-    assert target_node.field_names == ("obs",)
+    assert tuple(target_node.field_sizes) == ("obs",)
 
 
 def test_phasor_target_node_has_frequency_grid_per_field(target_node: PhasorTargetNode) -> None:
@@ -172,15 +140,13 @@ def test_phasor_target_node_frequency_grid_shape(
 
 def test_phasor_target_node_multi_field(freqs: jnp.ndarray) -> None:
     node = PhasorTargetNode.create(
-        "target",
         {
             "x": NormalNP(jnp.array(0.0), jnp.array(0.0)),
             "y": NormalNP(jnp.array(1.0), jnp.array(-0.5)),
         },
-        ("predictor", "prediction"),
         freqs,
     )
-    assert set(node.field_names) == {"x", "y"}
+    assert set(node.field_sizes) == {"x", "y"}
     assert set(node.frequency_grids) == {"x", "y"}
 
 
@@ -230,12 +196,10 @@ def test_phasor_target_node_total_loss_is_sum_of_field_losses(
     freqs: jnp.ndarray,
 ) -> None:
     node = PhasorTargetNode.create(
-        "target",
         {
             "x": NormalNP(jnp.array(0.0), jnp.array(0.0)),
             "y": NormalNP(jnp.array(1.0), jnp.array(-0.5)),
         },
-        ("predictor", "prediction"),
         freqs,
     )
     x_dist = NormalNP(jnp.array(0.1), jnp.array(-0.5))
@@ -255,12 +219,10 @@ def test_phasor_target_node_multi_field_score_is_joined_on_last_dimension(
     freqs: jnp.ndarray,
 ) -> None:
     node = PhasorTargetNode.create(
-        "target",
         {
             "x": NormalNP(jnp.array(0.0), jnp.array(0.0)),
             "y": NormalNP(jnp.array(1.0), jnp.array(-0.5)),
         },
-        ("predictor", "prediction"),
         freqs,
     )
     x_phasor = PhasorMessage.from_distribution(NormalNP(jnp.array(0.1), jnp.array(-0.5)), freqs)
@@ -281,30 +243,20 @@ def infer_perceptron_target_node(
     observed: dict[str, NormalNP],
     predicted: dict[str, jnp.ndarray],
 ) -> PerceptronTargetConfiguration:
-    concat_prediction = jnp.concatenate([predicted[f] for f in target_node.field_sizes], axis=-1)
-    predictor = InputNode.create("predictor", {"prediction": concat_prediction})
-    model = Model.create(
-        frozendict({"predictor": predictor, "target": target_node}),
-        frozendict({}),
+    flat_observed = frozendict(
+        {
+            field: Flattener.flatten(dist, mapped_to_plane=True)[1]
+            for field, dist in observed.items()
+        }
     )
-    state = FakeState(predictor, target_node)
-    observed_flat = {
-        field: Flattener.flatten(dist, mapped_to_plane=True)[1] for field, dist in observed.items()
-    }
-    state = model.set_input(observed_flat, state)  # ty: ignore[invalid-argument-type]
-    state = model.infer_one_time_step({}, state, inference=True).state
-    config = model.configuration_from_state(state)["target"]
-    assert isinstance(config, PerceptronTargetConfiguration)
-    return config
+    concat_prediction = jnp.concatenate([predicted[f] for f in target_node.field_sizes], axis=-1)
+    return target_node.infer(flat_observed, concat_prediction)
 
 
 def test_perceptron_target_node_partition_round_trip_preserves_behavior() -> None:
-    # _flatteners is a frozendict (opaque to JAX), so Flattener leaves are not individually
-    # partitionable — this mirrors PhasorInputNode.  Test that array partition/combine
-    # preserves end-to-end behavior instead.
     dist = NormalNP(jnp.asarray(0.25), jnp.asarray(-0.5))
     _, y_hat = Flattener.flatten(dist, mapped_to_plane=True)
-    node = PerceptronTargetNode.create("target", {"obs": dist}, ("predictor", "prediction"))
+    node = PerceptronTargetNode.create({"obs": dist})
 
     extracted, remainder = eqx.partition(node, eqx.is_array)
     round_tripped = eqx.combine(extracted, remainder)

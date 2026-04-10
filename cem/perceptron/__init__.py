@@ -1,6 +1,6 @@
-"""Real-valued perceptron primitives and graph nodes."""
+"""Real-valued perceptron primitives."""
 
-from cem.perceptron.input_node import PerceptronInputConfiguration, PerceptronInputNode
+from cem.perceptron.input_node import PerceptronInputConfiguration
 from cem.perceptron.linear import Linear, LinearWithDropout
 from cem.perceptron.nonlinear import LayerNorm, Nonlinear
 from cem.perceptron.target_node import PerceptronTargetConfiguration, PerceptronTargetNode
@@ -11,7 +11,6 @@ __all__ = [
     "LinearWithDropout",
     "Nonlinear",
     "PerceptronInputConfiguration",
-    "PerceptronInputNode",
     "PerceptronTargetConfiguration",
     "PerceptronTargetNode",
 ]

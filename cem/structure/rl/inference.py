@@ -2,17 +2,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import partial
-from typing import override
+from typing import Any, override
 
-import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from equinox.internal import while_loop
 from jax.lax import stop_gradient
-from tjax import JaxArray, JaxBooleanArray, JaxIntegralArray, KeyArray
-from tjax.dataclasses import as_shallow_dict
+from tjax import JaxArray, JaxBooleanArray, JaxIntegralArray, KeyArray, frozendict
 
 from cem.structure.graph.model import Model
+from cem.structure.graph.node import NodeConfiguration
 from cem.structure.problem.data_source import DataSource, ProblemState
 from cem.structure.problem.problem import Problem
 from cem.structure.solution.inference import (
@@ -33,16 +32,12 @@ class _RLInferenceState(_InferenceState):
     step: JaxIntegralArray
     total_reward: JaxArray
     done: JaxBooleanArray
-    # These fields have shape (batch_size,)
+    # These fields have shape (batch_size,).
     problem_state: ProblemState
 
 
 class RLInference(Inference):
-    """This class iterates the parameters of the model.
-
-    Each step of the iteration corresponds to a single step of a reinforcement learning trajectory.
-    An RLInference object is stored by SolutionTrainer, which is an instance IteratedFunction.
-    """
+    """Runs multi-step RL rollouts for inference and training."""
 
     @override
     def _set_up_inference(
@@ -57,16 +52,19 @@ class RLInference(Inference):
             batch_size, example_key, inference_key, data_source, problem
         )
         z = jnp.zeros(())
-        rl_inference_state = _RLInferenceState(
-            inference_state.example_key,
-            inference_state.inference_key,
-            inference_state.state,
-            z,
-            z,
-            jnp.asarray(False),  # noqa: FBT003
+        return (
+            _RLInferenceState(
+                inference_state.example_key,
+                inference_state.inference_key,
+                inference_state.state,
+                inference_state.observation,
+                z,
+                z,
+                jnp.asarray(False),  # noqa: FBT003
+                problem_state,
+            ),
             problem_state,
         )
-        return rl_inference_state, problem_state
 
     @override
     def _infer_one_episode(
@@ -75,7 +73,7 @@ class RLInference(Inference):
         problem_state: ProblemState,
         problem: Problem,
         inference_state: _InferenceState,
-        body_function: Callable[[_InferenceState], eqx.nn.State],
+        body_function: Callable[[_InferenceState], tuple[Any, frozendict[str, NodeConfiguration]]],
     ) -> InferenceResult:
         assert isinstance(problem, RLProblem)
         assert isinstance(inference_state, _RLInferenceState)
@@ -89,10 +87,8 @@ class RLInference(Inference):
             max_steps=problem.max_episode_steps(),  # ty: ignore
             kind="lax",
         )
-        return InferenceResult(
-            problem_state,
-            self.fixed_parameters.configuration_from_state(inference_state.state),
-        )
+        _, configurations = body_function(inference_state)
+        return InferenceResult(problem_state, frozendict(configurations))
 
     @override
     def _train_one_episode(
@@ -120,28 +116,22 @@ class RLInference(Inference):
 
     def _rl_inference_body_fun(
         self,
-        body_function: Callable[[_InferenceState], eqx.nn.State],
+        body_function: Callable[[_InferenceState], tuple[Any, frozendict[str, NodeConfiguration]]],
         problem: RLProblem[ProblemState, ProblemAction, ProblemReward],
         learnable_parameters: Model,
         inference_state: _RLInferenceState,
     ) -> _RLInferenceState:
-        # Run one time step.
-        state = body_function(inference_state)
-        # Extract action.
+        new_state, configurations = body_function(inference_state)
         model = self.assemble_model(learnable_parameters)
         assert isinstance(model, RLModel)
-        action_fields = model.get_output(state)
+        action_fields = model.get_action(configurations)
         action = problem.produce_action(action_fields, inference_state.example_key)
         action = stop_gradient(action)
-        # Update environment.
         new_problem_state, reward, new_done = problem.iterate_state(
             inference_state.problem_state, action
         )
         new_problem_state = stop_gradient(new_problem_state)
-        # Inject new observation.
         new_observation = problem.extract_observation(new_problem_state)
-        new_state = model.set_input(as_shallow_dict(new_observation), state)
-        # Produce result.
         new_step = inference_state.step + 1
         new_total_reward = inference_state.total_reward + reward.total_reward()
         (new_example_key,) = jr.split(inference_state.example_key, 1)
@@ -150,6 +140,7 @@ class RLInference(Inference):
             new_example_key,
             new_inference_key,
             new_state,
+            new_observation,
             new_step,
             new_total_reward,
             new_done,

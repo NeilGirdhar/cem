@@ -34,7 +34,6 @@ class TrainingSolution(eqx.Module):
         model: Model,
         gradient_transformations: DisGradientTransformation,
     ) -> TrainingSolution:
-        model, initial_memory = eqx.nn.make_with_state(lambda: model)()
         verify_model_has_no_free_parameters(model)
         learnable_parameters, fixed_parameters = eqx.partition(
             model,
@@ -46,7 +45,7 @@ class TrainingSolution(eqx.Module):
         )
         return TrainingSolution(
             gradient_transformations,
-            Inference(fixed_parameters, initial_memory),
+            Inference(fixed_parameters),
             problem,
             SolutionState.create(gradient_transformations, dissassembled),
         )

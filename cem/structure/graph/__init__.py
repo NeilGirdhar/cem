@@ -1,4 +1,4 @@
-"""Graph primitives: computation graph, nodes, parameters, and training/inference engine."""
+"""Graph primitives: model, nodes, parameters, and training/inference engine."""
 
 from cem.structure.graph.disassembled import (
     DisGradientState,
@@ -7,15 +7,8 @@ from cem.structure.graph.disassembled import (
     ParameterType,
     verify_model_has_no_free_parameters,
 )
-from cem.structure.graph.input_node import InputConfiguration, InputNode
-from cem.structure.graph.kernel_node import Binding, Kernel, KernelNode, NodeWithBindings
-from cem.structure.graph.model import Model, ModelConfiguration
-from cem.structure.graph.node import (
-    Node,
-    NodeConfiguration,
-    NodeInferenceResult,
-    TargetConfiguration,
-)
+from cem.structure.graph.model import Model, ModelResult
+from cem.structure.graph.node import NodeConfiguration, TargetConfiguration
 from cem.structure.graph.parameters import (
     FixedParameter,
     LearnableParameter,
@@ -25,22 +18,14 @@ from cem.structure.graph.parameters import (
 )
 
 __all__ = [
-    "Binding",
     "DisGradientState",
     "DisGradientTransformation",
     "DisModel",
     "FixedParameter",
-    "InputConfiguration",
-    "InputNode",
-    "Kernel",
-    "KernelNode",
     "LearnableParameter",
     "Model",
-    "ModelConfiguration",
-    "Node",
+    "ModelResult",
     "NodeConfiguration",
-    "NodeInferenceResult",
-    "NodeWithBindings",
     "Parameter",
     "ParameterType",
     "TargetConfiguration",
