@@ -287,5 +287,6 @@ def test_parameter_type_partition_round_trip_preserves_type() -> None:
     extracted, remainder = eqx.partition(parameter_type, lambda x: isinstance(x, type))
     round_tripped = eqx.combine(extracted, remainder)
 
-    assert tree.leaves(extracted) == [LearnableParameter]
+    # t is static, so it does not appear as a dynamic pytree leaf.
+    assert tree.leaves(extracted) == []
     assert round_tripped.t is LearnableParameter

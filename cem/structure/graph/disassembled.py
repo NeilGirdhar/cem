@@ -11,7 +11,7 @@ from .parameters import Parameter, is_parameter
 
 
 class ParameterType(eqx.Module):
-    t: type[Parameter[Any]]
+    t: type[Parameter[Any]] = eqx.field(static=True)
 
 
 type DisGradientState = list[tuple[ParameterType, GradientState]]
