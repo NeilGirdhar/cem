@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -13,6 +14,7 @@ from sklearn.datasets import make_classification, make_regression
 from sklearn.preprocessing import StandardScaler
 from tjax import JaxRealArray, KeyArray
 
+from cem.structure.problem import Problem
 from cem.structure.problem.data_source import DataSource, ProblemState
 
 
@@ -67,8 +69,8 @@ class SupervisedDataSource(DataSource):
         return SupervisedProblemState(x=self.x_flat[idx], y=self.y_flat[idx])
 
 
-class SupervisedProblem:
-    """Container for a complete supervised learning dataset.
+class SupervisedProblem(Problem):
+    """Complete supervised learning dataset with priors.
 
     Attributes:
         x_flat: Pre-encoded feature matrix, shape ``(n_samples, n_features)``.
@@ -80,21 +82,12 @@ class SupervisedProblem:
         n_targets: Number of target dimensions.
     """
 
-    def __init__(
-        self,
-        x_flat: JaxRealArray,
-        y_flat: JaxRealArray,
-        x_prior: UnitVarianceNormalNP,
-        y_prior: UnitVarianceNormalNP,
-        n_features: int,
-        n_targets: int,
-    ) -> None:
-        self.x_flat = x_flat
-        self.y_flat = y_flat
-        self.x_prior = x_prior
-        self.y_prior = y_prior
-        self.n_features = n_features
-        self.n_targets = n_targets
+    x_flat: JaxRealArray
+    y_flat: JaxRealArray
+    x_prior: UnitVarianceNormalNP
+    y_prior: UnitVarianceNormalNP
+    n_features: int = eqx.field(static=True)
+    n_targets: int = eqx.field(static=True)
 
     def create_data_source(self) -> SupervisedDataSource:
         return SupervisedDataSource(x_flat=self.x_flat, y_flat=self.y_flat)
@@ -154,7 +147,14 @@ def load_iris() -> SupervisedProblem:
     species_map: dict[Any, int] = {s: i for i, s in enumerate(df["Species"].unique())}
     y = df["Species"].map(species_map).to_numpy(dtype=np.float64)
     x_flat, y_flat, x_prior, y_prior, n_features, n_targets = _encode_dataset(x, y)
-    return SupervisedProblem(x_flat, y_flat, x_prior, y_prior, n_features, n_targets)
+    return SupervisedProblem(
+        x_flat=x_flat,
+        y_flat=y_flat,
+        x_prior=x_prior,
+        y_prior=y_prior,
+        n_features=n_features,
+        n_targets=n_targets,
+    )
 
 
 def load_synthetic_regression(
@@ -183,7 +183,14 @@ def load_synthetic_regression(
         random_state=seed,
     )
     x_flat, y_flat, x_prior, y_prior, n_feats, n_tgts = _encode_dataset(x, y)
-    return SupervisedProblem(x_flat, y_flat, x_prior, y_prior, n_feats, n_tgts)
+    return SupervisedProblem(
+        x_flat=x_flat,
+        y_flat=y_flat,
+        x_prior=x_prior,
+        y_prior=y_prior,
+        n_features=n_feats,
+        n_targets=n_tgts,
+    )
 
 
 def load_synthetic_classification(
@@ -208,4 +215,11 @@ def load_synthetic_classification(
         random_state=seed,
     )
     x_flat, y_flat, x_prior, y_prior, n_feats, n_tgts = _encode_dataset(x, y)
-    return SupervisedProblem(x_flat, y_flat, x_prior, y_prior, n_feats, n_tgts)
+    return SupervisedProblem(
+        x_flat=x_flat,
+        y_flat=y_flat,
+        x_prior=x_prior,
+        y_prior=y_prior,
+        n_features=n_feats,
+        n_targets=n_tgts,
+    )

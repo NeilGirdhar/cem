@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from enum import Enum
 from typing import Any, Self, override
 
-import equinox as eqx
 from efax import Flattener
 from optuna.distributions import IntDistribution
 from tjax import JaxRealArray, RngStream, frozendict
@@ -20,7 +19,12 @@ from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, int_field
 
-from .problem import SupervisedProblem, SupervisedProblemState, load_iris, load_synthetic_regression
+from .problem import (
+    SupervisedProblem,
+    SupervisedProblemState,
+    load_iris,
+    load_synthetic_regression,
+)
 
 
 class DatasetKind(Enum):
@@ -127,7 +131,7 @@ class PhasorSupervisedModel(Model):
         )
 
 
-class SupervisedSolver(Solver[Problem]):
+class SupervisedSolver(Solver[SupervisedProblem]):
     """Solver for supervised learning using a single nonlinear link.
 
     Attributes:
@@ -142,14 +146,11 @@ class SupervisedSolver(Solver[Problem]):
     hidden_size: int = int_field(default=64, domain=IntDistribution(4, 128))
     n_frequencies: int = int_field(default=8, domain=IntDistribution(2, 16))
 
-    def _load_problem(self) -> SupervisedProblem:
+    @override
+    def problem(self) -> SupervisedProblem:
         if self.dataset_kind == DatasetKind.iris:
             return load_iris()
         return load_synthetic_regression()
-
-    @override
-    def problem(self) -> Problem:
-        return _SupervisedProblemWrapper(self._load_problem())
 
     @override
     def create_model(
@@ -159,20 +160,9 @@ class SupervisedSolver(Solver[Problem]):
         *,
         streams: Mapping[str, RngStream],
     ) -> Model:
-        assert isinstance(problem, _SupervisedProblemWrapper)
-        sup = problem.sup
+        assert isinstance(problem, SupervisedProblem)
         if self.link_kind == LinkKind.perceptron:
-            return PerceptronSupervisedModel.create(sup, self.hidden_size, streams=streams)
+            return PerceptronSupervisedModel.create(problem, self.hidden_size, streams=streams)
         return PhasorSupervisedModel.create(
-            sup, self.n_frequencies, self.hidden_size, streams=streams
+            problem, self.n_frequencies, self.hidden_size, streams=streams
         )
-
-
-class _SupervisedProblemWrapper(Problem, eqx.Module):
-    """Thin Problem wrapper that holds a SupervisedProblem."""
-
-    sup: SupervisedProblem
-
-    @override
-    def create_data_source(self) -> DataSource:
-        return self.sup.create_data_source()
