@@ -47,7 +47,7 @@ def _qt_matplotlib_settings() -> _MatplotlibSettings:
 
 
 def generate_figures(
-    demo: Demo[Any], results: tuple[TrainingResults, InferenceResults], *, display: bool
+    demo: Demo, results: tuple[TrainingResults, InferenceResults], *, display: bool
 ) -> None:
     settings = _qt_matplotlib_settings() if display else _pdf_matplotlib_settings()
     mpl.use(settings.backend)

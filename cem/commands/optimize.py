@@ -79,7 +79,7 @@ def suggest_from_distribution(trial: Trial, name: str, distribution: BaseDistrib
 
 
 def objective(
-    demo: Demo[Any],
+    demo: Demo,
     hyperparameters: dict[str, Any],
     *,
     wandb: bool,

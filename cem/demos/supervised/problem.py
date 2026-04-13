@@ -1,4 +1,4 @@
-"""Supervised learning problem: data sources and problem state."""  # noqa: INP001
+"""Supervised learning problem: data sources and problem state."""
 
 from __future__ import annotations
 
