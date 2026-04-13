@@ -1,4 +1,4 @@
-"""Supervised learning solver: perceptron and phasor variants."""  # noqa: INP001
+"""Supervised learning solver: perceptron and phasor variants."""
 
 from __future__ import annotations
 

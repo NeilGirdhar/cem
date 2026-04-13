@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
 
+from cem.demos.afp.demo import AFPDemo
+from cem.demos.supervised.demo import SupervisedDemo
 from cem.structure import Demo
 
 
 class DemoEnum(Enum):
-    pass
+    supervised = "supervised"
+    afp = "afp"
 
 
-demo_registry: dict[DemoEnum, Demo[Any]] = {}
+demo_registry: dict[DemoEnum, Demo] = {
+    DemoEnum.supervised: SupervisedDemo(),
+    DemoEnum.afp: AFPDemo(),
+}
