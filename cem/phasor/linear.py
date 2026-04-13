@@ -9,7 +9,7 @@ from jax.nn.initializers import variance_scaling
 from tjax import JaxArray, JaxRealArray, RngStream
 
 from cem.phasor.message import PhasorMessage
-from cem.structure.graph import LearnableParameter
+from cem.structure.graph import FixedParameter, LearnableParameter
 
 # Each real/imaginary component uses Lecun variance (0.5 * 1/fan_in), giving correct
 # complex Lecun initialization when the two components are combined.
@@ -69,7 +69,7 @@ class LinearWithDropout(Linear):
         dropout_rate: Scalar probability in [0, 1) of zeroing each output phasor.
     """
 
-    dropout_rate: JaxRealArray
+    dropout_rate: FixedParameter[JaxRealArray]
 
     @classmethod
     def create(
@@ -81,7 +81,11 @@ class LinearWithDropout(Linear):
         streams: Mapping[str, RngStream],
     ) -> Self:
         base = Linear.create(in_features, out_features, streams=streams)
-        return cls(weight=base.weight, bias=base.bias, dropout_rate=jnp.asarray(dropout_rate))
+        return cls(
+            weight=base.weight,
+            bias=base.bias,
+            dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
+        )
 
     def infer(self, z: JaxArray, *, streams: Mapping[str, RngStream], inference: bool) -> JaxArray:  # ty: ignore[invalid-method-override]
         """Apply affine transform followed by phasor dropout.
@@ -97,4 +101,6 @@ class LinearWithDropout(Linear):
         result = super().infer(z)
         if inference:
             return result
-        return PhasorMessage(result).dropout(streams["inference"].key(), self.dropout_rate).data
+        return (
+            PhasorMessage(result).dropout(streams["inference"].key(), self.dropout_rate.value).data
+        )

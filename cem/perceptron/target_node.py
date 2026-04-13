@@ -9,6 +9,7 @@ from efax import ExpectationParametrization, Flattener, HasEntropyEP, NaturalPar
 from tjax import JaxArray, JaxRealArray, frozendict
 
 from cem.perceptron.input_node import PerceptronInputConfiguration
+from cem.structure.graph import FixedParameter
 from cem.structure.graph.node import TargetConfiguration
 
 
@@ -39,7 +40,7 @@ class PerceptronTargetNode(eqx.Module):
             to :meth:`create`.
     """
 
-    _flatteners: frozendict[str, Flattener[Any]]
+    _flatteners: FixedParameter[frozendict[str, Flattener[Any]]]
     field_sizes: frozendict[str, int] = eqx.field(static=True)
 
     @classmethod
@@ -64,7 +65,7 @@ class PerceptronTargetNode(eqx.Module):
             flatteners[field_name] = flattener
             flat_defaults[field_name] = flat
         field_sizes = frozendict({field: flat.shape[-1] for field, flat in flat_defaults.items()})
-        return cls(_flatteners=frozendict(flatteners), field_sizes=field_sizes)
+        return cls(_flatteners=FixedParameter(frozendict(flatteners)), field_sizes=field_sizes)
 
     def infer(
         self,
@@ -88,10 +89,10 @@ class PerceptronTargetNode(eqx.Module):
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
         for field_name, y_hat in field_values.items():
-            observed_np = self._flatteners[field_name].unflatten(flat_observed[field_name])
+            observed_np = self._flatteners.value[field_name].unflatten(flat_observed[field_name])
             observed_exp = observed_np.to_exp()
             assert isinstance(observed_exp, HasEntropyEP)
-            predicted_np = self._flatteners[field_name].unflatten(y_hat)
+            predicted_np = self._flatteners.value[field_name].unflatten(y_hat)
             predicted_exp = predicted_np.to_exp()
             assert isinstance(predicted_exp, type(observed_exp))
             observed_distributions[field_name] = observed_exp

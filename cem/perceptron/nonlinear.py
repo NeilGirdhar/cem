@@ -10,7 +10,7 @@ import jax.random as jr
 from tjax import JaxRealArray, RngStream
 
 from cem.perceptron.linear import Linear
-from cem.structure.graph import LearnableParameter
+from cem.structure.graph import FixedParameter, LearnableParameter
 
 
 class LayerNorm(eqx.Module):
@@ -72,7 +72,7 @@ class Nonlinear(eqx.Module):
     f2: Linear
     f3: Linear
     layer_norm: LayerNorm
-    dropout_rate: JaxRealArray
+    dropout_rate: FixedParameter[JaxRealArray]
 
     @classmethod
     def create(
@@ -91,7 +91,7 @@ class Nonlinear(eqx.Module):
             f2=Linear.create(in_features, mid_features, streams=streams),
             f3=Linear.create(mid_features, out_features, streams=streams),
             layer_norm=LayerNorm.create(out_features),
-            dropout_rate=jnp.asarray(dropout_rate),
+            dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
         )
 
     def infer(
@@ -112,5 +112,5 @@ class Nonlinear(eqx.Module):
         if inference:
             return result
         key = streams["inference"].key()
-        mask = jr.bernoulli(key, 1.0 - self.dropout_rate, shape=result.shape)
-        return jnp.where(mask, result / (1.0 - self.dropout_rate), jnp.zeros_like(result))
+        mask = jr.bernoulli(key, 1.0 - self.dropout_rate.value, shape=result.shape)
+        return jnp.where(mask, result / (1.0 - self.dropout_rate.value), jnp.zeros_like(result))

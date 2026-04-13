@@ -16,7 +16,7 @@ from cem.perceptron.target_node import PerceptronTargetNode
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.message import PhasorMessage
 from cem.phasor.target_node import PhasorTargetNode
-from cem.structure.graph import Model, ModelResult
+from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, int_field
 
@@ -80,8 +80,8 @@ class PhasorSupervisedModel(Model):
 
     link: phasor.Nonlinear
     target: PhasorTargetNode
-    _x_flattener: Flattener[Any]
-    _frequencies: JaxRealArray
+    _x_flattener: FixedParameter[Flattener[Any]]
+    _frequencies: FixedParameter[JaxRealArray]
 
     @classmethod
     def create(
@@ -102,8 +102,8 @@ class PhasorSupervisedModel(Model):
                 in_size, out_size, num_groups, mid_features=hidden_size, streams=streams
             ),
             target=PhasorTargetNode.create({"y": sup.y_prior}, freqs),
-            _x_flattener=x_flattener,
-            _frequencies=freqs,
+            _x_flattener=FixedParameter(x_flattener),
+            _frequencies=FixedParameter(freqs),
         )
 
     @override
@@ -116,8 +116,8 @@ class PhasorSupervisedModel(Model):
         inference: bool,
     ) -> ModelResult:
         assert isinstance(observation, SupervisedProblemState)
-        x_dist = self._x_flattener.unflatten(observation.x)
-        x_phasor = PhasorMessage.from_distribution(x_dist, self._frequencies)
+        x_dist = self._x_flattener.value.unflatten(observation.x)
+        x_phasor = PhasorMessage.from_distribution(x_dist, self._frequencies.value)
         z_hat = self.link.infer(x_phasor, streams=streams, inference=inference)
         config = self.target.infer(frozendict({"y": observation.y}), z_hat)
         return ModelResult(

@@ -12,6 +12,7 @@ from tjax import JaxArray, JaxRealArray, frozendict
 from cem.phasor.frequency import make_frequency_grid
 from cem.phasor.input_node import PhasorInputConfiguration
 from cem.phasor.message import PhasorMessage
+from cem.structure.graph import FixedParameter
 from cem.structure.graph.node import TargetConfiguration
 
 
@@ -46,10 +47,10 @@ class PhasorTargetNode(eqx.Module):
             :meth:`~cem.phasor.message.PhasorMessage.from_distribution`.
     """
 
-    _flatteners: frozendict[str, Flattener[Any]]
-    frequency_grids: frozendict[str, NaturalParametrization[Any, Any]]
+    _flatteners: FixedParameter[frozendict[str, Flattener[Any]]]
+    frequency_grids: FixedParameter[frozendict[str, NaturalParametrization[Any, Any]]]
     field_sizes: frozendict[str, int] = eqx.field(static=True)
-    frequencies: JaxRealArray
+    frequencies: FixedParameter[JaxRealArray]
 
     @classmethod
     def create(
@@ -82,10 +83,10 @@ class PhasorTargetNode(eqx.Module):
             {field: phasor.data.shape[-1] for field, phasor in phasor_defaults.items()}
         )
         return cls(
-            _flatteners=frozendict(flatteners),
-            frequency_grids=frozendict(frequency_grids),
+            _flatteners=FixedParameter(frozendict(flatteners)),
+            frequency_grids=FixedParameter(frozendict(frequency_grids)),
             field_sizes=field_sizes,
-            frequencies=frequencies,
+            frequencies=FixedParameter(frequencies),
         )
 
     def infer(
@@ -116,14 +117,16 @@ class PhasorTargetNode(eqx.Module):
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
         for field_name, z_hat in field_phasors.items():
-            observed_np = self._flatteners[field_name].unflatten(flat_observed[field_name])
-            phasors[field_name] = PhasorMessage.from_distribution(observed_np, self.frequencies)
+            observed_np = self._flatteners.value[field_name].unflatten(flat_observed[field_name])
+            phasors[field_name] = PhasorMessage.from_distribution(
+                observed_np, self.frequencies.value
+            )
             observed_exp = observed_np.to_exp()
             assert isinstance(observed_exp, HasEntropyEP)
 
             def forward(
                 z: PhasorMessage,
-                grid: NaturalParametrization[Any, Any] = self.frequency_grids[field_name],
+                grid: NaturalParametrization[Any, Any] = self.frequency_grids.value[field_name],
                 observed_exp: HasEntropyEP = observed_exp,
             ) -> tuple[JaxArray, tuple[JaxArray, HasEntropyEP]]:
                 predicted_exp = z.to_distribution(grid)
