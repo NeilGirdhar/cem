@@ -127,14 +127,14 @@ def test_phasor_target_node_field_names(target_node: PhasorTargetNode) -> None:
 
 
 def test_phasor_target_node_has_frequency_grid_per_field(target_node: PhasorTargetNode) -> None:
-    assert set(target_node.frequency_grids) == {"obs"}
+    assert set(target_node.frequency_grids.value) == {"obs"}
 
 
 def test_phasor_target_node_frequency_grid_shape(
     target_node: PhasorTargetNode, freqs: jnp.ndarray
 ) -> None:
     # NormalNP has d=2 sufficient statistics; m=8 frequencies → shape (m*d,) = (16,)
-    grid = target_node.frequency_grids["obs"]
+    grid = target_node.frequency_grids.value["obs"]
     assert grid.shape == (_M * 2,)
 
 
@@ -147,7 +147,7 @@ def test_phasor_target_node_multi_field(freqs: jnp.ndarray) -> None:
         freqs,
     )
     assert set(node.field_sizes) == {"x", "y"}
-    assert set(node.frequency_grids) == {"x", "y"}
+    assert set(node.frequency_grids.value) == {"x", "y"}
 
 
 def test_phasor_target_configuration_total_loss_is_zero(

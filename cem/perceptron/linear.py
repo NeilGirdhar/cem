@@ -9,7 +9,7 @@ import jax.random as jr
 from jax.nn.initializers import variance_scaling
 from tjax import JaxRealArray, RngStream
 
-from cem.structure.graph import LearnableParameter
+from cem.structure.graph import FixedParameter, LearnableParameter
 
 _lecun = variance_scaling(1.0, "fan_in", "truncated_normal")
 
@@ -64,7 +64,7 @@ class LinearWithDropout(Linear):
         dropout_rate: Scalar probability in [0, 1) of zeroing each output unit.
     """
 
-    dropout_rate: JaxRealArray
+    dropout_rate: FixedParameter[JaxRealArray]
 
     @classmethod
     def create(
@@ -76,7 +76,11 @@ class LinearWithDropout(Linear):
         streams: Mapping[str, RngStream],
     ) -> Self:
         base = Linear.create(in_features, out_features, streams=streams)
-        return cls(weight=base.weight, bias=base.bias, dropout_rate=jnp.asarray(dropout_rate))
+        return cls(
+            weight=base.weight,
+            bias=base.bias,
+            dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
+        )
 
     def infer(  # ty: ignore[invalid-method-override]
         self, x: JaxRealArray, *, streams: Mapping[str, RngStream], inference: bool
@@ -95,5 +99,5 @@ class LinearWithDropout(Linear):
         if inference:
             return result
         key = streams["inference"].key()
-        mask = jr.bernoulli(key, 1.0 - self.dropout_rate, shape=result.shape)
-        return jnp.where(mask, result / (1.0 - self.dropout_rate), jnp.zeros_like(result))
+        mask = jr.bernoulli(key, 1.0 - self.dropout_rate.value, shape=result.shape)
+        return jnp.where(mask, result / (1.0 - self.dropout_rate.value), jnp.zeros_like(result))

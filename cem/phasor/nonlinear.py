@@ -11,6 +11,7 @@ from cem.phasor.gate import phasor_gate
 from cem.phasor.linear import Linear
 from cem.phasor.message import PhasorMessage
 from cem.phasor.rivalry import RivalryNorm
+from cem.structure.graph import FixedParameter
 
 
 class Nonlinear(eqx.Module):
@@ -34,7 +35,7 @@ class Nonlinear(eqx.Module):
     f2: Linear
     f3: Linear
     rivalry_norm: RivalryNorm
-    dropout_rate: JaxRealArray
+    dropout_rate: FixedParameter[JaxRealArray]
 
     @classmethod
     def create(
@@ -54,7 +55,7 @@ class Nonlinear(eqx.Module):
             f2=Linear.create(in_features, mid_features, streams=streams),
             f3=Linear.create(mid_features, out_features, streams=streams),
             rivalry_norm=RivalryNorm.create(out_features, num_groups, streams=streams),
-            dropout_rate=jnp.asarray(dropout_rate),
+            dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
         )
 
     def infer(
@@ -75,4 +76,4 @@ class Nonlinear(eqx.Module):
         result = PhasorMessage(self.rivalry_norm.infer(self.f3.infer(gated)))
         if inference:
             return result
-        return result.dropout(streams["inference"].key(), self.dropout_rate)
+        return result.dropout(streams["inference"].key(), self.dropout_rate.value)
