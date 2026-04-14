@@ -15,24 +15,21 @@ class Demo:
     name: ClassVar[str]
     title: ClassVar[str]
 
-    @classmethod
-    def all_telemetries(cls) -> Telemetries:
+    def all_telemetries(self) -> Telemetries:
         return reduce(
             Telemetries.combine,
-            (plotter.telemetries() for plotter in cls.plotters()),
-            cls.extra_telemetries(),
+            (plotter.telemetries() for plotter in self.plotters()),
+            self.extra_telemetries(),
         )
 
-    @classmethod
     @abstractmethod
-    def create_solver(cls) -> Solver[Any]:
+    def create_solver(self) -> Solver[Any]:
         """Return the solver that defines the model, problem, and hyperparameters for this demo."""
         raise NotImplementedError
 
-    @classmethod
     @abstractmethod
     def demo_loss(
-        cls, training_results: TrainingResults, inference_results: InferenceResults
+        self, training_results: TrainingResults, inference_results: InferenceResults
     ) -> float:
         """Return a scalar loss used to drive hyperparameter optimisation.
 
@@ -45,15 +42,13 @@ class Demo:
         """
         raise NotImplementedError
 
-    @classmethod
     @abstractmethod
-    def plotters(cls) -> Sequence[Plotter]:
+    def plotters(self) -> Sequence[Plotter]:
         """Return the plotters that visualise results for this demo."""
         raise NotImplementedError
 
-    @classmethod
     @abstractmethod
-    def extra_telemetries(cls) -> Telemetries:
+    def extra_telemetries(self) -> Telemetries:
         """Return additional telemetries beyond those declared by the plotters.
 
         The telemetries returned here are automatically combined with those

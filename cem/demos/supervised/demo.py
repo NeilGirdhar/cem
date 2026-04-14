@@ -22,25 +22,21 @@ class SupervisedDemo(Demo):
     name = "supervised"
     title = "Supervised Learning"
 
-    @classmethod
     @override
-    def create_solver(cls) -> Solver[Any]:
+    def create_solver(self) -> Solver[Any]:
         return SupervisedSolver()
 
-    @classmethod
     @override
-    def plotters(cls) -> Sequence[Plotter]:
+    def plotters(self) -> Sequence[Plotter]:
         return [SupervisedLossPlotter()]
 
-    @classmethod
     @override
-    def extra_telemetries(cls) -> Telemetries:
+    def extra_telemetries(self) -> Telemetries:
         return Telemetries()
 
-    @classmethod
     @override
     def demo_loss(
-        cls, training_results: TrainingResults, inference_results: InferenceResults
+        self, training_results: TrainingResults, inference_results: InferenceResults
     ) -> float:
         telemetry = LossTelemetry(selected_node="target")
         losses = inference_results.telemetries[telemetry]
