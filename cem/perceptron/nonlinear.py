@@ -26,14 +26,14 @@ class LayerNorm(eqx.Module):
 
     scale: LearnableParameter[JaxRealArray]
     bias: LearnableParameter[JaxRealArray]
-    eps: float
+    eps: FixedParameter[float]
 
     @classmethod
     def create(cls, features: int, *, eps: float = 1e-5) -> Self:
         return cls(
             scale=LearnableParameter(jnp.ones(features, dtype=jnp.float64)),
             bias=LearnableParameter(jnp.zeros(features, dtype=jnp.float64)),
-            eps=eps,
+            eps=FixedParameter(eps),
         )
 
     def infer(self, x: JaxRealArray) -> JaxRealArray:
@@ -47,7 +47,7 @@ class LayerNorm(eqx.Module):
         """
         mean = jnp.mean(x, axis=-1, keepdims=True)
         var = jnp.var(x, axis=-1, keepdims=True)
-        x_norm = (x - mean) / jnp.sqrt(var + self.eps)
+        x_norm = (x - mean) / jnp.sqrt(var + self.eps.value)
         return self.scale.value * x_norm + self.bias.value
 
 
