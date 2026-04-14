@@ -72,16 +72,6 @@ class Inference(eqx.Module, JaxAbstractClass):
 
     fixed_parameters: Model
 
-    def infer_zero_episodes(
-        self,
-        data_source: DataSource,
-        problem: Problem,
-    ) -> InferenceResult:
-        """Return a default InferenceResult before any model steps are run."""
-        key = jr.key(0)
-        _, problem_state = self._set_up_inference(1, key, key, data_source, problem)
-        return InferenceResult(problem_state, frozendict())
-
     def infer_one_episode(
         self,
         batch_size: int,
