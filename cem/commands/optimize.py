@@ -36,7 +36,7 @@ from .settings import (
     wandb_settings,
 )
 
-global_log = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 app = typer.Typer(pretty_exceptions_enable=False)
 
 
@@ -131,7 +131,7 @@ def optimize(  # noqa: C901
     hyper_space = solver.create_hyperparameters()
     storage = get_optuna_storage()
     if not continue_study:
-        global_log.info("Deleting study")
+        _log.info("Deleting study")
         delete_study(study_name=demo.name, storage=storage)
     study = create_study(
         storage=storage,
@@ -142,7 +142,7 @@ def optimize(  # noqa: C901
     if jax_is_initialized():
         raise RuntimeError
 
-    global_log.info("Optimizing: " + str(GenericString(tuple(hyper_space))))
+    _log.info("Optimizing: " + str(GenericString(tuple(hyper_space))))
 
     def bound_objective(hyperparameters: dict[str, Any]) -> float:
         return objective(
@@ -174,5 +174,5 @@ def optimize(  # noqa: C901
                 n_jobs=jobs,
                 show_progress_bar=progress_bar,
             )
-    global_log.info("Best parameters found:")
-    global_log.info(GenericString(study.best_params))
+    _log.info("Best parameters found:")
+    _log.info(GenericString(study.best_params))

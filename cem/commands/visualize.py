@@ -19,7 +19,7 @@ from .demos import DemoEnum, demo_registry
 from .generate_figures import generate_figures
 from .settings import get_optuna_storage, jax_cache_dir, optuna_sampler
 
-global_log = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 app = typer.Typer(pretty_exceptions_enable=False)
 
 
@@ -42,8 +42,8 @@ def visualize(
     total_trials = len(study.get_trials(deepcopy=False))
     trial = study.best_trial
     solver = solver.populate_from_hyperparameters(trial.params)
-    global_log.info("Choosing best trial out of %d trials", total_trials)
-    global_log.info(GenericString(trial.params))
+    _log.info("Choosing best trial out of %d trials", total_trials)
+    _log.info(GenericString(trial.params))
     assert not jax_is_initialized()
     with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
         packet = ExecutionPacket(
