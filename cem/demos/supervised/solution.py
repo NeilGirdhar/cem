@@ -141,6 +141,10 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         n_frequencies: Number of phasor frequencies (only used when ``link_kind == phasor``).
     """
 
+    training_examples: int = int_field(default=2000, domain=IntDistribution(1, 1 << 16, log=True))
+    training_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
+    inference_examples: int = int_field(default=200, domain=IntDistribution(1, 1 << 12, log=True))
+    inference_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
     dataset_kind: DatasetKind = DatasetKind.iris
     link_kind: LinkKind = LinkKind.perceptron
     hidden_size: int = int_field(default=64, domain=IntDistribution(4, 128))

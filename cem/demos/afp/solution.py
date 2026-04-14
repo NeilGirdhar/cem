@@ -235,6 +235,10 @@ class AFPSolver(Solver[IVProblem]):
         num_groups: Number of rivalry groups for the nonlinear layers.
     """
 
+    training_examples: int = int_field(default=5000, domain=IntDistribution(1, 1 << 17, log=True))
+    training_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
+    inference_examples: int = int_field(default=500, domain=IntDistribution(1, 1 << 12, log=True))
+    inference_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
     alpha: float = float_field(default=1.5, domain=FloatDistribution(0.1, 4.0), optimize=True)
     beta: float = float_field(default=1.2, domain=FloatDistribution(0.1, 4.0), optimize=True)
     gamma: float = float_field(default=2.0, domain=FloatDistribution(0.1, 4.0), optimize=True)
