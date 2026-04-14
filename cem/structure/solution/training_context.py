@@ -77,19 +77,17 @@ def train_episodes(
     episodes: int,
 ) -> TrainingResults:
     """Train episodes."""
+    if episodes <= 0:
+        msg = f"training_examples must be > 0, got {episodes}"
+        raise ValueError(msg)
     log.info("Training")
     solution_state = solution.solution_state
     data_source = solution.problem.create_data_source()
-    default_result = TrainingResult(
-        solution_state, solution.inference.infer_zero_episodes(data_source, solution.problem)
-    )
-    default_snapshots = training_snapshots(solution, packet.telemetries.telemetries, default_result)
     example_key_base, inference_key_base = jr.split(key)
     example_keys = jr.split(example_key_base, episodes)
     inference_keys = jr.split(inference_key_base, episodes)
     with ExecutionContext.create(
         solver_name=solver_name,
-        default_snapshots=default_snapshots,
         episodes=episodes,
         packet=packet,
         job_type="training",

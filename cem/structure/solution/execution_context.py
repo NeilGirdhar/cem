@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import operator
 import tempfile
 from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
@@ -54,14 +53,12 @@ class ExecutionContext[T: Telemetry]:
     def __init__(
         self,
         *,
-        default_snapshots: dict[T, Any],
         progress_manager: rp.Progress | None,
         task_id: rp.TaskID | None,
         wandb_run: Run | None,
         wandb_log_period: int,
     ) -> None:
         super().__init__()
-        self._default_snapshots = default_snapshots
         self._progress_manager = progress_manager
         self._task_id = task_id
         self._results: list[dict[T, Any]] = []
@@ -82,13 +79,8 @@ class ExecutionContext[T: Telemetry]:
             self._wandb_run.log(_snapshots_to_wandb_dict(snapshots))
 
     def _stack_telemetries(self) -> None:
-        results = self._results
-        if results:
-            result, *more_results = results
-            self._telemetries = tree.map(_stack, result, *more_results)
-        else:
-            assert not self._telemetries
-            self._telemetries = tree.map(operator.itemgetter(jnp.newaxis), self._default_snapshots)
+        result, *more_results = self._results
+        self._telemetries = tree.map(_stack, result, *more_results)
 
     def episodes_done(self) -> int:
         return len(self._results)
@@ -102,7 +94,6 @@ class ExecutionContext[T: Telemetry]:
         cls,
         *,
         solver_name: str | None,
-        default_snapshots: dict[T, Any],
         episodes: int,
         packet: ExecutionPacket,
         job_type: str,
@@ -127,7 +118,6 @@ class ExecutionContext[T: Telemetry]:
             temp_log_dir = tempfile.TemporaryDirectory(prefix="jax")
             exit_stack.enter_context(trace(temp_log_dir.name, create_perfetto_link=True))
         inference_manager = cls(
-            default_snapshots=default_snapshots,
             progress_manager=packet.progress_manager,
             task_id=task_id,
             wandb_run=wandb_run,
@@ -142,6 +132,6 @@ class ExecutionContext[T: Telemetry]:
         if packet.progress_manager is not None:
             assert task_id is not None
             task = packet.progress_manager._tasks[task_id]  # noqa: SLF001
-            if task.elapsed is not None and episodes != 0:
+            if task.elapsed is not None:
                 log.info(f"Average iteration period {display_time(task.elapsed * 1e6 / episodes)}")
             packet.progress_manager.remove_task(task_id)
