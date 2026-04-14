@@ -142,7 +142,7 @@ def optimize(  # noqa: C901
     if jax_is_initialized():
         raise RuntimeError
 
-    _log.info("Optimizing: " + str(GenericString(tuple(hyper_space))))
+    _log.info("Optimizing: %s", GenericString(tuple(hyper_space)))
 
     def bound_objective(hyperparameters: dict[str, Any]) -> float:
         return objective(
