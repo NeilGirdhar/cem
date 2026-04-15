@@ -10,7 +10,3 @@
 
 # Cached files
 .jax_cache
-
-# AI
-.claude/settings.local.json
-.codex
