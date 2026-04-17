@@ -90,9 +90,9 @@ class AFPLossPlotter(PlotterWithSmoothGraph):
         figure: Figure,
         training_results: TrainingResults,
         inference_results: InferenceResults,
-        solver_index: int,
+        label: str,
     ) -> None:
-        del solver_index
+        del label
         telemetry = AFPTelemetry(selected_node=self.selected_node)
         training_losses = training_results.telemetries[telemetry]
         inference_losses = inference_results.telemetries[telemetry]

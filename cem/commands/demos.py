@@ -1,20 +1,25 @@
-"""Demo command group and registrations."""
+"""Demo registry."""
 
 from __future__ import annotations
 
 from enum import Enum
 
-from cem.demos.afp.demo import AFPDemo
-from cem.demos.supervised.demo import SupervisedDemo
-from cem.structure import Demo
+from cem.demos.afp.demo import afp_demo
+from cem.demos.supervised.demo import (
+    supervised_iris_demo,
+    supervised_synthetic_regression_demo,
+)
+from cem.structure.plotter.demo import Demo
 
 
 class DemoEnum(Enum):
-    supervised = "supervised"
+    supervised_iris = "supervised_iris"
+    supervised_synthetic_regression = "supervised_synthetic_regression"
     afp = "afp"
 
 
 demo_registry: dict[DemoEnum, Demo] = {
-    DemoEnum.supervised: SupervisedDemo(),
-    DemoEnum.afp: AFPDemo(),
+    DemoEnum.supervised_iris: supervised_iris_demo,
+    DemoEnum.supervised_synthetic_regression: supervised_synthetic_regression_demo,
+    DemoEnum.afp: afp_demo,
 }

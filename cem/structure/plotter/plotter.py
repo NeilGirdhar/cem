@@ -18,7 +18,7 @@ class Plotter(eqx.Module):
         figure: Figure,
         training_results: TrainingResults,
         inference_results: InferenceResults,
-        solver_index: int,
+        label: str,
     ) -> None:
         raise NotImplementedError
 
