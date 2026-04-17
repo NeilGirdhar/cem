@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Literal
 
 import equinox as eqx
@@ -47,7 +48,10 @@ def _qt_matplotlib_settings() -> _MatplotlibSettings:
 
 
 def generate_figures(
-    demo: Demo, results: tuple[TrainingResults, InferenceResults], *, display: bool
+    demo: Demo,
+    labeled_results: Sequence[tuple[str, tuple[TrainingResults, InferenceResults]]],
+    *,
+    display: bool,
 ) -> None:
     settings = _qt_matplotlib_settings() if display else _pdf_matplotlib_settings()
     mpl.use(settings.backend)
@@ -59,7 +63,8 @@ def generate_figures(
 
     for plotter in demo.plotters():
         figure = plt.figure(num=plotter.title, constrained_layout=True, clear=True)
-        plotter.plot(figure, results[0], results[1], 0)
+        for label, results in labeled_results:
+            plotter.plot(figure, results[0], results[1], label)
         if not display:
             figure.savefig(f"{demo.name}_{plotter.name}.pdf", format="pdf", bbox_inches="tight")
             plt.close(figure)

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import KW_ONLY
 from enum import Enum
 from typing import Any, Self, override
 
+import equinox as eqx
 from efax import Flattener
-from optuna.distributions import IntDistribution
+from optuna.distributions import BaseDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream, frozendict
 
 from cem import perceptron, phasor
@@ -135,20 +137,42 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     """Solver for supervised learning using a single nonlinear link.
 
     Attributes:
-        dataset_kind: Which dataset to use.
-        link_kind: Whether to use a perceptron or phasor link.
+        dataset_kind: Which dataset to use (set by the demo, not optimised).
+        link_kind: Whether to use a perceptron or phasor link (set by the demo, not optimised).
         hidden_size: Hidden dimension of the nonlinear layer.
         n_frequencies: Number of phasor frequencies (only used when ``link_kind == phasor``).
     """
 
-    training_examples: int = int_field(default=2000, domain=IntDistribution(1, 1 << 16, log=True))
-    training_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
-    inference_examples: int = int_field(default=200, domain=IntDistribution(1, 1 << 12, log=True))
-    inference_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
-    dataset_kind: DatasetKind = DatasetKind.iris
-    link_kind: LinkKind = LinkKind.perceptron
-    hidden_size: int = int_field(default=64, domain=IntDistribution(4, 128))
-    n_frequencies: int = int_field(default=8, domain=IntDistribution(2, 16))
+    _: KW_ONLY
+    dataset_kind: DatasetKind = eqx.field(static=True)
+    link_kind: LinkKind = eqx.field(static=True)
+    training_examples: int = int_field(
+        default=2000, domain=IntDistribution(1, 1 << 16, log=True), optimize=True
+    )
+    training_batch_size: int = int_field(
+        default=32, domain=IntDistribution(1, 1 << 10, log=True), optimize=True
+    )
+    inference_examples: int = int_field(
+        default=200, domain=IntDistribution(1, 1 << 12, log=True), optimize=True
+    )
+    inference_batch_size: int = int_field(
+        default=32, domain=IntDistribution(1, 1 << 10, log=True), optimize=True
+    )
+    hidden_size: int = int_field(default=64, domain=IntDistribution(4, 128), optimize=True)
+    n_frequencies: int = int_field(default=8, domain=IntDistribution(2, 16), optimize=True)
+
+    @override
+    def create_hyperparameters(self) -> dict[str, BaseDistribution]:
+        hyper = super().create_hyperparameters()
+        if self.link_kind == LinkKind.perceptron:
+            del hyper["n_frequencies"]
+        return hyper
+
+    @override
+    def populate_from_hyperparameters(self, hyper: dict[str, Any]) -> Self:
+        if self.link_kind == LinkKind.perceptron:
+            hyper = {**hyper, "n_frequencies": self.n_frequencies}
+        return super().populate_from_hyperparameters(hyper)
 
     @override
     def problem(self) -> SupervisedProblem:

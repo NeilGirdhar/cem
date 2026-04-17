@@ -91,17 +91,31 @@ def objective(
         if wandb
         else None
     )
-    solver = demo.create_solver().populate_from_hyperparameters(hyperparameters)
-    progress_manager = console_progress_bar() if progress_bar else rp.Progress(disable=True)
-    packet = ExecutionPacket(
-        progress_manager=progress_manager,
-        telemetries=demo.all_telemetries(),
-        wandb_settings=adjusted_wandb_settings,
-        enable_profiling=profiling,
-    )
-    with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
-        training_results, inference_results = solver.training_and_inference_result(packet=packet)
-        return demo.demo_loss(training_results, inference_results)
+    losses: list[float] = []
+    for variant in demo.variants:
+        if len(demo.variants) > 1:
+            prefix = f"{variant.label}."
+            shared = variant.shared_hyperparameter_names()
+            variant_hyper = {k: v for k, v in hyperparameters.items() if k in shared}
+            variant_hyper.update(
+                {k[len(prefix) :]: v for k, v in hyperparameters.items() if k.startswith(prefix)}
+            )
+        else:
+            variant_hyper = hyperparameters
+        solver = variant.create_solver().populate_from_hyperparameters(variant_hyper)
+        progress_manager = console_progress_bar() if progress_bar else rp.Progress(disable=True)
+        packet = ExecutionPacket(
+            progress_manager=progress_manager,
+            telemetries=variant.all_telemetries(),
+            wandb_settings=adjusted_wandb_settings,
+            enable_profiling=profiling,
+        )
+        with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
+            training_results, inference_results = solver.training_and_inference_result(
+                packet=packet
+            )
+            losses.append(variant.demo_loss(training_results, inference_results))
+    return max(losses)
 
 
 @app.command()
@@ -127,8 +141,7 @@ def optimize(  # noqa: C901
         raise InvalidTrialsError
     if jobs != -1 and jobs <= 0:
         raise InvalidJobsError
-    solver = demo.create_solver()
-    hyper_space = solver.create_hyperparameters()
+    hyper_space = demo.create_hyperparameters()
     storage = get_optuna_storage()
     if not continue_study:
         _log.info("Deleting study")

@@ -36,18 +36,29 @@ def visualize(
         set_up_logging()
     else:
         logging.disable()
-    solver = demo.create_solver()
+    assert not jax_is_initialized()
     storage = get_optuna_storage()
     study = load_study(study_name=demo.name, storage=storage, sampler=optuna_sampler)
     total_trials = len(study.get_trials(deepcopy=False))
     trial = study.best_trial
-    solver = solver.populate_from_hyperparameters(trial.params)
     _log.info("Choosing best trial out of %d trials", total_trials)
     _log.info(GenericString(trial.params))
-    assert not jax_is_initialized()
-    with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
-        packet = ExecutionPacket(
-            progress_manager=console_progress_bar(), telemetries=demo.all_telemetries()
-        )
-        results = solver.training_and_inference_result(packet=packet)
-    generate_figures(demo, results, display=display)
+    labeled_results = []
+    for variant in demo.variants:
+        if len(demo.variants) > 1:
+            prefix = f"{variant.label}."
+            shared = variant.shared_hyperparameter_names()
+            variant_hyper = {k: v for k, v in trial.params.items() if k in shared}
+            variant_hyper.update(
+                {k[len(prefix) :]: v for k, v in trial.params.items() if k.startswith(prefix)}
+            )
+        else:
+            variant_hyper = trial.params
+        solver = variant.create_solver().populate_from_hyperparameters(variant_hyper)
+        with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
+            packet = ExecutionPacket(
+                progress_manager=console_progress_bar(), telemetries=variant.all_telemetries()
+            )
+            results = solver.training_and_inference_result(packet=packet)
+        labeled_results.append((variant.label, results))
+    generate_figures(demo, labeled_results, display=display)

@@ -27,11 +27,11 @@ class SupervisedLossPlotter(PlotterWithSmoothGraph):
     def telemetries(self) -> Telemetries:
         return Telemetries((LossTelemetry(selected_node=self.selected_node),))
 
-    def _plot_axis(self, ax: Axes, losses: np.ndarray, *, split: str) -> None:
+    def _plot_axis(self, ax: Axes, losses: np.ndarray, *, split: str, label: str) -> None:
         if losses.ndim > 1:
             losses = np.mean(losses, axis=tuple(range(1, losses.ndim)))
         times = np.arange(losses.shape[0], dtype=np.float64)
-        ax.plot(times, smooth_data(losses, self.smoothing), label="Loss")
+        ax.plot(times, smooth_data(losses, self.smoothing), label=label or "Loss")
         ax.set_title(split)
         ax.set_xlabel("Episode")
         ax.set_ylabel("Loss")
@@ -43,12 +43,11 @@ class SupervisedLossPlotter(PlotterWithSmoothGraph):
         figure: Figure,
         training_results: TrainingResults,
         inference_results: InferenceResults,
-        solver_index: int,
+        label: str,
     ) -> None:
-        del solver_index
         telemetry = LossTelemetry(selected_node=self.selected_node)
         training_losses = np.asarray(training_results.telemetries[telemetry], dtype=np.float64)
         inference_losses = np.asarray(inference_results.telemetries[telemetry], dtype=np.float64)
         axes = figure.subplots(1, 2, squeeze=False)
-        self._plot_axis(axes[0, 0], training_losses, split="Training")
-        self._plot_axis(axes[0, 1], inference_losses, split="Inference")
+        self._plot_axis(axes[0, 0], training_losses, split="Training", label=label)
+        self._plot_axis(axes[0, 1], inference_losses, split="Inference", label=label)
