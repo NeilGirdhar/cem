@@ -39,7 +39,7 @@ dependencies = [
   "array-api-extra>=0.6.0",
   "datasets>=3.2.0",
   "efax>=2.2.0",
-  "equinox",
+  "equinox>=0.13.7",
   "jax[cuda]>=0.9",
   "jaxkd>=0.1.0",
   "matplotlib>=3.10.0",
@@ -152,9 +152,6 @@ environments = ["sys_platform == 'linux'"]
 
 [tool.uv.build-backend]
 module-root = ""
-
-[tool.uv.sources]
-equinox = {git = "https://github.com/patrick-kidger/equinox.git"}
 
 [tool.vulture]
 ignore_decorators = ["@pytest.fixture", "@cli.command"]
