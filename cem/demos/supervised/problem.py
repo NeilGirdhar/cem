@@ -44,9 +44,10 @@ def _encode_flat(values: JaxRealArray) -> JaxRealArray:
     Returns:
         Shape ``(n,)`` flat encoding.
     """
+    assert values.ndim == 1
     dist = UnitVarianceNormalNP(values)
     _, flat = Flattener.flatten(dist, mapped_to_plane=True)
-    return flat
+    return flat.reshape(-1)
 
 
 class SupervisedDataSource(DataSource):
