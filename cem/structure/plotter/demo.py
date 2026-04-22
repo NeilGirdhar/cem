@@ -118,6 +118,21 @@ class Demo:
             result.update({f"{prefix}{k}": v for k, v in hyper.items() if k not in shared_names})
         return result
 
+    def default_hyperparameters(self) -> dict[str, Any]:
+        """Return default field values for all hyperparameters, mirroring create_hyperparameters."""
+        if len(self.variants) == 1:
+            return self.variants[0].create_solver().default_hyperparameters()
+        shared_names = frozenset.intersection(
+            *(v.shared_hyperparameter_names() for v in self.variants)
+        )
+        first_defaults = self.variants[0].create_solver().default_hyperparameters()
+        result: dict[str, Any] = {k: v for k, v in first_defaults.items() if k in shared_names}
+        for variant in self.variants:
+            prefix = f"{variant.label}."
+            defaults = variant.create_solver().default_hyperparameters()
+            result.update({f"{prefix}{k}": v for k, v in defaults.items() if k not in shared_names})
+        return result
+
     def plotters(self) -> Sequence[Plotter]:
         return self.variants[0].plotters()
 

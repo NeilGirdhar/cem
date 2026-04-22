@@ -133,6 +133,9 @@ class Solver[P: Problem](eqx.Module):
     def create_hyperparameters(self) -> dict[str, BaseDistribution]:
         return _create_hyperparameters(self, prefix="")
 
+    def default_hyperparameters(self) -> dict[str, Any]:
+        return _default_hyperparameters(self, prefix="")
+
     def populate_from_hyperparameters(self, hyper: dict[str, Any]) -> Self:
         return _populate_from_hyperparameters(self, hyper, prefix="")
 
@@ -150,6 +153,21 @@ def _create_hyperparameters(x: object, *, prefix: str) -> dict[str, BaseDistribu
         elif is_dataclass(y):
             hyper |= _create_hyperparameters(y, prefix=f"{prefix}{f.name}.")
     return hyper
+
+
+def _default_hyperparameters(x: object, *, prefix: str) -> dict[str, Any]:
+    assert is_dataclass(x)
+    assert not isinstance(x, type)
+    result: dict[str, Any] = {}
+    for f in fields(x):
+        y = getattr(x, f.name)
+        if not f.metadata.get("optimize", True):
+            continue
+        if f.metadata.get("domain", None) is not None:
+            result[f"{prefix}{f.name}"] = y
+        elif is_dataclass(y):
+            result |= _default_hyperparameters(y, prefix=f"{prefix}{f.name}.")
+    return result
 
 
 def _populate_from_hyperparameters[T](x: T, hyper: dict[str, Any], *, prefix: str) -> T:

@@ -130,6 +130,7 @@ def optimize(  # noqa: C901
     wandb: bool = False,
     profiling: bool = False,
     continue_study: bool = True,
+    defaults: bool = False,
 ) -> None:
     demo = demo_registry[name]
     register_graph_as_jax_pytree(nx.DiGraph)
@@ -137,10 +138,11 @@ def optimize(  # noqa: C901
         set_up_logging()
     else:
         logging.disable()
-    if trials <= 0:
-        raise InvalidTrialsError
-    if jobs != -1 and jobs <= 0:
-        raise InvalidJobsError
+    if not defaults:
+        if trials <= 0:
+            raise InvalidTrialsError
+        if jobs != -1 and jobs <= 0:
+            raise InvalidJobsError
     hyper_space = demo.create_hyperparameters()
     storage = get_optuna_storage()
     if not continue_study:
@@ -155,8 +157,6 @@ def optimize(  # noqa: C901
     if jax_is_initialized():
         raise RuntimeError
 
-    _log.info("Optimizing: %s", GenericString(tuple(hyper_space)))
-
     def bound_objective(hyperparameters: dict[str, Any]) -> float:
         return objective(
             demo,
@@ -166,26 +166,34 @@ def optimize(  # noqa: C901
             progress_bar=progress_bar and mode != OptimizationMode.multi_task,
         )
 
-    match mode:
-        case OptimizationMode.single_task:
-            for _ in range(trials):
-                trial = study.ask(hyper_space)
-                value = bound_objective(trial.params)
-                study.tell(trial, values=value)
-        case OptimizationMode.multi_task:
+    if defaults:
+        hyperparameters = demo.default_hyperparameters()
+        _log.info("Running with defaults: %s", GenericString(hyperparameters))
+        trial = study.ask(hyper_space)
+        value = bound_objective(hyperparameters)
+        study.tell(trial, values=value)
+    else:
+        _log.info("Optimizing: %s", GenericString(tuple(hyper_space)))
+        match mode:
+            case OptimizationMode.single_task:
+                for _ in range(trials):
+                    trial = study.ask(hyper_space)
+                    value = bound_objective(trial.params)
+                    study.tell(trial, values=value)
+            case OptimizationMode.multi_task:
 
-            def parallel_objective(trial: Trial) -> float:
-                hyperparameters = {
-                    dist_name: suggest_from_distribution(trial, dist_name, distribution)
-                    for dist_name, distribution in hyper_space.items()
-                }
-                return bound_objective(hyperparameters)
+                def parallel_objective(trial: Trial) -> float:
+                    hyperparameters = {
+                        dist_name: suggest_from_distribution(trial, dist_name, distribution)
+                        for dist_name, distribution in hyper_space.items()
+                    }
+                    return bound_objective(hyperparameters)
 
-            study.optimize(
-                parallel_objective,
-                n_trials=trials,
-                n_jobs=jobs,
-                show_progress_bar=progress_bar,
-            )
+                study.optimize(
+                    parallel_objective,
+                    n_trials=trials,
+                    n_jobs=jobs,
+                    show_progress_bar=progress_bar,
+                )
     _log.info("Best parameters found:")
     _log.info(GenericString(study.best_params))
