@@ -38,7 +38,11 @@ def visualize(
         logging.disable()
     assert not jax_is_initialized()
     storage = get_optuna_storage()
-    study = load_study(study_name=demo.name, storage=storage, sampler=optuna_sampler)
+    try:
+        study = load_study(study_name=demo.name, storage=storage, sampler=optuna_sampler)
+    except KeyError:
+        msg = f"No Optuna study found for '{demo.name}'. Run the optimization first."
+        raise SystemExit(msg) from None
     total_trials = len(study.get_trials(deepcopy=False))
     trial = study.best_trial
     _log.info("Choosing best trial out of %d trials", total_trials)
