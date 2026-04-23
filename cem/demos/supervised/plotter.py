@@ -19,7 +19,7 @@ class SupervisedLossPlotter(PlotterWithSmoothGraph):
     """Plots training and inference loss curves for the supervised demo."""
 
     _: KW_ONLY
-    name: str = field(static=True, default="supervised_loss")
+    name: str = field(static=True, default="supervised-loss")
     title: str = field(static=True, default="Supervised Loss")
     selected_node: str = field(static=True, default="target")
 

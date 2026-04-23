@@ -13,6 +13,11 @@ class Plotter(eqx.Module):
     name: str = eqx.field(static=True)
     title: str = eqx.field(static=True)
 
+    def __check_init__(self) -> None:  # noqa: PLW3201
+        if "_" in self.name:
+            msg = f"Plotter.name must use hyphens, not underscores: {self.name!r}"
+            raise ValueError(msg)
+
     def plot(
         self,
         figure: Figure,

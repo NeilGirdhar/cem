@@ -54,7 +54,7 @@ class AFPLossPlotter(PlotterWithSmoothGraph):
     """Plots reconstruction, exogeneity, and endogeneity losses over training/inference."""
 
     _: KW_ONLY
-    name: str = field(static=True, default="afp_losses")
+    name: str = field(static=True, default="afp-losses")
     title: str = field(static=True, default="AFP Losses")
     selected_node: str = field(static=True, default="afp")
 
