@@ -244,6 +244,9 @@ class Inference(eqx.Module, JaxAbstractClass):
             inference_state.state,
             solution_state.dis_learnable_parameters.assembled(),
         )
+        # JAX returns 2·∂L/∂z (Wirtinger, same sign as holomorphic grad) for complex params.
+        # Steepest descent requires conjugating: z ← z − lr·conj(∂L/∂z).  No-op for reals.
+        learnable_parameters_bar = tree.map(jnp.conj, learnable_parameters_bar)
 
         dis_learnable_parameters_bar = DisModel.create(
             learnable_parameters_bar, tuple(gradient_transformations.learnable_parameter_types())
