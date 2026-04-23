@@ -62,6 +62,8 @@ class PhasorMessage(eqx.Module):
         cls,
         dist: NaturalParametrization,
         frequencies: JaxRealArray,
+        *,
+        raveled: bool = False,
     ) -> PhasorMessage:
         """Encode a belief distribution as a matrix of phasors via the characteristic function.
 
@@ -78,12 +80,13 @@ class PhasorMessage(eqx.Module):
                 in the output.
             frequencies: Geometric frequency grid, shape (m,).  Typically produced by
                 ``geometric_frequencies(m, base)``.
+            raveled: If False (default), returns data of shape (*s, m * d).  If True, all
+                dimensions are raveled into a single flat vector of shape (prod(*s) * m * d,).
 
         Returns:
-            PhasorMessage with data of shape (*s, m * d), where d = final_dimension_size() is
+            PhasorMessage with data of shape (*s, m * d) when ``raveled=False``, or shape
+            (prod(*s) * m * d,) when ``raveled=True``.  Here d = final_dimension_size() is
             the number of natural parameters (= number of sufficient-statistic components).
-            The phasor at flat index ``j * d + k`` encodes sufficient statistic T(x)_k at
-            frequency ``frequencies[j]``, for j in 0..m-1 and k in 0..d-1.
         """
         assert frequencies.ndim == 1
         flattener, _ = Flattener.flatten(dist, mapped_to_plane=False)
@@ -95,7 +98,7 @@ class PhasorMessage(eqx.Module):
         for _ in dist.shape:
             cf_fn = jax.vmap(cf_fn)
         cf = cf_fn(dist)  # shape (*s, m * d)
-        return cls(cf)
+        return cls(cf.reshape(-1) if raveled else cf)
 
     def to_distribution(
         self,
@@ -166,6 +169,21 @@ class PhasorMessage(eqx.Module):
         return cls(presence[..., jnp.newaxis] * jnp.exp(1j * phases))
 
     # Operations -----------------------------------------------------------------------------------
+
+    def split_frequencies(self, n_frequencies: int) -> PhasorMessage:
+        """Reshape a raveled phasor vector into (n_components, n_frequencies).
+
+        Inverse of raveling: splits a flat ``(n_components * n_frequencies,)`` phasor back
+        into the structured ``(n_components, n_frequencies)`` form where each row is one
+        component's frequency encoding.
+
+        Args:
+            n_frequencies: Number of frequencies per component.
+
+        Returns:
+            PhasorMessage with data of shape (n_components, n_frequencies).
+        """
+        return PhasorMessage(self.data.reshape(-1, n_frequencies))
 
     def combined(self, other: PhasorMessage, /) -> PhasorMessage:
         """Combine independent evidence by complex addition (natural parameter addition)."""

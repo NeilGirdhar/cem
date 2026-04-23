@@ -117,7 +117,8 @@ class PhasorTargetNode(eqx.Module):
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
         for field_name, z_hat in field_phasors.items():
-            observed_np = self._flatteners.value[field_name].unflatten(flat_observed[field_name])
+            flattener = self._flatteners.value[field_name]
+            observed_np = flattener.unflatten(flat_observed[field_name], return_vector=True)
             phasors[field_name] = PhasorMessage.from_distribution(
                 observed_np, self.frequencies.value
             )

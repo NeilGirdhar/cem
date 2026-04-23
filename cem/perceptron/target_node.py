@@ -35,9 +35,9 @@ class PerceptronTargetNode(eqx.Module):
     """Computes cross-entropy loss between observed and predicted perceptron distributions.
 
     Attributes:
-        field_sizes: Per-field flat dimension, used to split the incoming concatenated
-            prediction.  Fields are split in insertion order of ``field_defaults`` passed
-            to :meth:`create`.
+        field_sizes: Total number of prediction values per field, used to split the
+            incoming concatenated prediction.  Fields are split in insertion order of
+            ``field_defaults`` passed to :meth:`create`.
     """
 
     _flatteners: FixedParameter[frozendict[str, Flattener[Any]]]
@@ -59,13 +59,15 @@ class PerceptronTargetNode(eqx.Module):
         """
         assert len(field_defaults) > 0, "PerceptronTargetNode requires at least one field"
         flatteners: dict[str, Flattener[Any]] = {}
-        flat_defaults: dict[str, JaxRealArray] = {}
+        flat_sizes: dict[str, int] = {}
         for field_name, dist in field_defaults.items():
             flattener, flat = Flattener.flatten(dist, mapped_to_plane=True)
             flatteners[field_name] = flattener
-            flat_defaults[field_name] = flat
-        field_sizes = frozendict({field: flat.shape[-1] for field, flat in flat_defaults.items()})
-        return cls(_flatteners=FixedParameter(frozendict(flatteners)), field_sizes=field_sizes)
+            flat_sizes[field_name] = flat.size
+        return cls(
+            _flatteners=FixedParameter(frozendict(flatteners)),
+            field_sizes=frozendict(flat_sizes),
+        )
 
     def infer(
         self,
@@ -75,9 +77,9 @@ class PerceptronTargetNode(eqx.Module):
         """Compute cross-entropy loss between observed distributions and a prediction.
 
         Args:
-            flat_observed: Per-field flat distribution encodings
-                (``mapped_to_plane=True`` coordinates).
-            prediction: Concatenated flat predictions for all fields.
+            flat_observed: Per-field flat distribution encodings in any shape with the
+                right total number of elements.
+            prediction: Concatenated flat predictions for all fields, shape ``(..., total)``.
 
         Returns:
             A :class:`PerceptronTargetConfiguration` with per-field losses and distributions.
@@ -89,10 +91,11 @@ class PerceptronTargetNode(eqx.Module):
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
         for field_name, y_hat in field_values.items():
-            observed_np = self._flatteners.value[field_name].unflatten(flat_observed[field_name])
+            flattener = self._flatteners.value[field_name]
+            observed_np = flattener.unflatten(flat_observed[field_name], return_vector=True)
             observed_exp = observed_np.to_exp()
             assert isinstance(observed_exp, HasEntropyEP)
-            predicted_np = self._flatteners.value[field_name].unflatten(y_hat)
+            predicted_np = flattener.unflatten(y_hat, return_vector=True)
             predicted_exp = predicted_np.to_exp()
             assert isinstance(predicted_exp, type(observed_exp))
             observed_distributions[field_name] = observed_exp

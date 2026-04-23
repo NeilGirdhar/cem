@@ -122,10 +122,12 @@ class PhasorSupervisedModel(Model):
         inference: bool,
     ) -> ModelResult:
         assert isinstance(observation, SupervisedProblemState)
-        x_dist = self._x_flattener.value.unflatten(observation.x)
-        x_phasor = PhasorMessage.from_distribution(x_dist, self._frequencies.value)
+        n_frequencies = self._frequencies.value.shape[0]
+        x_dist = self._x_flattener.value.unflatten(observation.x, return_vector=True)
+        x_phasor = PhasorMessage.from_distribution(x_dist, self._frequencies.value, raveled=True)
         z_hat = self.link.infer(x_phasor, streams=streams, inference=inference)
-        config = self.target.infer(frozendict({"y": observation.y}), z_hat)
+        z_hat_2d = z_hat.split_frequencies(n_frequencies)
+        config = self.target.infer(frozendict({"y": observation.y}), z_hat_2d)
         return ModelResult(
             loss=config.total_loss(),
             configurations=frozendict({"target": config}),
