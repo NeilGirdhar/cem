@@ -10,3 +10,5 @@ def set_up_logging() -> None:
     formatter = logging.Formatter(fmt="%(message)s", datefmt="[%X]")
     rich_handler.setFormatter(formatter)
     logging.basicConfig(level=logging.INFO, handlers=[rich_handler])
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
