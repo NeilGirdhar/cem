@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import cache
 from typing import Any, cast
 
 import equinox as eqx
@@ -130,6 +131,7 @@ def _encode_dataset(
     return x_flat, y_flat, x_prior, y_prior, n_features, n_targets
 
 
+@cache
 def load_iris() -> SupervisedProblem:
     """Load the Iris dataset from HuggingFace as a 4-feature → 1-target problem.
 
@@ -158,6 +160,7 @@ def load_iris() -> SupervisedProblem:
     )
 
 
+@cache
 def load_synthetic_regression(
     n_samples: int = 500,
     n_features: int = 8,
@@ -194,6 +197,7 @@ def load_synthetic_regression(
     )
 
 
+@cache
 def load_synthetic_classification(
     n_samples: int = 500,
     n_features: int = 8,

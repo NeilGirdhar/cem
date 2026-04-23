@@ -15,7 +15,7 @@ from optuna.distributions import (
     IntDistribution,
 )
 from optuna.study import create_study, delete_study
-from optuna.trial import Trial
+from optuna.trial import Trial, create_trial
 from tjax import GenericString, register_graph_as_jax_pytree
 from typer import Argument, BadParameter, Option
 
@@ -169,9 +169,11 @@ def optimize(  # noqa: C901
     if defaults:
         hyperparameters = demo.default_hyperparameters()
         _log.info("Running with defaults: %s", GenericString(hyperparameters))
-        trial = study.ask(hyper_space)
         value = bound_objective(hyperparameters)
-        study.tell(trial, values=value)
+        trial_params = {k: v for k, v in hyperparameters.items() if k in hyper_space}
+        study.add_trial(
+            create_trial(params=trial_params, distributions=dict(hyper_space), value=value)
+        )
     else:
         _log.info("Optimizing: %s", GenericString(tuple(hyper_space)))
         match mode:

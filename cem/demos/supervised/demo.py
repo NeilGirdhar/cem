@@ -12,7 +12,7 @@ from cem.structure.solution import InferenceResults, Telemetries, TrainingResult
 from cem.structure.solution.loss_telemetry import LossTelemetry
 from cem.structure.solver import Solver
 
-from .plotter import SupervisedLossPlotter
+from .plotter import SupervisedInferenceLossPlotter, SupervisedTrainingLossPlotter
 from .problem import SupervisedProblem
 from .solution import DatasetKind, LinkKind, SupervisedSolver
 
@@ -31,7 +31,7 @@ class SupervisedVariant(Variant):
 
     @override
     def plotters(self) -> Sequence[Plotter]:
-        return [SupervisedLossPlotter()]
+        return [SupervisedTrainingLossPlotter(), SupervisedInferenceLossPlotter()]
 
     @override
     def extra_telemetries(self) -> Telemetries:

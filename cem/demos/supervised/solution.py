@@ -9,7 +9,7 @@ from typing import Any, Self, override
 
 import equinox as eqx
 from efax import Flattener
-from optuna.distributions import BaseDistribution, IntDistribution
+from optuna.distributions import BaseDistribution, FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream, frozendict
 
 from cem import perceptron, phasor
@@ -19,7 +19,7 @@ from cem.phasor.message import PhasorMessage
 from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.problem import DataSource, Problem
-from cem.structure.solver import Solver, int_field
+from cem.structure.solver import Solver, float_field, int_field
 
 from .problem import (
     SupervisedProblem,
@@ -149,7 +149,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     dataset_kind: DatasetKind = eqx.field(static=True)
     link_kind: LinkKind = eqx.field(static=True)
     training_examples: int = int_field(
-        default=2000, domain=IntDistribution(1, 1 << 16, log=True), optimize=True
+        default=10000, domain=IntDistribution(1, 1 << 16, log=True), optimize=True
     )
     training_batch_size: int = int_field(
         default=32, domain=IntDistribution(1, 1 << 10, log=True), optimize=True
@@ -159,6 +159,9 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     )
     inference_batch_size: int = int_field(
         default=32, domain=IntDistribution(1, 1 << 10, log=True), optimize=True
+    )
+    learning_rate: float = float_field(
+        default=0.01, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
     )
     hidden_size: int = int_field(default=64, domain=IntDistribution(4, 128), optimize=True)
     n_frequencies: int = int_field(default=8, domain=IntDistribution(2, 16), optimize=True)

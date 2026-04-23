@@ -27,6 +27,7 @@ app = typer.Typer(pretty_exceptions_enable=False)
 def visualize(
     name: DemoEnum,
     *,
+    defaults: bool = False,
     display: bool = False,
     log: bool = True,
 ) -> None:
@@ -37,27 +38,32 @@ def visualize(
     else:
         logging.disable()
     assert not jax_is_initialized()
-    storage = get_optuna_storage()
-    try:
-        study = load_study(study_name=demo.name, storage=storage, sampler=optuna_sampler)
-    except KeyError:
-        msg = f"No Optuna study found for '{demo.name}'. Run the optimization first."
-        raise SystemExit(msg) from None
-    total_trials = len(study.get_trials(deepcopy=False))
-    trial = study.best_trial
-    _log.info("Choosing best trial out of %d trials", total_trials)
-    _log.info(GenericString(trial.params))
+    if defaults:
+        hyperparameters = demo.default_hyperparameters()
+        _log.info("Visualizing with defaults: %s", GenericString(hyperparameters))
+    else:
+        storage = get_optuna_storage()
+        try:
+            study = load_study(study_name=demo.name, storage=storage, sampler=optuna_sampler)
+        except KeyError:
+            msg = f"No Optuna study found for '{demo.name}'. Run the optimization first."
+            raise SystemExit(msg) from None
+        total_trials = len(study.get_trials(deepcopy=False))
+        trial = study.best_trial
+        _log.info("Choosing best trial out of %d trials", total_trials)
+        _log.info(GenericString(trial.params))
+        hyperparameters = trial.params
     labeled_results = []
     for variant in demo.variants:
         if len(demo.variants) > 1:
             prefix = f"{variant.label}."
             shared = variant.shared_hyperparameter_names()
-            variant_hyper = {k: v for k, v in trial.params.items() if k in shared}
+            variant_hyper = {k: v for k, v in hyperparameters.items() if k in shared}
             variant_hyper.update(
-                {k[len(prefix) :]: v for k, v in trial.params.items() if k.startswith(prefix)}
+                {k[len(prefix) :]: v for k, v in hyperparameters.items() if k.startswith(prefix)}
             )
         else:
-            variant_hyper = trial.params
+            variant_hyper = hyperparameters
         solver = variant.create_solver().populate_from_hyperparameters(variant_hyper)
         with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
             packet = ExecutionPacket(
