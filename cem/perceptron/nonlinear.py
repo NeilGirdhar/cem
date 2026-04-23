@@ -54,18 +54,20 @@ class LayerNorm(eqx.Module):
 class Nonlinear(eqx.Module):
     """GLU-style nonlinear projection followed by layer normalisation, with optional dropout.
 
-    h(x) = d(ln(f3(sigmoid(f1(x)) * f2(x))))
+    h(x) = d(f3(ln(sigmoid(f1(x)) * f2(x))))
 
     where f1, f2, f3 are linear links, the sigmoid gate controls information flow,
-    ln is layer normalisation, and d is an optional dropout.  Pass ``inference=True``
-    to :meth:`infer` to skip dropout at eval time.
+    ln is layer normalisation applied to the mid-features, and d is an optional dropout.
+    Normalising the mid-features (not the output) keeps the gradient well-defined even
+    when out_features == 1.  Pass ``inference=True`` to :meth:`infer` to skip dropout
+    at eval time.
 
     Attributes:
         f1: Gate signal projection, in_features → mid_features.
         f2: Content projection, in_features → mid_features.
         f3: Output projection, mid_features → out_features.
-        layer_norm: Layer normalisation applied to the output.
-        dropout_rate: Fraction of outputs zeroed after layer normalisation. 0.0 disables.
+        layer_norm: Layer normalisation applied to the mid-features before f3.
+        dropout_rate: Fraction of outputs zeroed after f3. 0.0 disables.
     """
 
     f1: Linear
@@ -90,7 +92,7 @@ class Nonlinear(eqx.Module):
             f1=Linear.create(in_features, mid_features, streams=streams),
             f2=Linear.create(in_features, mid_features, streams=streams),
             f3=Linear.create(mid_features, out_features, streams=streams),
-            layer_norm=LayerNorm.create(out_features),
+            layer_norm=LayerNorm.create(mid_features),
             dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
         )
 
@@ -108,7 +110,7 @@ class Nonlinear(eqx.Module):
             Output, shape (..., out_features).
         """
         gated = jax.nn.sigmoid(self.f1.infer(x)) * self.f2.infer(x)
-        result = self.layer_norm.infer(self.f3.infer(gated))
+        result = self.f3.infer(self.layer_norm.infer(gated))
         if inference:
             return result
         key = streams["inference"].key()
