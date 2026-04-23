@@ -3,35 +3,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Self
 
-import equinox as eqx
-import jax.numpy as jnp
-from efax import ExpectationParametrization, Flattener, HasEntropyEP, NaturalParametrization
+from efax import ExpectationParametrization, HasEntropyEP, NaturalParametrization
 from tjax import JaxArray, JaxRealArray, frozendict
 
 from cem.perceptron.input_node import PerceptronInputConfiguration
-from cem.structure.graph import FixedParameter
-from cem.structure.graph.node import TargetConfiguration
+from cem.structure.graph.node import TargetConfiguration, TargetNode
 
 
 class PerceptronTargetConfiguration(PerceptronInputConfiguration, TargetConfiguration):
     """Scored perceptron targets, keyed by field name."""
 
-    observed_distributions: frozendict[str, ExpectationParametrization]
-    predicted_distributions: frozendict[str, HasEntropyEP]
 
-
-def _split_by_field_sizes(
-    data: JaxRealArray,
-    field_sizes: frozendict[str, int],
-) -> dict[str, JaxRealArray]:
-    running, split_points = 0, []
-    for s in list(field_sizes.values())[:-1]:
-        running += s
-        split_points.append(running)
-    return dict(zip(field_sizes, jnp.split(data, split_points, axis=-1), strict=True))
-
-
-class PerceptronTargetNode(eqx.Module):
+class PerceptronTargetNode(TargetNode):
     """Computes cross-entropy loss between observed and predicted perceptron distributions.
 
     Attributes:
@@ -39,9 +22,6 @@ class PerceptronTargetNode(eqx.Module):
             incoming concatenated prediction.  Fields are split in insertion order of
             ``field_defaults`` passed to :meth:`create`.
     """
-
-    _flatteners: FixedParameter[frozendict[str, Flattener[Any]]]
-    field_sizes: frozendict[str, int] = eqx.field(static=True)
 
     @classmethod
     def create(
@@ -58,16 +38,8 @@ class PerceptronTargetNode(eqx.Module):
             A new :class:`PerceptronTargetNode`.
         """
         assert len(field_defaults) > 0, "PerceptronTargetNode requires at least one field"
-        flatteners: dict[str, Flattener[Any]] = {}
-        flat_sizes: dict[str, int] = {}
-        for field_name, dist in field_defaults.items():
-            flattener, flat = Flattener.flatten(dist, mapped_to_plane=True)
-            flatteners[field_name] = flattener
-            flat_sizes[field_name] = flat.size
-        return cls(
-            _flatteners=FixedParameter(frozendict(flatteners)),
-            field_sizes=frozendict(flat_sizes),
-        )
+        flatteners_param, field_sizes = cls._build_flatteners(field_defaults)
+        return cls(_flatteners=flatteners_param, field_sizes=field_sizes)
 
     def infer(
         self,
@@ -84,7 +56,7 @@ class PerceptronTargetNode(eqx.Module):
         Returns:
             A :class:`PerceptronTargetConfiguration` with per-field losses and distributions.
         """
-        field_values = _split_by_field_sizes(prediction, self.field_sizes)
+        field_values = self._split_by_field_sizes(prediction, self.field_sizes)
 
         losses: dict[str, JaxArray] = {}
         observed_distributions: dict[str, ExpectationParametrization] = {}
@@ -92,7 +64,7 @@ class PerceptronTargetNode(eqx.Module):
 
         for field_name, y_hat in field_values.items():
             flattener = self._flatteners.value[field_name]
-            observed_np = flattener.unflatten(flat_observed[field_name], return_vector=True)
+            observed_np = self._unflatten_observed(field_name, flat_observed[field_name])
             observed_exp = observed_np.to_exp()
             assert isinstance(observed_exp, HasEntropyEP)
             predicted_np = flattener.unflatten(y_hat, return_vector=True)
@@ -104,7 +76,7 @@ class PerceptronTargetNode(eqx.Module):
 
         return PerceptronTargetConfiguration(
             values=flat_observed,
-            observed_distributions=frozendict(observed_distributions),
             loss=frozendict(losses),
+            observed_distributions=frozendict(observed_distributions),
             predicted_distributions=frozendict(predicted_distributions),
         )

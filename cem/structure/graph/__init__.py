@@ -8,7 +8,7 @@ from cem.structure.graph.disassembled import (
     verify_model_has_no_free_parameters,
 )
 from cem.structure.graph.model import Model, ModelResult
-from cem.structure.graph.node import NodeConfiguration, TargetConfiguration
+from cem.structure.graph.node import NodeConfiguration, TargetConfiguration, TargetNode
 from cem.structure.graph.parameters import (
     FixedParameter,
     LearnableParameter,
@@ -29,6 +29,7 @@ __all__ = [
     "Parameter",
     "ParameterType",
     "TargetConfiguration",
+    "TargetNode",
     "apply_to_parameters",
     "is_parameter",
     "verify_model_has_no_free_parameters",

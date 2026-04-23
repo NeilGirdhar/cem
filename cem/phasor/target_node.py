@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Self
 
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 from efax import ExpectationParametrization, Flattener, HasEntropyEP, NaturalParametrization
@@ -13,29 +12,16 @@ from cem.phasor.frequency import make_frequency_grid
 from cem.phasor.input_node import PhasorInputConfiguration
 from cem.phasor.message import PhasorMessage
 from cem.structure.graph import FixedParameter
-from cem.structure.graph.node import TargetConfiguration
+from cem.structure.graph.node import TargetConfiguration, TargetNode
 
 
 class PhasorTargetConfiguration(PhasorInputConfiguration, TargetConfiguration):
     """Scored phasor targets, keyed by field name."""
 
-    observed_distributions: frozendict[str, ExpectationParametrization]
     score: PhasorMessage
-    predicted_distributions: frozendict[str, HasEntropyEP]
 
 
-def _split_by_field_sizes(
-    data: JaxRealArray,
-    field_sizes: frozendict[str, int],
-) -> dict[str, JaxRealArray]:
-    running, split_points = 0, []
-    for s in list(field_sizes.values())[:-1]:
-        running += s
-        split_points.append(running)
-    return dict(zip(field_sizes, jnp.split(data, split_points, axis=-1), strict=True))
-
-
-class PhasorTargetNode(eqx.Module):
+class PhasorTargetNode(TargetNode):
     """Computes phasor reconstruction loss between observed and predicted distributions.
 
     Attributes:
@@ -47,9 +33,7 @@ class PhasorTargetNode(eqx.Module):
             :meth:`~cem.phasor.message.PhasorMessage.from_distribution`.
     """
 
-    _flatteners: FixedParameter[frozendict[str, Flattener[Any]]]
     frequency_grids: FixedParameter[frozendict[str, NaturalParametrization[Any, Any]]]
-    field_sizes: frozendict[str, int] = eqx.field(static=True)
     frequencies: FixedParameter[JaxRealArray]
 
     @classmethod
@@ -70,12 +54,10 @@ class PhasorTargetNode(eqx.Module):
         """
         assert len(field_defaults) > 0, "PhasorTargetNode requires at least one field"
         assert frequencies.ndim == 1
-        flatteners: dict[str, Flattener[Any]] = {}
+        flatteners_param, _ = cls._build_flatteners(field_defaults)
         phasor_defaults: dict[str, PhasorMessage] = {}
         frequency_grids: dict[str, NaturalParametrization[Any, Any]] = {}
         for field_name, dist in field_defaults.items():
-            flattener, _ = Flattener.flatten(dist, mapped_to_plane=True)
-            flatteners[field_name] = flattener
             phasor_defaults[field_name] = PhasorMessage.from_distribution(dist, frequencies)
             nat_flattener, _ = Flattener.flatten(dist, mapped_to_plane=False)
             frequency_grids[field_name] = make_frequency_grid(nat_flattener, frequencies)
@@ -83,7 +65,7 @@ class PhasorTargetNode(eqx.Module):
             {field: phasor.data.shape[-1] for field, phasor in phasor_defaults.items()}
         )
         return cls(
-            _flatteners=FixedParameter(frozendict(flatteners)),
+            _flatteners=flatteners_param,
             frequency_grids=FixedParameter(frozendict(frequency_grids)),
             field_sizes=field_sizes,
             frequencies=FixedParameter(frequencies),
@@ -107,7 +89,7 @@ class PhasorTargetNode(eqx.Module):
         """
         field_phasors = {
             f: PhasorMessage(p)
-            for f, p in _split_by_field_sizes(z_hat_combined.data, self.field_sizes).items()
+            for f, p in self._split_by_field_sizes(z_hat_combined.data, self.field_sizes).items()
         }
 
         phasors: dict[str, PhasorMessage] = {}
@@ -117,8 +99,7 @@ class PhasorTargetNode(eqx.Module):
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
         for field_name, z_hat in field_phasors.items():
-            flattener = self._flatteners.value[field_name]
-            observed_np = flattener.unflatten(flat_observed[field_name], return_vector=True)
+            observed_np = self._unflatten_observed(field_name, flat_observed[field_name])
             phasors[field_name] = PhasorMessage.from_distribution(
                 observed_np, self.frequencies.value
             )
@@ -145,8 +126,8 @@ class PhasorTargetNode(eqx.Module):
 
         return PhasorTargetConfiguration(
             values=frozendict(phasors),
+            loss=frozendict(losses),
             observed_distributions=frozendict(observed_distributions),
             score=PhasorMessage(jnp.concatenate([s.data for s in scores], axis=-1)),
-            loss=frozendict(losses),
             predicted_distributions=frozendict(predicted_distributions),
         )
