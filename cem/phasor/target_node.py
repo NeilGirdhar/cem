@@ -99,6 +99,7 @@ class PhasorTargetNode(TargetNode):
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
         for field_name, z_hat in field_phasors.items():
+            grid = self.frequency_grids.value[field_name]
             observed_np = self._unflatten_observed(field_name, flat_observed[field_name])
             phasors[field_name] = PhasorMessage.from_distribution(
                 observed_np, self.frequencies.value
@@ -106,19 +107,19 @@ class PhasorTargetNode(TargetNode):
             observed_exp = observed_np.to_exp()
             assert isinstance(observed_exp, HasEntropyEP)
 
-            def forward(
+            def cross_entropy_fn(
                 z: PhasorMessage,
-                grid: NaturalParametrization[Any, Any] = self.frequency_grids.value[field_name],
+                grid: NaturalParametrization[Any, Any] = grid,
                 observed_exp: HasEntropyEP = observed_exp,
-            ) -> tuple[JaxArray, tuple[JaxArray, HasEntropyEP]]:
-                predicted_exp = z.to_distribution(grid)
-                assert isinstance(predicted_exp, type(observed_exp))
-                field_losses = observed_exp.cross_entropy(predicted_exp.to_nat())
-                return jnp.sum(field_losses), (field_losses, predicted_exp)  # ty: ignore
+            ) -> tuple[JaxArray, ExpectationParametrization]:
+                pred = z.to_distribution(grid)
+                return observed_exp.cross_entropy(pred.to_nat()), pred
 
-            (_, (field_losses, predicted_exp)), score = jax.value_and_grad(forward, has_aux=True)(
-                z_hat
-            )
+            (field_losses, predicted_exp), vjp_fn = jax.vjp(cross_entropy_fn, z_hat)
+            assert isinstance(predicted_exp, type(observed_exp))
+            zero_pred_ct = jax.tree.map(jnp.zeros_like, predicted_exp)
+            (score,) = vjp_fn((jnp.ones_like(field_losses), zero_pred_ct))
+
             observed_distributions[field_name] = observed_exp
             scores.append(score)
             losses[field_name] = field_losses
