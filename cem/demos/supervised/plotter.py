@@ -30,6 +30,7 @@ class _SupervisedLossPlotter(PlotterWithSmoothGraph):
         ax.plot(times, smooth_data(losses, self.smoothing), label=label or "Loss")
         ax.set_xlabel("Episode")
         ax.set_ylabel("Loss")
+        ax.set_yscale("log")
         ax.legend()
 
     def _get_or_create_ax(self, figure: Figure, title: str) -> Axes:
