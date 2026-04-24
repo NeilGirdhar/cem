@@ -7,7 +7,6 @@ dev = [
   "types-networkx",
   "jupyter>=1.1.1",
   "lefthook>=2",
-  "pyright>=1.1.408",
   "pytest>=8.3.4",
   "ruff>=0.15",
   "scikit-learn>=1.8",
@@ -61,15 +60,6 @@ visualize = "cem.commands.visualize:app"
 
 [project.urls]
 source = "https://github.com/NeilGirdhar/cem"
-
-[tool.pyright]
-include = ["cem", "tests"]
-stubPath = ""
-venvPath = "."
-venv = ".venv"
-reportMatchNotExhaustive = true
-reportMissingParameterType = true
-reportMissingTypeArgument = true
 
 [tool.pytest]
 addopts = ["--disable-warnings"]
