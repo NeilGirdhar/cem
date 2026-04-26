@@ -3,13 +3,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Self
 
-import jax
 import jax.numpy as jnp
 from efax import ExpectationParametrization, Flattener, HasEntropyEP, NaturalParametrization
-from tjax import JaxArray, JaxRealArray, frozendict
+from jax.lax import stop_gradient
+from tjax import JaxArray, JaxRealArray, copy_cotangent, frozendict
 
 from cem.phasor.frequency import make_frequency_grid
 from cem.phasor.input_node import PhasorInputConfiguration
+from cem.phasor.loss import reconstruction_loss_and_score
 from cem.phasor.message import PhasorMessage
 from cem.structure.graph import FixedParameter
 from cem.structure.graph.node import TargetConfiguration, TargetNode
@@ -74,55 +75,51 @@ class PhasorTargetNode(TargetNode):
     def infer(
         self,
         flat_observed: frozendict[str, JaxRealArray],
-        z_hat_combined: PhasorMessage,
+        prediction: PhasorMessage,
     ) -> PhasorTargetConfiguration:
         """Compute phasor reconstruction loss between observations and a prediction.
 
         Args:
             flat_observed: Per-field flat distribution encodings
                 (``mapped_to_plane=True`` coordinates).
-            z_hat_combined: Concatenated prediction phasor for all fields.
+            prediction: Concatenated prediction phasor for all fields.
 
         Returns:
             A :class:`PhasorTargetConfiguration` with per-field losses, scores, and
             distributions.
         """
-        field_phasors = {
-            f: PhasorMessage(p)
-            for f, p in self._split_by_field_sizes(z_hat_combined.data, self.field_sizes).items()
-        }
-
         phasors: dict[str, PhasorMessage] = {}
         scores: list[PhasorMessage] = []
         losses: dict[str, JaxArray] = {}
         observed_distributions: dict[str, ExpectationParametrization] = {}
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
+        field_values = self._split_by_field_sizes(prediction.data, self.field_sizes)
+        field_phasors = {f: PhasorMessage(p) for f, p in field_values.items()}
+
         for field_name, z_hat in field_phasors.items():
             grid = self.frequency_grids.value[field_name]
             observed_np = self._unflatten_observed(field_name, flat_observed[field_name])
-            phasors[field_name] = PhasorMessage.from_distribution(
-                observed_np, self.frequencies.value
-            )
+            obs_phasor = PhasorMessage.from_distribution(observed_np, self.frequencies.value)
+            phasors[field_name] = obs_phasor
             observed_exp = observed_np.to_exp()
             assert isinstance(observed_exp, HasEntropyEP)
 
-            def cross_entropy_fn(
-                z: PhasorMessage,
-                grid: NaturalParametrization[Any, Any] = grid,
-                observed_exp: HasEntropyEP = observed_exp,
-            ) -> tuple[JaxArray, ExpectationParametrization]:
-                pred = z.to_distribution(grid)
-                return observed_exp.cross_entropy(pred.to_nat()), pred
-
-            (field_losses, predicted_exp), vjp_fn = jax.vjp(cross_entropy_fn, z_hat)
+            # Optimize in phasor space rather than computing cross-entropy on decoded parameters:
+            # the latter gives near-zero gradients (~500x smaller) and phase-wrapping errors
+            # at high frequencies.
+            result = reconstruction_loss_and_score(obs_phasor, z_hat)
+            predicted_exp = z_hat.to_distribution(grid)
             assert isinstance(predicted_exp, type(observed_exp))
-            zero_pred_ct = jax.tree.map(jnp.zeros_like, predicted_exp)
-            (score,) = vjp_fn((jnp.ones_like(field_losses), zero_pred_ct))
 
             observed_distributions[field_name] = observed_exp
-            scores.append(score)
-            losses[field_name] = field_losses
+            scores.append(result.score)
+            true_loss = stop_gradient(observed_exp.cross_entropy(predicted_exp.to_nat()))
+            optimized_loss = jnp.sum(result.loss, axis=-1)
+            # Report the true cross entropy, but optimize phasor reconstruction gradient, which is
+            # well-conditioned.
+            # TODO: Just optimize the true cross-entropy.  This is just for testing phasor learning.
+            losses[field_name] = copy_cotangent(true_loss, optimized_loss)
             predicted_distributions[field_name] = predicted_exp
 
         return PhasorTargetConfiguration(

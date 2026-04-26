@@ -98,7 +98,7 @@ class PhasorSupervisedModel(Model):
         *,
         streams: Mapping[str, RngStream],
     ) -> Self:
-        freqs = geometric_frequencies(n_frequencies)
+        freqs = geometric_frequencies(n_frequencies, base=1 / 4)
         in_size = sup.n_features * n_frequencies
         out_size = sup.n_targets * n_frequencies
         num_groups = max(1, out_size // 8)
@@ -164,7 +164,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         default=0.01, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
     )
     hidden_size: int = int_field(default=64, domain=IntDistribution(4, 128), optimize=True)
-    n_frequencies: int = int_field(default=8, domain=IntDistribution(2, 16), optimize=True)
+    n_frequencies: int = int_field(default=10, domain=IntDistribution(2, 16), optimize=True)
 
     @override
     def create_hyperparameters(self) -> dict[str, BaseDistribution]:
