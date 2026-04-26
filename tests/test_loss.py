@@ -6,36 +6,36 @@ import jax.scipy.special as jss
 from cem.phasor.loss import (
     centering_loss,
     decorrelation_loss,
-    reconstruction_loss,
+    spectral_reconstruction_loss,
     strength_loss,
 )
 
-# ── reconstruction_loss ───────────────────────────────────────────────────────
+# ── spectral_reconstruction_loss ──────────────────────────────────────────────
 
 
 def test_reconstruction_loss_is_real() -> None:
     z = jnp.array([1 + 1j, 2 + 0j])
     z_hat = jnp.array([0.5 + 0.5j, 1 + 1j])
-    loss = reconstruction_loss(z, z_hat)
+    loss = spectral_reconstruction_loss(z, z_hat)
     assert jnp.isrealobj(loss) or jnp.allclose(jnp.imag(loss), 0.0)
 
 
 def test_reconstruction_loss_output_shape() -> None:
     z = jnp.ones((3, 4), dtype=jnp.complex128)
-    assert reconstruction_loss(z, z).shape == (3, 4)
+    assert spectral_reconstruction_loss(z, z).shape == (3, 4)
 
 
 def test_reconstruction_loss_zero_input_equals_log_2pi() -> None:
     # z = z_hat = 0: log(2π I₀(0)) - Re(g(0) conj(0)) = log(2π * 1) - 0 = log(2π)
     z = jnp.zeros(2, dtype=jnp.complex128)
-    assert jnp.allclose(reconstruction_loss(z, z), jnp.log(2.0 * jnp.pi) * jnp.ones(2))
+    assert jnp.allclose(spectral_reconstruction_loss(z, z), jnp.log(2.0 * jnp.pi) * jnp.ones(2))
 
 
 def test_reconstruction_loss_self_is_minimum() -> None:
     # L(z, z) ≤ L(z, z_hat) for small perturbation.
     z = jnp.array([1.0 + 0j])
     z_hat = jnp.array([1.1 + 0j])
-    assert reconstruction_loss(z, z)[0] <= reconstruction_loss(z, z_hat)[0]
+    assert spectral_reconstruction_loss(z, z)[0] <= spectral_reconstruction_loss(z, z_hat)[0]
 
 
 # ── centering_loss ────────────────────────────────────────────────────────────

@@ -10,10 +10,10 @@ from cem.phasor.message import PhasorMessage
 
 
 class LossAndScore(eqx.Module):
-    """Reconstruction loss and its phasor-space gradient, computed jointly via autodiff.
+    """Spectral reconstruction loss and its phasor-space gradient, computed jointly via autodiff.
 
     Attributes:
-        loss: Per-element reconstruction cross-entropy, same shape as the input phasors.
+        loss: Per-element von Mises cross-entropy, same shape as the input phasors.
         score: ∂loss/∂ẑ — gradient of the summed loss w.r.t. predicted phasors.
     """
 
@@ -21,41 +21,39 @@ class LossAndScore(eqx.Module):
     score: PhasorMessage
 
     def total_loss(self) -> JaxArray:
-        """Return the summed scalar reconstruction loss."""
+        """Return the summed scalar spectral reconstruction loss."""
         return jnp.sum(self.loss)
 
 
-def reconstruction_loss_and_score(observed: PhasorMessage, z_hat: PhasorMessage) -> LossAndScore:
-    """Compute reconstruction loss and score jointly for a latent variable in phasor space.
+def spectral_reconstruction_loss_and_score(
+    observed: PhasorMessage, z_hat: PhasorMessage
+) -> LossAndScore:
+    """Compute spectral reconstruction loss and score jointly for a latent variable.
 
-    No distribution family is assumed.  Observed and predicted phasors are treated as von Mises
-    natural parameters.  Uses ``jax.value_and_grad`` to obtain both the per-element losses and
-    the score ∂loss/∂ẑ in a single pass.
+    Treats observed and predicted phasors as von Mises natural parameters and computes their
+    cross-entropy directly in phasor space.  Uses ``jax.value_and_grad`` to obtain both the
+    per-element losses and the score ∂loss/∂ẑ in a single pass.
 
     Args:
         observed: Observed phasors.
         z_hat: Predicted phasors from the network.
 
     Returns:
-        LossAndScore with per-element reconstruction cross-entropy and score ∂loss/∂ẑ.
+        LossAndScore with per-element von Mises cross-entropy and score ∂loss/∂ẑ.
     """
 
     def loss_fn(z: PhasorMessage) -> tuple[JaxArray, JaxArray]:
-        losses = reconstruction_loss(observed.data, z.data)
+        losses = spectral_reconstruction_loss(observed.data, z.data)
         return jnp.sum(losses), losses
 
     (_, losses), score = jax.value_and_grad(loss_fn, has_aux=True)(z_hat)
     return LossAndScore(loss=losses, score=score)
 
 
-def reconstruction_loss(z: JaxArray, z_hat: JaxArray) -> JaxArray:
-    """Von Mises cross-entropy: log-normalizer minus expected log-likelihood.
+def spectral_reconstruction_loss(z: JaxArray, z_hat: JaxArray) -> JaxArray:
+    """Spectral reconstruction loss: von Mises cross-entropy between observed and predicted phasors.
 
     L(z, ẑ) = log(2π I₀(|ẑ|)) − Re(g(z) conj(ẑ))
-
-    This is the standard exponential-family cross-entropy: log-normalizer of the prediction
-    minus the inner product of the observation's expectation parameters with the prediction's
-    natural parameters.  The score is the Wirtinger derivative of this loss with respect to ẑ.
 
     Args:
         z: Observed phasors.

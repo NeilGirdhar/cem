@@ -10,7 +10,7 @@ from tjax import JaxArray, JaxRealArray, copy_cotangent, frozendict
 
 from cem.phasor.frequency import make_frequency_grid
 from cem.phasor.input_node import PhasorInputConfiguration
-from cem.phasor.loss import reconstruction_loss_and_score
+from cem.phasor.loss import spectral_reconstruction_loss_and_score
 from cem.phasor.message import PhasorMessage
 from cem.structure.graph import FixedParameter
 from cem.structure.graph.node import TargetConfiguration, TargetNode
@@ -23,7 +23,7 @@ class PhasorTargetConfiguration(PhasorInputConfiguration, TargetConfiguration):
 
 
 class PhasorTargetNode(TargetNode):
-    """Computes phasor reconstruction loss between observed and predicted distributions.
+    """Target node: distributional reconstruction loss reported, spectral loss for the gradient.
 
     Attributes:
         frequency_grids: Per-field frequency grid ``t``, shape ``(m * d,)`` each,
@@ -77,7 +77,7 @@ class PhasorTargetNode(TargetNode):
         flat_observed: frozendict[str, JaxRealArray],
         prediction: PhasorMessage,
     ) -> PhasorTargetConfiguration:
-        """Compute phasor reconstruction loss between observations and a prediction.
+        """Compute distributional reconstruction loss between observations and a predicted phasor.
 
         Args:
             flat_observed: Per-field flat distribution encodings
@@ -105,21 +105,18 @@ class PhasorTargetNode(TargetNode):
             observed_exp = observed_np.to_exp()
             assert isinstance(observed_exp, HasEntropyEP)
 
-            # Optimize in phasor space rather than computing cross-entropy on decoded parameters:
-            # the latter gives near-zero gradients (~500x smaller) and phase-wrapping errors
-            # at high frequencies.
-            result = reconstruction_loss_and_score(obs_phasor, z_hat)
+            # Use spectral reconstruction loss for the gradient: decoding to distribution space
+            # first gives near-zero gradients (~500x smaller) and phase-wrapping errors.
+            spectral = spectral_reconstruction_loss_and_score(obs_phasor, z_hat)
             predicted_exp = z_hat.to_distribution(grid)
             assert isinstance(predicted_exp, type(observed_exp))
 
             observed_distributions[field_name] = observed_exp
-            scores.append(result.score)
-            true_loss = stop_gradient(observed_exp.cross_entropy(predicted_exp.to_nat()))
-            optimized_loss = jnp.sum(result.loss, axis=-1)
-            # Report the true cross entropy, but optimize phasor reconstruction gradient, which is
-            # well-conditioned.
-            # TODO: Just optimize the true cross-entropy.  This is just for testing phasor learning.
-            losses[field_name] = copy_cotangent(true_loss, optimized_loss)
+            scores.append(spectral.score)
+            distributional_loss = stop_gradient(observed_exp.cross_entropy(predicted_exp.to_nat()))
+            optimized_loss = jnp.sum(spectral.loss, axis=-1)
+            # Report the distributional loss, but optimize phasor reconstruction gradient.
+            losses[field_name] = copy_cotangent(distributional_loss, optimized_loss)
             predicted_distributions[field_name] = predicted_exp
 
         return PhasorTargetConfiguration(

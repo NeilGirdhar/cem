@@ -10,8 +10,8 @@ from cem.phasor.loss import (
     LossAndScore,
     centering_loss,
     decorrelation_loss,
-    reconstruction_loss,
-    reconstruction_loss_and_score,
+    spectral_reconstruction_loss,
+    spectral_reconstruction_loss_and_score,
     strength_loss,
 )
 from cem.phasor.message import PhasorMessage
@@ -37,9 +37,9 @@ __all__ = [
     "interpolate",
     "make_frequency_grid",
     "phasor_gate",
-    "reconstruction_loss",
-    "reconstruction_loss_and_score",
     "rotate_by_location",
     "select",
+    "spectral_reconstruction_loss",
+    "spectral_reconstruction_loss_and_score",
     "strength_loss",
 ]

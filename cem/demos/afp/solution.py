@@ -12,7 +12,7 @@ from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxArray, RngStream, frozendict
 
 from cem import phasor
-from cem.phasor.loss import decorrelation_loss, reconstruction_loss_and_score
+from cem.phasor.loss import decorrelation_loss, spectral_reconstruction_loss_and_score
 from cem.phasor.message import PhasorMessage
 from cem.structure.graph import Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration
@@ -178,7 +178,9 @@ class AFPModel(Model):
         z_hat = self.endo_predictor.infer(z_endo_pure) + self.exo_predictor.infer(z_exo_pure)
 
         # Reconstruction loss and score (∂loss/∂ẑ).
-        loss_and_score = reconstruction_loss_and_score(PhasorMessage(z_obs), PhasorMessage(z_hat))
+        loss_and_score = spectral_reconstruction_loss_and_score(
+            PhasorMessage(z_obs), PhasorMessage(z_hat)
+        )
         recon_loss = loss_and_score.loss
         s = loss_and_score.score.data
 

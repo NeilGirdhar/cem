@@ -104,9 +104,9 @@ class PhasorMessage(eqx.Module):
         self,
         t: NaturalParametrization,
     ) -> ExpectationParametrization:
-        """Recover a belief distribution from phasors via OLS on the characteristic function.
+        """Recover a belief distribution from phasors via the inverse characteristic function.
 
-        Inverts ``from_distribution`` by solving the overdetermined linear system
+        Solves the overdetermined linear system
 
             Im(log Z[j, k]) ≈ f_j * E[T(x)_k]
 
