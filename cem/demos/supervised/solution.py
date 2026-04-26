@@ -149,7 +149,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     dataset_kind: DatasetKind = eqx.field(static=True)
     link_kind: LinkKind = eqx.field(static=True)
     training_examples: int = int_field(
-        default=10000, domain=IntDistribution(1, 1 << 16, log=True), optimize=True
+        default=1000, domain=IntDistribution(1, 1 << 16, log=True), optimize=True
     )
     training_batch_size: int = int_field(
         default=32, domain=IntDistribution(1, 1 << 10, log=True), optimize=True
