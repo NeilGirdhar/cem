@@ -67,7 +67,7 @@ class PerceptronTargetNode(TargetNode):
             observed_np = self._unflatten_observed(field_name, flat_observed[field_name])
             observed_exp = observed_np.to_exp()
             assert isinstance(observed_exp, HasEntropyEP)
-            predicted_np = flattener.unflatten(y_hat, return_vector=True)
+            predicted_np = flattener.unflatten(y_hat)
             predicted_exp = predicted_np.to_exp()
             assert isinstance(predicted_exp, type(observed_exp))
             observed_distributions[field_name] = observed_exp

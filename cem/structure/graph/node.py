@@ -81,4 +81,4 @@ class TargetNode(eqx.Module):
         field_name: str,
         flat: JaxRealArray,
     ) -> NaturalParametrization[Any, Any]:
-        return self._flatteners.value[field_name].unflatten(flat, return_vector=True)
+        return self._flatteners.value[field_name].unflatten(flat)
