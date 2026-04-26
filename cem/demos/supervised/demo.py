@@ -20,14 +20,28 @@ from .solution import DatasetKind, LinkKind, SupervisedSolver
 class SupervisedVariant(Variant):
     """Variant for supervised learning on tabular datasets."""
 
-    def __init__(self, *, dataset_kind: DatasetKind, link_kind: LinkKind) -> None:
+    def __init__(
+        self,
+        *,
+        dataset_kind: DatasetKind,
+        link_kind: LinkKind,
+        use_spectral_loss: bool = False,
+    ) -> None:
         self.dataset_kind = dataset_kind
         self.link_kind = link_kind
-        self.label = link_kind.name
+        self.use_spectral_loss = use_spectral_loss
+        if link_kind == LinkKind.phasor and use_spectral_loss:
+            self.label = "phasor-spectral"
+        else:
+            self.label = link_kind.name
 
     @override
     def create_solver(self) -> Solver[SupervisedProblem]:
-        return SupervisedSolver(dataset_kind=self.dataset_kind, link_kind=self.link_kind)
+        return SupervisedSolver(
+            dataset_kind=self.dataset_kind,
+            link_kind=self.link_kind,
+            use_spectral_loss=self.use_spectral_loss,
+        )
 
     @override
     def plotters(self) -> Sequence[Plotter]:
@@ -63,6 +77,18 @@ supervised_iris_demo = Demo(
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.perceptron),
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.phasor),
+    ],
+)
+
+supervised_iris_spectral_demo = Demo(
+    name="supervised-iris-spectral",
+    variants=[
+        SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.perceptron),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.iris,
+            link_kind=LinkKind.phasor,
+            use_spectral_loss=True,
+        ),
     ],
 )
 
