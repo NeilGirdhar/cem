@@ -160,5 +160,5 @@ def test_encode_scalar_presence_and_phase() -> None:
 def test_geometric_frequencies() -> None:
     freqs = geometric_frequencies(5)
     assert freqs.shape == (5,)
-    assert jnp.allclose(freqs[0], 2.0 * jnp.pi)
-    assert jnp.allclose(freqs[1:] / freqs[:-1], jnp.full(4, 2.0))
+    assert jnp.allclose(freqs[0], 1.0)
+    assert jnp.allclose(freqs[1:] / freqs[:-1], jnp.full(4, 0.5))
