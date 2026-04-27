@@ -14,9 +14,9 @@ from cem.structure.plotter.demo import Demo
 
 
 class DemoEnum(Enum):
-    supervised_iris = "supervised_iris"
-    supervised_iris_spectral = "supervised_iris_spectral"
-    supervised_synthetic_regression = "supervised_synthetic_regression"
+    supervised_iris = "supervised-iris"
+    supervised_iris_spectral = "supervised-iris-spectral"
+    supervised_synthetic_regression = "supervised-synthetic-regression"
     afp = "afp"
 
 
