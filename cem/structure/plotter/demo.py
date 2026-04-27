@@ -134,7 +134,14 @@ class Demo:
         return result
 
     def plotters(self) -> Sequence[Plotter]:
-        return self.variants[0].plotters()
+        seen: set[str] = set()
+        result: list[Plotter] = []
+        for variant in self.variants:
+            for plotter in variant.plotters():
+                if plotter.name not in seen:
+                    seen.add(plotter.name)
+                    result.append(plotter)
+        return result
 
     def all_telemetries(self) -> Telemetries:
         return reduce(
