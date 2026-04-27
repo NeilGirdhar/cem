@@ -12,6 +12,7 @@ from cem.structure.graph.node import NodeConfiguration, TargetConfiguration, Tar
 from cem.structure.graph.parameters import (
     FixedParameter,
     LearnableParameter,
+    MetaParameter,
     Parameter,
     apply_to_parameters,
     is_parameter,
@@ -23,6 +24,7 @@ __all__ = [
     "DisModel",
     "FixedParameter",
     "LearnableParameter",
+    "MetaParameter",
     "Model",
     "ModelResult",
     "NodeConfiguration",

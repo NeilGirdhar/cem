@@ -21,6 +21,13 @@ class LearnableParameter[A](Parameter[A]):
     """
 
 
+class MetaParameter[A](Parameter[A]):
+    """A parameter updated by a meta-learning objective, typically at a lower learning rate.
+
+    E.g., frequency weights learned to equalize gradient contributions.
+    """
+
+
 class FixedParameter[A](Parameter[A]):
     """A parameter that remains unchanged throughout model training.
 
