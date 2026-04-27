@@ -148,6 +148,9 @@ def _create_hyperparameters(x: object, *, prefix: str) -> dict[str, BaseDistribu
         y = getattr(x, f.name)
         if not f.metadata.get("optimize", True):
             continue
+        condition = f.metadata.get("condition", None)
+        if condition is not None and not condition(x):
+            continue
         if (domain := f.metadata.get("domain", None)) is not None:
             hyper[f"{prefix}{f.name}"] = domain
         elif is_dataclass(y):
@@ -162,6 +165,9 @@ def _default_hyperparameters(x: object, *, prefix: str) -> dict[str, Any]:
     for f in fields(x):
         y = getattr(x, f.name)
         if not f.metadata.get("optimize", True):
+            continue
+        condition = f.metadata.get("condition", None)
+        if condition is not None and not condition(x):
             continue
         if f.metadata.get("domain", None) is not None:
             result[f"{prefix}{f.name}"] = y

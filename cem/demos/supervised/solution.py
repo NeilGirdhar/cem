@@ -9,7 +9,7 @@ from typing import Any, Self, override
 
 import equinox as eqx
 from efax import Flattener
-from optuna.distributions import BaseDistribution, FloatDistribution, IntDistribution
+from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream, frozendict
 
 from cem import perceptron, phasor
@@ -168,14 +168,12 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         default=0.01, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
     )
     hidden_size: int = int_field(default=64, domain=IntDistribution(4, 128), optimize=True)
-    n_frequencies: int = int_field(default=10, domain=IntDistribution(2, 16), optimize=True)
-
-    @override
-    def create_hyperparameters(self) -> dict[str, BaseDistribution]:
-        hyper = super().create_hyperparameters()
-        if self.link_kind == LinkKind.perceptron:
-            del hyper["n_frequencies"]
-        return hyper
+    n_frequencies: int = int_field(
+        default=10,
+        domain=IntDistribution(2, 16),
+        optimize=True,
+        condition=lambda solver: solver.link_kind == LinkKind.phasor,
+    )
 
     @override
     def problem(self) -> SupervisedProblem:
