@@ -178,12 +178,6 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         return hyper
 
     @override
-    def populate_from_hyperparameters(self, hyper: dict[str, Any]) -> Self:
-        if self.link_kind == LinkKind.perceptron:
-            hyper = {**hyper, "n_frequencies": self.n_frequencies}
-        return super().populate_from_hyperparameters(hyper)
-
-    @override
     def problem(self) -> SupervisedProblem:
         if self.dataset_kind == DatasetKind.iris:
             return load_iris()

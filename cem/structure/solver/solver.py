@@ -179,7 +179,7 @@ def _populate_from_hyperparameters[T](x: T, hyper: dict[str, Any], *, prefix: st
         if not f.metadata.get("optimize", True):
             continue
         if f.metadata.get("domain", None) is not None:
-            kwargs[f.name] = hyper[f"{prefix}{f.name}"]
+            kwargs[f.name] = hyper.get(f"{prefix}{f.name}", y)
         elif is_dataclass(y):
             kwargs[f.name] = _populate_from_hyperparameters(y, hyper, prefix=f"{prefix}{f.name}.")
     return cast("T", replace(x, **kwargs))
