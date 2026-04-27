@@ -27,7 +27,7 @@ app = typer.Typer(pretty_exceptions_enable=False)
 def visualize(
     name: DemoEnum,
     *,
-    defaults: bool = False,
+    defaults: bool = True,
     display: bool = False,
     log: bool = True,
 ) -> None:
