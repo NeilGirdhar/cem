@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import jax.numpy as jnp
-import jax.random as jr
 import pytest
 from tjax import RngStream
 
@@ -20,6 +19,7 @@ from cem.phasor import (
     rotate_by_location,
     select,
 )
+from cem.structure.graph import LearnableParameter
 
 # ── phasor_gate ────────────────────────────────────────────────────────────────
 
@@ -141,27 +141,27 @@ def test_linear_batched_shape(streams: Mapping[str, RngStream]) -> None:
     assert f.infer(jnp.ones((4, 3), dtype=jnp.complex128)).shape == (4, 5)
 
 
-def test_linear_zero_input_gives_bias(streams: Mapping[str, RngStream]) -> None:
+def test_linear_zero_input_is_finite_and_bounded(streams: Mapping[str, RngStream]) -> None:
     f = Linear.create(3, 5, streams=streams)
-    assert jnp.allclose(f.infer(jnp.zeros(3, dtype=jnp.complex128)), f.bias.value)
+    out = f.infer(jnp.zeros(3, dtype=jnp.complex128))
+    assert jnp.all(jnp.isfinite(out))
+    assert jnp.all(jnp.abs(out) <= 1.0)
 
 
-def test_linear_is_linear(streams: Mapping[str, RngStream]) -> None:
-    f = Linear.create(4, 6, streams=streams)
-    stream = streams["inference"]
-    z1 = jr.normal(stream.key(), (4,)) + 1j * jr.normal(stream.key(), (4,))
-    z2 = jr.normal(stream.key(), (4,)) + 1j * jr.normal(stream.key(), (4,))
-    a, b = 2.0 + 1j, -1.0 + 0.5j
-    assert jnp.allclose(
-        f.infer(a * z1 + b * z2),
-        a * f.infer(z1) + b * f.infer(z2),
+def test_linear_phase_scales_log_domain_phase() -> None:
+    f = Linear(
+        weight=LearnableParameter(jnp.eye(2, dtype=jnp.complex128)),
+        phase_scales=LearnableParameter(jnp.array([2.0, 0.5], dtype=jnp.float64)),
     )
+    theta = jnp.array([0.2, -0.4], dtype=jnp.float64)
+    z = jnp.exp(1j * theta)
+    assert jnp.allclose(f.infer(z), jnp.exp(1j * jnp.array([0.4, -0.2])), atol=1e-7)
 
 
 def test_linear_weight_shape(streams: Mapping[str, RngStream]) -> None:
     f = Linear.create(3, 5, streams=streams)
     assert f.weight.value.shape == (5, 3)
-    assert f.bias.value.shape == (5,)
+    assert f.phase_scales.value.shape == (5,)
 
 
 # ── LinearWithDropout ─────────────────────────────────────────────────────────
@@ -172,10 +172,13 @@ def test_linear_with_dropout_output_shape(streams: Mapping[str, RngStream]) -> N
     assert f.infer(jnp.ones(3, dtype=jnp.complex128), streams=streams, inference=True).shape == (5,)
 
 
-def test_linear_with_dropout_zero_rate_gives_bias(streams: Mapping[str, RngStream]) -> None:
+def test_linear_with_dropout_zero_rate_matches_linear_inference(
+    streams: Mapping[str, RngStream],
+) -> None:
     f = LinearWithDropout.create(3, 5, dropout_rate=0.0, streams=streams)
     assert jnp.allclose(
-        f.infer(jnp.zeros(3, dtype=jnp.complex128), streams=streams, inference=True), f.bias.value
+        f.infer(jnp.zeros(3, dtype=jnp.complex128), streams=streams, inference=False),
+        Linear.infer(f, jnp.zeros(3, dtype=jnp.complex128)),
     )
 
 

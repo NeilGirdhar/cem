@@ -99,7 +99,7 @@ class PhasorSupervisedModel(Model):
         use_spectral_loss: bool = False,
         streams: Mapping[str, RngStream],
     ) -> Self:
-        freqs = geometric_frequencies(n_frequencies, base=1 / 4)
+        freqs = geometric_frequencies(n_frequencies, base=1)
         in_size = sup.n_features * n_frequencies
         out_size = sup.n_targets * n_frequencies
         num_groups = max(1, out_size // 8)
