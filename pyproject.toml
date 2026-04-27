@@ -137,6 +137,7 @@ convention = "google"
 
 [tool.ruff.lint.pylint]
 max-args = 8
+max-locals = 25
 
 [tool.uv]
 environments = ["sys_platform == 'linux'"]
