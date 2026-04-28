@@ -172,7 +172,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         default=10,
         domain=IntDistribution(2, 16),
         optimize=True,
-        condition=lambda solver: solver.link_kind == LinkKind.phasor,
+        condition=lambda solver: solver.link_kind == LinkKind.phasor,  # ty: ignore
     )
 
     @override

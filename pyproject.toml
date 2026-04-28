@@ -11,7 +11,7 @@ dev = [
   "ruff>=0.15",
   "scikit-learn>=1.8",
   "toml-sort>=0.24",
-  "ty>=0.0.22",
+  "ty>=0.0.33",
   "vulture>=2.14"
 ]
 
