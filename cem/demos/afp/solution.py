@@ -3,23 +3,25 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Self, override
+from typing import Any, Self, override
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from efax import Flattener, UnitVarianceNormalNP
 from optuna.distributions import FloatDistribution, IntDistribution
-from tjax import JaxArray, RngStream, frozendict
+from tjax import JaxArray, JaxRealArray, RngStream, frozendict
 
 from cem import phasor
+from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.loss import decorrelation_loss, spectral_reconstruction_loss_and_score
 from cem.phasor.message import PhasorMessage
-from cem.structure.graph import Model, ModelResult
+from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, int_field
 
-from .problem import IVProblem, IVState
+from .problem import IVObservation, IVProblem
 
 
 class AFPConfiguration(NodeConfiguration):
@@ -56,8 +58,8 @@ class AFPModel(Model):
         endo_latent: Dimension of the purified endogenous latent space.
         exo_latent: Dimension of the purified exogenous latent space.
         obs_features: Dimension of the observation space.
-        endo_purifier: Nonlinear map from endogenous inputs to purified latents.
-        exo_purifier: Nonlinear map from exogenous inputs to purified latents.
+        endo_purifier: Nonlinear map from observed inputs to purified endogenous latents.
+        exo_purifier: Nonlinear map from observed inputs to purified exogenous latents.
         endo_predictor: Linear map from purified endogenous latents to observation space.
         exo_predictor: Linear map from purified exogenous latents to observation space.
         exo_critic: Linear probe detecting alignment between Z_exo_pure and Score.
@@ -73,6 +75,9 @@ class AFPModel(Model):
     exo_predictor: phasor.Linear
     exo_critic: phasor.Nonlinear
     endo_critic: phasor.Nonlinear
+    _x_flattener: FixedParameter[Flattener[Any]]
+    _y_flattener: FixedParameter[Flattener[Any]]
+    _frequencies: FixedParameter[JaxRealArray]
 
     @classmethod
     def create(
@@ -81,29 +86,43 @@ class AFPModel(Model):
         endo_features: int,
         exo_features: int,
         obs_features: int,
+        n_frequencies: int,
         endo_latent: int,
         exo_latent: int,
         num_groups: int,
         streams: Mapping[str, RngStream],
     ) -> Self:
+        freqs = geometric_frequencies(n_frequencies, base=1)
+        x_flattener, _ = Flattener.flatten(
+            UnitVarianceNormalNP(jnp.zeros(endo_features)), mapped_to_plane=True
+        )
+        y_flattener, _ = Flattener.flatten(
+            UnitVarianceNormalNP(jnp.zeros(obs_features)), mapped_to_plane=True
+        )
+        encoded_endo_features = endo_features * n_frequencies
+        encoded_exo_features = exo_features * n_frequencies
+        encoded_obs_features = obs_features * n_frequencies
         return cls(
             endo_latent=endo_latent,
             exo_latent=exo_latent,
-            obs_features=obs_features,
+            obs_features=encoded_obs_features,
             endo_purifier=phasor.Nonlinear.create(
-                endo_features, endo_latent, num_groups, streams=streams
+                encoded_endo_features, endo_latent, num_groups, streams=streams
             ),
             exo_purifier=phasor.Nonlinear.create(
-                exo_features, exo_latent, num_groups, streams=streams
+                encoded_exo_features, exo_latent, num_groups, streams=streams
             ),
-            endo_predictor=phasor.Linear.create(endo_latent, obs_features, streams=streams),
-            exo_predictor=phasor.Linear.create(exo_latent, obs_features, streams=streams),
+            endo_predictor=phasor.Linear.create(endo_latent, encoded_obs_features, streams=streams),
+            exo_predictor=phasor.Linear.create(exo_latent, encoded_obs_features, streams=streams),
             exo_critic=phasor.Nonlinear.create(
-                exo_latent, obs_features, num_groups, streams=streams
+                exo_latent, encoded_obs_features, num_groups, streams=streams
             ),
             endo_critic=phasor.Nonlinear.create(
                 endo_latent, exo_latent, num_groups, streams=streams
             ),
+            _x_flattener=FixedParameter(x_flattener),
+            _y_flattener=FixedParameter(y_flattener),
+            _frequencies=FixedParameter(freqs),
         )
 
     def _adversarial_loss(
@@ -159,23 +178,29 @@ class AFPModel(Model):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> ModelResult:
-        assert isinstance(observation, IVState)
+        assert isinstance(observation, IVObservation)
 
-        # Encode real observations as complex phasors (value + 0j).
-        z_exo: JaxArray = observation.z.astype(jnp.complex128)  # instrument
-        z_endo: JaxArray = observation.t.astype(jnp.complex128)  # treatment (confounded)
-        z_obs: JaxArray = observation.y.astype(jnp.complex128)  # outcome
+        # Match the supervised phasor demo: unflatten UnitVarianceNormalNP encodings and
+        # evaluate their characteristic phasors on the configured frequency basis.
+        x_dist = self._x_flattener.value.unflatten(observation.x, return_vector=True)
+        y_dist = self._y_flattener.value.unflatten(observation.y, return_vector=True)
+        z_input = PhasorMessage.from_distribution(
+            x_dist, self._frequencies.value, raveled=True
+        ).data
+        z_obs = PhasorMessage.from_distribution(y_dist, self._frequencies.value, raveled=True).data
 
         # Purify: map inputs to latent representations.
         z_endo_pure = self.endo_purifier.infer(
-            PhasorMessage(z_endo), streams=streams, inference=inference
+            PhasorMessage(z_input), streams=streams, inference=inference
         ).data
         z_exo_pure = self.exo_purifier.infer(
-            PhasorMessage(z_exo), streams=streams, inference=inference
+            PhasorMessage(z_input), streams=streams, inference=inference
         ).data
 
         # Predict: reconstruct the observation from both pathways.
-        z_hat = self.endo_predictor.infer(z_endo_pure) + self.exo_predictor.infer(z_exo_pure)
+        z_endo_hat = self.endo_predictor.infer(z_endo_pure)
+        z_exo_hat = self.exo_predictor.infer(z_exo_pure)
+        z_hat = z_endo_hat + z_exo_hat
 
         # Reconstruction loss and score (∂loss/∂ẑ).
         loss_and_score = spectral_reconstruction_loss_and_score(
@@ -241,13 +266,14 @@ class AFPSolver(Solver[IVProblem]):
     training_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
     inference_examples: int = int_field(default=500, domain=IntDistribution(1, 1 << 12, log=True))
     inference_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
-    alpha: float = float_field(default=1.5, domain=FloatDistribution(0.1, 4.0), optimize=True)
-    beta: float = float_field(default=1.2, domain=FloatDistribution(0.1, 4.0), optimize=True)
-    gamma: float = float_field(default=2.0, domain=FloatDistribution(0.1, 4.0), optimize=True)
-    delta: float = float_field(default=1.0, domain=FloatDistribution(0.0, 4.0), optimize=True)
+    alpha: float = float_field(default=1.5, domain=FloatDistribution(0.1, 4.0), optimize=False)
+    beta: float = float_field(default=1.2, domain=FloatDistribution(0.1, 4.0), optimize=False)
+    gamma: float = float_field(default=2.0, domain=FloatDistribution(0.1, 4.0), optimize=False)
+    delta: float = float_field(default=1.0, domain=FloatDistribution(0.0, 4.0), optimize=False)
     endo_latent: int = int_field(default=4, domain=IntDistribution(1, 16), optimize=True)
     exo_latent: int = int_field(default=4, domain=IntDistribution(1, 16), optimize=True)
     num_groups: int = int_field(default=2, domain=IntDistribution(1, 8), optimize=True)
+    n_frequencies: int = int_field(default=10, domain=IntDistribution(2, 16), optimize=True)
 
     @override
     def problem(self) -> IVProblem:
@@ -263,9 +289,10 @@ class AFPSolver(Solver[IVProblem]):
     ) -> Model:
         del data_source, problem
         return AFPModel.create(
-            endo_features=1,
-            exo_features=1,
+            endo_features=2,
+            exo_features=2,
             obs_features=1,
+            n_frequencies=self.n_frequencies,
             endo_latent=self.endo_latent,
             exo_latent=self.exo_latent,
             num_groups=self.num_groups,

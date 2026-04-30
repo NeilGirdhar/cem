@@ -51,7 +51,7 @@ class AFPTelemetry(Telemetry):
 
 
 class AFPLossPlotter(PlotterWithSmoothGraph):
-    """Plots reconstruction, exogeneity, and endogeneity losses over training/inference."""
+    """Plots AFP diagnostics over training/inference."""
 
     _: KW_ONLY
     name: str = field(static=True, default="afp-losses")
@@ -73,8 +73,8 @@ class AFPLossPlotter(PlotterWithSmoothGraph):
     def _plot_axis(self, ax: Axes, losses: AFPConfiguration, *, split: str) -> None:
         series = (
             ("Reconstruction", self._mean_over_non_time_axes(losses.recon_loss)),
-            ("Exogenous Critic", self._mean_over_non_time_axes(losses.exo_loss)),
-            ("Endogenous Critic", self._mean_over_non_time_axes(losses.endo_loss)),
+            ("Exogeneity", self._mean_over_non_time_axes(losses.exo_loss)),
+            ("Endogenous Separation", self._mean_over_non_time_axes(losses.endo_loss)),
         )
         for label, values in series:
             times = np.arange(values.shape[0], dtype=np.float64)

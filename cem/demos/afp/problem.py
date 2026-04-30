@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import jax.random as jr
+from efax import Flattener, UnitVarianceNormalNP
 from tjax import JaxRealArray, KeyArray
 
-from cem.structure.problem.data_source import DataSource, ProblemState
+from cem.structure.problem.data_source import DataSource, ProblemObservation, ProblemState
 from cem.structure.problem.problem import Problem
 
 
@@ -27,6 +28,25 @@ class IVState(ProblemState):
     u: JaxRealArray
     t: JaxRealArray
     y: JaxRealArray
+
+
+class IVObservation(ProblemObservation):
+    """Encoded observed variables for the IV DGP.
+
+    ``x`` is the flat UnitVarianceNormalNP encoding of observed ``(Z, T)`` and ``y`` is
+    the corresponding encoding of observed ``Y``. ``u`` remains in :class:`IVState` for
+    evaluation; the model only receives these observed fields.
+    """
+
+    x: JaxRealArray
+    y: JaxRealArray
+
+
+def _encode_flat(values: JaxRealArray) -> JaxRealArray:
+    assert values.ndim == 1
+    dist = UnitVarianceNormalNP(values)
+    _, flat = Flattener.flatten(dist, mapped_to_plane=True)
+    return flat.reshape(-1)
 
 
 class IVDataSource(DataSource):
@@ -63,8 +83,8 @@ class IVProblem(Problem):
             U───┘
 
     where Z is the instrument, U the unobserved confounder, T the confounded treatment,
-    and Y the outcome.  The AFP model receives (z_exo=Z, z_endo=T, z_obs=Y) and should
-    learn to separate exogenous (Z-driven) from endogenous (U-driven) variation.
+    and Y the outcome.  The AFP model receives observed (Z, T, Y) and should learn to
+    separate exogenous (Z-driven) from endogenous (U-driven) variation.
 
     Attributes:
         alpha: Z → T coefficient.
@@ -94,4 +114,11 @@ class IVProblem(Problem):
             beta=self.beta,
             gamma=self.gamma,
             delta=self.delta,
+        )
+
+    def extract_observation(self, state: ProblemState) -> IVObservation:
+        assert isinstance(state, IVState)
+        return IVObservation(
+            x=_encode_flat(jnp.concatenate((state.z, state.t))),
+            y=_encode_flat(state.y),
         )

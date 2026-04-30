@@ -37,7 +37,9 @@ class AFPVariant(Variant):
     ) -> float:
         telemetry = AFPTelemetry(selected_node="afp")
         config = inference_results.telemetries[telemetry]
-        return float(jnp.mean(config.recon_loss))
+        return float(
+            jnp.mean(config.recon_loss) + jnp.mean(config.exo_loss) + jnp.mean(config.endo_loss)
+        )
 
 
 afp_demo = Demo(name="afp", variants=[AFPVariant()])
