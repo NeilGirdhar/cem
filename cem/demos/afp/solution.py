@@ -12,8 +12,8 @@ from efax import Flattener, UnitVarianceNormalNP
 from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxArray, JaxRealArray, RngStream, frozendict
 
-from cem import phasor
 from cem.phasor.frequency import geometric_frequencies
+from cem.phasor.gated_projection import GatedProjection, LogSpaceProjection
 from cem.phasor.loss import decorrelation_loss, spectral_reconstruction_loss_and_score
 from cem.phasor.message import PhasorMessage
 from cem.structure.graph import FixedParameter, Model, ModelResult
@@ -58,8 +58,8 @@ class AFPModel(Model):
         endo_latent: Dimension of the purified endogenous latent space.
         exo_latent: Dimension of the purified exogenous latent space.
         obs_features: Dimension of the observation space.
-        endo_purifier: Nonlinear map from observed inputs to purified endogenous latents.
-        exo_purifier: Nonlinear map from observed inputs to purified exogenous latents.
+        endo_purifier: Gated projection from observed inputs to purified endogenous latents.
+        exo_purifier: Gated projection from observed inputs to purified exogenous latents.
         endo_predictor: Log-space map from purified endogenous latents to observation space.
         exo_predictor: Log-space map from purified exogenous latents to observation space.
         exo_critic: Log-space probe detecting alignment between Z_exo_pure and Score.
@@ -69,12 +69,12 @@ class AFPModel(Model):
     endo_latent: int = eqx.field(static=True)
     exo_latent: int = eqx.field(static=True)
     obs_features: int = eqx.field(static=True)
-    endo_purifier: phasor.Nonlinear
-    exo_purifier: phasor.Nonlinear
-    endo_predictor: phasor.LogSpaceProjection
-    exo_predictor: phasor.LogSpaceProjection
-    exo_critic: phasor.Nonlinear
-    endo_critic: phasor.Nonlinear
+    endo_purifier: GatedProjection
+    exo_purifier: GatedProjection
+    endo_predictor: LogSpaceProjection
+    exo_predictor: LogSpaceProjection
+    exo_critic: GatedProjection
+    endo_critic: GatedProjection
     _x_flattener: FixedParameter[Flattener[Any]]
     _y_flattener: FixedParameter[Flattener[Any]]
     _frequencies: FixedParameter[JaxRealArray]
@@ -106,22 +106,22 @@ class AFPModel(Model):
             endo_latent=endo_latent,
             exo_latent=exo_latent,
             obs_features=encoded_obs_features,
-            endo_purifier=phasor.Nonlinear.create(
+            endo_purifier=GatedProjection.create(
                 encoded_endo_features, endo_latent, num_groups, streams=streams
             ),
-            exo_purifier=phasor.Nonlinear.create(
+            exo_purifier=GatedProjection.create(
                 encoded_exo_features, exo_latent, num_groups, streams=streams
             ),
-            endo_predictor=phasor.LogSpaceProjection.create(
+            endo_predictor=LogSpaceProjection.create(
                 endo_latent, encoded_obs_features, streams=streams
             ),
-            exo_predictor=phasor.LogSpaceProjection.create(
+            exo_predictor=LogSpaceProjection.create(
                 exo_latent, encoded_obs_features, streams=streams
             ),
-            exo_critic=phasor.Nonlinear.create(
+            exo_critic=GatedProjection.create(
                 exo_latent, encoded_obs_features, num_groups, streams=streams
             ),
-            endo_critic=phasor.Nonlinear.create(
+            endo_critic=GatedProjection.create(
                 endo_latent, exo_latent, num_groups, streams=streams
             ),
             _x_flattener=FixedParameter(x_flattener),
@@ -131,7 +131,7 @@ class AFPModel(Model):
 
     def _adversarial_loss(
         self,
-        critic: phasor.Nonlinear,
+        critic: GatedProjection,
         z_pure: JaxArray,
         target: JaxArray,
         *,

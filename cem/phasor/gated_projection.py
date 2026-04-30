@@ -14,7 +14,7 @@ from cem.phasor.rivalry import RivalryNorm
 from cem.structure.graph import FixedParameter
 
 
-class Nonlinear(eqx.Module):
+class GatedProjection(eqx.Module):
     """GLU-style nonlinear projection followed by rivalry normalization, with optional dropout.
 
     h(z) = d(r(f3(g(f1(z), f2(z)))))

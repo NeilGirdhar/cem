@@ -14,9 +14,10 @@ from efax import Flattener, UnitVarianceNormalNP
 from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream, frozendict
 
-from cem import perceptron, phasor
+from cem.perceptron.nonlinear import Nonlinear
 from cem.perceptron.target_node import PerceptronTargetNode
 from cem.phasor.frequency import geometric_frequencies
+from cem.phasor.gated_projection import GatedProjection
 from cem.phasor.message import PhasorMessage
 from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import FixedParameter, Model, ModelResult
@@ -65,7 +66,7 @@ class LinkKind(Enum):
 class PerceptronSupervisedModel(Model):
     """Supervised model: flat-encoded features → Nonlinear → PerceptronTargetNode."""
 
-    link: perceptron.Nonlinear
+    link: Nonlinear
     target: PerceptronTargetNode
 
     @classmethod
@@ -79,9 +80,7 @@ class PerceptronSupervisedModel(Model):
         in_size = sup.n_features
         out_size = sup.n_targets
         return cls(
-            link=perceptron.Nonlinear.create(
-                in_size, out_size, mid_features=hidden_size, streams=streams
-            ),
+            link=Nonlinear.create(in_size, out_size, mid_features=hidden_size, streams=streams),
             target=PerceptronTargetNode.create(_y_fields(sup.n_targets)),
         )
 
@@ -105,9 +104,9 @@ class PerceptronSupervisedModel(Model):
 
 
 class PhasorSupervisedModel(Model):
-    """Supervised model: phasor-encoded features → Nonlinear → PhasorTargetNode."""
+    """Supervised model: phasor-encoded features → GatedProjection → PhasorTargetNode."""
 
-    link: phasor.Nonlinear
+    link: GatedProjection
     target: PhasorTargetNode
     _x_flattener: FixedParameter[Flattener[Any]]
     _frequencies: FixedParameter[JaxRealArray]
@@ -128,7 +127,7 @@ class PhasorSupervisedModel(Model):
         num_groups = max(1, out_size // 8)
         x_flattener, _ = Flattener.flatten(sup.x_prior, mapped_to_plane=True)
         return cls(
-            link=phasor.Nonlinear.create(
+            link=GatedProjection.create(
                 in_size, out_size, num_groups, mid_features=hidden_size, streams=streams
             ),
             target=PhasorTargetNode.create(

@@ -8,9 +8,9 @@ from tjax import RngStream
 
 from cem.phasor import (
     Accumulator,
+    GatedProjection,
     LogSpaceProjection,
     LogSpaceProjectionWithDropout,
-    Nonlinear,
     PhasorMessage,
     RivalryGroups,
     RivalryNorm,
@@ -253,18 +253,18 @@ def test_rivalry_norm_batched_shape(rivalry_norm: RivalryNorm) -> None:
     assert rivalry_norm.infer(jnp.ones((3, 6), dtype=jnp.complex128)).shape == (3, 6)
 
 
-# ── Nonlinear ─────────────────────────────────────────────────────────────────
+# ── GatedProjection ───────────────────────────────────────────────────────────
 
 
-def test_nonlinear_output_shape(streams: Mapping[str, RngStream]) -> None:
-    f = Nonlinear.create(4, 6, 3, streams=streams)
+def test_gated_projection_output_shape(streams: Mapping[str, RngStream]) -> None:
+    f = GatedProjection.create(4, 6, 3, streams=streams)
     assert f.infer(
         PhasorMessage(jnp.ones(4, dtype=jnp.complex128)), streams=streams, inference=True
     ).shape == (6,)
 
 
-def test_nonlinear_output_dtype(streams: Mapping[str, RngStream]) -> None:
-    f = Nonlinear.create(4, 6, 3, streams=streams)
+def test_gated_projection_output_dtype(streams: Mapping[str, RngStream]) -> None:
+    f = GatedProjection.create(4, 6, 3, streams=streams)
     assert (
         f.infer(
             PhasorMessage(jnp.ones(4, dtype=jnp.complex128)), streams=streams, inference=True
@@ -273,15 +273,15 @@ def test_nonlinear_output_dtype(streams: Mapping[str, RngStream]) -> None:
     )
 
 
-def test_nonlinear_batched_shape(streams: Mapping[str, RngStream]) -> None:
-    f = Nonlinear.create(4, 6, 3, streams=streams)
+def test_gated_projection_batched_shape(streams: Mapping[str, RngStream]) -> None:
+    f = GatedProjection.create(4, 6, 3, streams=streams)
     assert f.infer(
         PhasorMessage(jnp.ones((5, 4), dtype=jnp.complex128)), streams=streams, inference=True
     ).shape == (5, 6)
 
 
-def test_nonlinear_custom_mid_features(streams: Mapping[str, RngStream]) -> None:
-    f = Nonlinear.create(4, 6, 3, mid_features=8, streams=streams)
+def test_gated_projection_custom_mid_features(streams: Mapping[str, RngStream]) -> None:
+    f = GatedProjection.create(4, 6, 3, mid_features=8, streams=streams)
     assert f.infer(
         PhasorMessage(jnp.ones(4, dtype=jnp.complex128)), streams=streams, inference=True
     ).shape == (6,)
