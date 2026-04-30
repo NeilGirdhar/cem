@@ -76,9 +76,11 @@ def infer_episodes(
         packet: The inference packet.
         solution_state: The inference parameters.
     """
-    if episodes <= 0:
-        msg = f"inference_examples must be > 0, got {episodes}"
+    if episodes < 0:
+        msg = f"inference_examples must be >= 0, got {episodes}"
         raise ValueError(msg)
+    if episodes == 0:
+        return InferenceResults(count=0, telemetries={})
     log.info("Inferring")
     data_source = problem.create_data_source()
     with ExecutionContext.create(

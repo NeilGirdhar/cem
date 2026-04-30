@@ -12,7 +12,7 @@ from cem.structure.solution import InferenceResults, Telemetries, TrainingResult
 from cem.structure.solution.loss_telemetry import LossTelemetry
 from cem.structure.solver import Solver
 
-from .plotter import SupervisedInferenceLossPlotter, SupervisedTrainingLossPlotter
+from .plotter import SupervisedTrainingLossPlotter
 from .problem import SupervisedProblem
 from .solution import DatasetKind, LinkKind, SupervisedSolver
 
@@ -45,7 +45,7 @@ class SupervisedVariant(Variant):
 
     @override
     def plotters(self) -> Sequence[Plotter]:
-        return [SupervisedTrainingLossPlotter(), SupervisedInferenceLossPlotter()]
+        return [SupervisedTrainingLossPlotter()]
 
     @override
     def extra_telemetries(self) -> Telemetries:
@@ -57,8 +57,6 @@ class SupervisedVariant(Variant):
             {
                 "training_examples",
                 "training_batch_size",
-                "inference_examples",
-                "inference_batch_size",
                 "hidden_size",
             }
         )
@@ -68,7 +66,7 @@ class SupervisedVariant(Variant):
         self, training_results: TrainingResults, inference_results: InferenceResults
     ) -> float:
         telemetry = LossTelemetry(selected_node="target")
-        losses = inference_results.telemetries[telemetry]
+        losses = training_results.telemetries[telemetry]
         return float(jnp.mean(losses))
 
 

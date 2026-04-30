@@ -184,12 +184,6 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     training_batch_size: int = int_field(
         default=32, domain=IntDistribution(1, 1 << 10, log=True), optimize=True
     )
-    inference_examples: int = int_field(
-        default=200, domain=IntDistribution(1, 1 << 12, log=True), optimize=True
-    )
-    inference_batch_size: int = int_field(
-        default=32, domain=IntDistribution(1, 1 << 10, log=True), optimize=True
-    )
     learning_rate: float = float_field(
         default=0.01, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
     )

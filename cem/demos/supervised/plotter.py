@@ -1,4 +1,4 @@
-"""Supervised learning plotter: training and inference loss curves."""
+"""Supervised learning plotter: training loss curves."""
 
 from __future__ import annotations
 
@@ -59,25 +59,4 @@ class SupervisedTrainingLossPlotter(_SupervisedLossPlotter):
         telemetry = LossTelemetry(selected_node=self.selected_node)
         losses = np.asarray(training_results.telemetries[telemetry], dtype=np.float64)
         ax = self._get_or_create_ax(figure, "Training")
-        self._plot_axis(ax, losses, label=label)
-
-
-class SupervisedInferenceLossPlotter(_SupervisedLossPlotter):
-    """Plots inference loss curves for the supervised demo."""
-
-    _: KW_ONLY
-    name: str = field(static=True, default="supervised-inference-loss")
-    title: str = field(static=True, default="Supervised Inference Loss")
-
-    @override
-    def plot(
-        self,
-        figure: Figure,
-        training_results: TrainingResults,
-        inference_results: InferenceResults,
-        label: str,
-    ) -> None:
-        telemetry = LossTelemetry(selected_node=self.selected_node)
-        losses = np.asarray(inference_results.telemetries[telemetry], dtype=np.float64)
-        ax = self._get_or_create_ax(figure, "Inference")
         self._plot_axis(ax, losses, label=label)

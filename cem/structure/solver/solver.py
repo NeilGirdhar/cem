@@ -37,11 +37,9 @@ class Solver[P: Problem](eqx.Module):
     _: KW_ONLY
     title: str = ""
     name: str | None = None
-    inference_examples: int = int_field(
-        default=0, domain=IntDistribution(1, (1 << 64) - 1, log=True)
-    )
+    inference_examples: int = int_field(default=0, domain=IntDistribution(0, 0))
     inference_batch_size: int = int_field(
-        default=0, domain=IntDistribution(1, (1 << 32) - 1, log=True)
+        default=1, domain=IntDistribution(1, (1 << 32) - 1, log=True)
     )
     inference_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
 
