@@ -96,6 +96,10 @@ supervised_synthetic_regression_demo = Demo(
         SupervisedVariant(
             dataset_kind=DatasetKind.synthetic_regression, link_kind=LinkKind.perceptron
         ),
-        SupervisedVariant(dataset_kind=DatasetKind.synthetic_regression, link_kind=LinkKind.phasor),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.synthetic_regression,
+            link_kind=LinkKind.phasor,
+            use_spectral_loss=True,
+        ),
     ],
 )
