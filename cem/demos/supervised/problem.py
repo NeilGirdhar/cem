@@ -133,7 +133,7 @@ def _encode_dataset(
 
 @cache
 def load_iris() -> SupervisedProblem:
-    """Load the Iris dataset from HuggingFace as a 4-feature → 1-target problem.
+    """Load the Iris dataset from HuggingFace as a 4-feature -> 1-target problem.
 
     Features: sepal length, sepal width, petal length, petal width.
     Target: integer class label (0, 1, 2).
@@ -143,7 +143,11 @@ def load_iris() -> SupervisedProblem:
     """
     import pandas as pd  # noqa: PLC0415
 
-    ds = load_dataset("scikit-learn/iris", split="train")
+    ds = load_dataset(
+        "scikit-learn/iris",
+        split="train",
+        revision="0bda0ce801be0fa2f464ff845a9d5ceae99aad7d",
+    )
     df = cast("pd.DataFrame", ds.to_pandas())
     feature_cols = ["SepalLengthCm", "SepalWidthCm", "PetalLengthCm", "PetalWidthCm"]
     x = df[feature_cols].to_numpy(dtype=np.float64)
