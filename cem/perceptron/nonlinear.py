@@ -9,8 +9,8 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import JaxRealArray, RngStream
 
-from cem.perceptron.linear import Linear
 from cem.structure.graph import FixedParameter, LearnableParameter
+from cem.transforms import Affine
 
 
 class LayerNorm(eqx.Module):
@@ -70,9 +70,9 @@ class Nonlinear(eqx.Module):
         dropout_rate: Fraction of outputs zeroed after f3. 0.0 disables.
     """
 
-    f1: Linear
-    f2: Linear
-    f3: Linear
+    f1: Affine
+    f2: Affine
+    f3: Affine
     layer_norm: LayerNorm
     dropout_rate: FixedParameter[JaxRealArray]
 
@@ -89,9 +89,9 @@ class Nonlinear(eqx.Module):
         if mid_features is None:
             mid_features = out_features
         return cls(
-            f1=Linear.create(in_features, mid_features, streams=streams),
-            f2=Linear.create(in_features, mid_features, streams=streams),
-            f3=Linear.create(mid_features, out_features, streams=streams),
+            f1=Affine.create(in_features, mid_features, streams=streams),
+            f2=Affine.create(in_features, mid_features, streams=streams),
+            f3=Affine.create(mid_features, out_features, streams=streams),
             layer_norm=LayerNorm.create(mid_features),
             dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
         )

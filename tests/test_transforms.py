@@ -8,8 +8,8 @@ from tjax import RngStream
 
 from cem.phasor import (
     Accumulator,
-    Linear,
-    LinearWithDropout,
+    LogSpaceProjection,
+    LogSpaceProjectionWithDropout,
     Nonlinear,
     PhasorMessage,
     RivalryGroups,
@@ -121,35 +121,37 @@ def test_accumulator_batched_shape() -> None:
     assert acc.infer(state, decay, increment).shape == (3, 4)
 
 
-# ── Linear ────────────────────────────────────────────────────────────────────
+# ── LogSpaceProjection ────────────────────────────────────────────────────────────────────
 
 
 def test_linear_output_shape(streams: Mapping[str, RngStream]) -> None:
-    f = Linear.create(3, 5, streams=streams)
+    f = LogSpaceProjection.create(3, 5, streams=streams)
     assert f.infer(jnp.ones(3, dtype=jnp.complex128)).shape == (5,)
 
 
 def test_linear_output_dtype(streams: Mapping[str, RngStream]) -> None:
     assert (
-        Linear.create(3, 5, streams=streams).infer(jnp.ones(3, dtype=jnp.complex128)).dtype
+        LogSpaceProjection.create(3, 5, streams=streams)
+        .infer(jnp.ones(3, dtype=jnp.complex128))
+        .dtype
         == jnp.complex128
     )
 
 
 def test_linear_batched_shape(streams: Mapping[str, RngStream]) -> None:
-    f = Linear.create(3, 5, streams=streams)
+    f = LogSpaceProjection.create(3, 5, streams=streams)
     assert f.infer(jnp.ones((4, 3), dtype=jnp.complex128)).shape == (4, 5)
 
 
 def test_linear_zero_input_is_finite_and_bounded(streams: Mapping[str, RngStream]) -> None:
-    f = Linear.create(3, 5, streams=streams)
+    f = LogSpaceProjection.create(3, 5, streams=streams)
     out = f.infer(jnp.zeros(3, dtype=jnp.complex128))
     assert jnp.all(jnp.isfinite(out))
     assert jnp.all(jnp.abs(out) <= 1.0)
 
 
 def test_linear_phase_scales_log_domain_phase() -> None:
-    f = Linear(
+    f = LogSpaceProjection(
         weight=LearnableParameter(jnp.eye(2, dtype=jnp.complex128)),
         phase_scales=LearnableParameter(jnp.array([2.0, 0.5], dtype=jnp.float64)),
     )
@@ -159,26 +161,26 @@ def test_linear_phase_scales_log_domain_phase() -> None:
 
 
 def test_linear_weight_shape(streams: Mapping[str, RngStream]) -> None:
-    f = Linear.create(3, 5, streams=streams)
+    f = LogSpaceProjection.create(3, 5, streams=streams)
     assert f.weight.value.shape == (5, 3)
     assert f.phase_scales.value.shape == (5,)
 
 
-# ── LinearWithDropout ─────────────────────────────────────────────────────────
+# ── LogSpaceProjectionWithDropout ─────────────────────────────────────────────────────────
 
 
 def test_linear_with_dropout_output_shape(streams: Mapping[str, RngStream]) -> None:
-    f = LinearWithDropout.create(3, 5, streams=streams)
+    f = LogSpaceProjectionWithDropout.create(3, 5, streams=streams)
     assert f.infer(jnp.ones(3, dtype=jnp.complex128), streams=streams, inference=True).shape == (5,)
 
 
 def test_linear_with_dropout_zero_rate_matches_linear_inference(
     streams: Mapping[str, RngStream],
 ) -> None:
-    f = LinearWithDropout.create(3, 5, dropout_rate=0.0, streams=streams)
+    f = LogSpaceProjectionWithDropout.create(3, 5, dropout_rate=0.0, streams=streams)
     assert jnp.allclose(
         f.infer(jnp.zeros(3, dtype=jnp.complex128), streams=streams, inference=False),
-        Linear.infer(f, jnp.zeros(3, dtype=jnp.complex128)),
+        LogSpaceProjection.infer(f, jnp.zeros(3, dtype=jnp.complex128)),
     )
 
 
@@ -186,16 +188,16 @@ def test_linear_with_dropout_skips_dropout_when_inference_true(
     streams: Mapping[str, RngStream],
 ) -> None:
     # inference=True: output matches the raw affine transform (no dropout applied).
-    f = LinearWithDropout.create(3, 5, dropout_rate=0.9, streams=streams)
+    f = LogSpaceProjectionWithDropout.create(3, 5, dropout_rate=0.9, streams=streams)
     z = jnp.ones(3, dtype=jnp.complex128)
-    assert jnp.allclose(f.infer(z, streams=streams, inference=True), Linear.infer(f, z))
+    assert jnp.allclose(f.infer(z, streams=streams, inference=True), LogSpaceProjection.infer(f, z))
 
 
 def test_linear_with_dropout_applies_dropout_when_inference_false(
     streams: Mapping[str, RngStream],
 ) -> None:
     # inference=False: at least one output differs from the no-dropout result (inference=True).
-    f = LinearWithDropout.create(3, 20, dropout_rate=0.5, streams=streams)
+    f = LogSpaceProjectionWithDropout.create(3, 20, dropout_rate=0.5, streams=streams)
     z = jnp.ones(3, dtype=jnp.complex128)
     out_train = f.infer(z, streams=streams, inference=False)
     out_eval = f.infer(z, streams=streams, inference=True)

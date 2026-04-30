@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from tjax import JaxRealArray, RngStream
 
 from cem.phasor.gate import phasor_gate
-from cem.phasor.linear import Linear
+from cem.phasor.log_space_projection import LogSpaceProjection
 from cem.phasor.message import PhasorMessage
 from cem.phasor.rivalry import RivalryNorm
 from cem.structure.graph import FixedParameter
@@ -31,9 +31,9 @@ class Nonlinear(eqx.Module):
         dropout_rate: Fraction of outputs zeroed after rivalry normalization.  0.0 disables.
     """
 
-    f1: Linear
-    f2: Linear
-    f3: Linear
+    f1: LogSpaceProjection
+    f2: LogSpaceProjection
+    f3: LogSpaceProjection
     rivalry_norm: RivalryNorm
     dropout_rate: FixedParameter[JaxRealArray]
 
@@ -51,9 +51,9 @@ class Nonlinear(eqx.Module):
         if mid_features is None:
             mid_features = out_features
         return cls(
-            f1=Linear.create(in_features, mid_features, streams=streams),
-            f2=Linear.create(in_features, mid_features, streams=streams),
-            f3=Linear.create(mid_features, out_features, streams=streams),
+            f1=LogSpaceProjection.create(in_features, mid_features, streams=streams),
+            f2=LogSpaceProjection.create(in_features, mid_features, streams=streams),
+            f3=LogSpaceProjection.create(mid_features, out_features, streams=streams),
             rivalry_norm=RivalryNorm.create(out_features, num_groups, streams=streams),
             dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
         )

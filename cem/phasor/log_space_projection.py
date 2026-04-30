@@ -16,7 +16,7 @@ from cem.structure.graph import FixedParameter, LearnableParameter
 _complex_lecun = variance_scaling(0.5, "fan_in", "truncated_normal")
 
 
-class Linear(eqx.Module):
+class LogSpaceProjection(eqx.Module):
     """Log-domain linear transform followed by per-channel phase scaling.
 
     Encodes each input phasor as (log|z|, arg(z)), applies a complex linear mix,
@@ -79,7 +79,7 @@ class Linear(eqx.Module):
         return out_amp * jnp.exp(1j * phase_scales * u.imag)
 
 
-class LinearWithDropout(Linear):
+class LogSpaceProjectionWithDropout(LogSpaceProjection):
     """Log-domain linear transform with phase scaling and phasor dropout.
 
     Dropout is applied to the output after the transform and phase scaling.
@@ -101,7 +101,7 @@ class LinearWithDropout(Linear):
         dropout_rate: float = 0.1,
         streams: Mapping[str, RngStream],
     ) -> Self:
-        base = Linear.create(in_features, out_features, streams=streams)
+        base = LogSpaceProjection.create(in_features, out_features, streams=streams)
         return cls(
             weight=base.weight,
             phase_scales=base.phase_scales,

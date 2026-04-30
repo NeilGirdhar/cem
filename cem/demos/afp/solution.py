@@ -60,10 +60,10 @@ class AFPModel(Model):
         obs_features: Dimension of the observation space.
         endo_purifier: Nonlinear map from observed inputs to purified endogenous latents.
         exo_purifier: Nonlinear map from observed inputs to purified exogenous latents.
-        endo_predictor: Linear map from purified endogenous latents to observation space.
-        exo_predictor: Linear map from purified exogenous latents to observation space.
-        exo_critic: Linear probe detecting alignment between Z_exo_pure and Score.
-        endo_critic: Linear probe detecting alignment between Z_endo_pure and Z_exo_pure.
+        endo_predictor: Log-space map from purified endogenous latents to observation space.
+        exo_predictor: Log-space map from purified exogenous latents to observation space.
+        exo_critic: Log-space probe detecting alignment between Z_exo_pure and Score.
+        endo_critic: Log-space probe detecting alignment between Z_endo_pure and Z_exo_pure.
     """
 
     endo_latent: int = eqx.field(static=True)
@@ -71,8 +71,8 @@ class AFPModel(Model):
     obs_features: int = eqx.field(static=True)
     endo_purifier: phasor.Nonlinear
     exo_purifier: phasor.Nonlinear
-    endo_predictor: phasor.Linear
-    exo_predictor: phasor.Linear
+    endo_predictor: phasor.LogSpaceProjection
+    exo_predictor: phasor.LogSpaceProjection
     exo_critic: phasor.Nonlinear
     endo_critic: phasor.Nonlinear
     _x_flattener: FixedParameter[Flattener[Any]]
@@ -112,8 +112,12 @@ class AFPModel(Model):
             exo_purifier=phasor.Nonlinear.create(
                 encoded_exo_features, exo_latent, num_groups, streams=streams
             ),
-            endo_predictor=phasor.Linear.create(endo_latent, encoded_obs_features, streams=streams),
-            exo_predictor=phasor.Linear.create(exo_latent, encoded_obs_features, streams=streams),
+            endo_predictor=phasor.LogSpaceProjection.create(
+                endo_latent, encoded_obs_features, streams=streams
+            ),
+            exo_predictor=phasor.LogSpaceProjection.create(
+                exo_latent, encoded_obs_features, streams=streams
+            ),
             exo_critic=phasor.Nonlinear.create(
                 exo_latent, encoded_obs_features, num_groups, streams=streams
             ),

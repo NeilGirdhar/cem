@@ -6,24 +6,48 @@ from typing import Self
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
+import numpy as np
 from jax.nn.initializers import variance_scaling
-from tjax import JaxRealArray, RngStream
+from tjax import JaxArray, JaxRealArray, RngStream
 
 from cem.structure.graph import FixedParameter, LearnableParameter
 
-_lecun = variance_scaling(1.0, "fan_in", "truncated_normal")
+_real_lecun = variance_scaling(1.0, "fan_in", "truncated_normal")
+
+# Each real/imaginary component uses Lecun variance (0.5 * 1/fan_in), giving correct
+# complex Lecun initialization when the two components are combined.
+_complex_lecun = variance_scaling(0.5, "fan_in", "truncated_normal")
 
 
-class Linear(eqx.Module):
-    """Real-valued affine transform: x W^T + b.
+def _init_weight(
+    shape: tuple[int, int],
+    *,
+    complex_matrix: bool,
+    stream: RngStream,
+) -> JaxArray:
+    if not complex_matrix:
+        return _real_lecun(stream.key(), shape, jnp.float64)
+    w_re = _complex_lecun(stream.key(), shape, jnp.float64)
+    w_im = _complex_lecun(stream.key(), shape, jnp.float64)
+    return w_re + 1j * w_im
+
+
+def _bias_dtype(*, complex_matrix: bool) -> np.dtype:
+    if complex_matrix:
+        return jnp.complex128
+    return jnp.float64
+
+
+class Affine(eqx.Module):
+    """Affine transform: x W^T + b.
 
     Attributes:
         weight: Weight matrix, shape (out_features, in_features).
         bias: Bias vector, shape (out_features,).
     """
 
-    weight: LearnableParameter[JaxRealArray]
-    bias: LearnableParameter[JaxRealArray]
+    weight: LearnableParameter[JaxArray]
+    bias: LearnableParameter[JaxArray]
 
     @classmethod
     def create(
@@ -31,16 +55,21 @@ class Linear(eqx.Module):
         in_features: int,
         out_features: int,
         *,
+        complex_matrix: bool = False,
         streams: Mapping[str, RngStream],
     ) -> Self:
         stream = streams["parameters"]
-        w = _lecun(stream.key(), (out_features, in_features), jnp.float64)
+        shape = (out_features, in_features)
         return cls(
-            weight=LearnableParameter(w),
-            bias=LearnableParameter(jnp.zeros(out_features, dtype=jnp.float64)),
+            weight=LearnableParameter(
+                _init_weight(shape, complex_matrix=complex_matrix, stream=stream)
+            ),
+            bias=LearnableParameter(
+                jnp.zeros(out_features, dtype=_bias_dtype(complex_matrix=complex_matrix))
+            ),
         )
 
-    def infer(self, x: JaxRealArray) -> JaxRealArray:
+    def infer(self, x: JaxArray) -> JaxArray:
         """Apply affine transform.
 
         Args:
@@ -54,8 +83,8 @@ class Linear(eqx.Module):
         return y + broadcasted_bias
 
 
-class LinearWithDropout(Linear):
-    """Real-valued affine transform with dropout.
+class AffineWithDropout(Affine):
+    """Affine transform with dropout.
 
     Dropout is applied to the output after the affine transform.  Pass ``inference=True``
     to :meth:`infer` to skip it at eval time.
@@ -72,10 +101,13 @@ class LinearWithDropout(Linear):
         in_features: int,
         out_features: int,
         *,
+        complex_matrix: bool = False,
         dropout_rate: float = 0.1,
         streams: Mapping[str, RngStream],
     ) -> Self:
-        base = Linear.create(in_features, out_features, streams=streams)
+        base = Affine.create(
+            in_features, out_features, complex_matrix=complex_matrix, streams=streams
+        )
         return cls(
             weight=base.weight,
             bias=base.bias,
@@ -83,8 +115,8 @@ class LinearWithDropout(Linear):
         )
 
     def infer(  # ty: ignore[invalid-method-override]
-        self, x: JaxRealArray, *, streams: Mapping[str, RngStream], inference: bool
-    ) -> JaxRealArray:
+        self, x: JaxArray, *, streams: Mapping[str, RngStream], inference: bool
+    ) -> JaxArray:
         """Apply affine transform followed by dropout.
 
         Args:
