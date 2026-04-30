@@ -75,13 +75,6 @@ supervised_iris_demo = Demo(
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.perceptron),
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.phasor),
-    ],
-)
-
-supervised_iris_spectral_demo = Demo(
-    name="supervised-iris-spectral",
-    variants=[
-        SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.perceptron),
         SupervisedVariant(
             dataset_kind=DatasetKind.iris,
             link_kind=LinkKind.phasor,
@@ -95,6 +88,10 @@ supervised_synthetic_regression_demo = Demo(
     variants=[
         SupervisedVariant(
             dataset_kind=DatasetKind.synthetic_regression, link_kind=LinkKind.perceptron
+        ),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.synthetic_regression,
+            link_kind=LinkKind.phasor,
         ),
         SupervisedVariant(
             dataset_kind=DatasetKind.synthetic_regression,

@@ -31,7 +31,7 @@ class _SupervisedLossPlotter(PlotterWithSmoothGraph):
         ax.set_xlabel("Episode")
         ax.set_ylabel("Loss")
         ax.set_yscale("log")
-        ax.legend()
+        ax.legend(title="Variant")
 
     def _get_or_create_ax(self, figure: Figure, title: str) -> Axes:
         if axes := figure.get_axes():
@@ -58,5 +58,5 @@ class SupervisedTrainingLossPlotter(_SupervisedLossPlotter):
     ) -> None:
         telemetry = LossTelemetry(selected_node=self.selected_node)
         losses = np.asarray(training_results.telemetries[telemetry], dtype=np.float64)
-        ax = self._get_or_create_ax(figure, "Training")
+        ax = self._get_or_create_ax(figure, self.title)
         self._plot_axis(ax, losses, label=label)
