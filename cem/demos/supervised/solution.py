@@ -14,7 +14,7 @@ from efax import Flattener, UnitVarianceNormalNP
 from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream, frozendict
 
-from cem.perceptron.nonlinear import Nonlinear
+from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.gated_projection import GatedProjection
@@ -64,9 +64,9 @@ class LinkKind(Enum):
 
 
 class PerceptronSupervisedModel(Model):
-    """Supervised model: flat-encoded features → Nonlinear → PerceptronTargetNode."""
+    """Supervised model: flat-encoded features → MLP → PerceptronTargetNode."""
 
-    link: Nonlinear
+    link: MLP
     target: PerceptronTargetNode
 
     @classmethod
@@ -80,7 +80,7 @@ class PerceptronSupervisedModel(Model):
         in_size = sup.n_features
         out_size = sup.n_targets
         return cls(
-            link=Nonlinear.create(in_size, out_size, mid_features=hidden_size, streams=streams),
+            link=MLP.create(in_size, out_size, hidden_features=hidden_size, streams=streams),
             target=PerceptronTargetNode.create(_y_fields(sup.n_targets)),
         )
 
@@ -164,12 +164,12 @@ class PhasorSupervisedModel(Model):
 
 
 class SupervisedSolver(Solver[SupervisedProblem]):
-    """Solver for supervised learning using a single nonlinear link.
+    """Solver for supervised learning using one perceptron or phasor link.
 
     Attributes:
         dataset_kind: Which dataset to use (set by the demo, not optimised).
         link_kind: Whether to use a perceptron or phasor link (set by the demo, not optimised).
-        hidden_size: Hidden dimension of the nonlinear layer.
+        hidden_size: Hidden dimension of the perceptron MLP or phasor gated projection.
         n_frequencies: Number of phasor frequencies (only used when ``link_kind == phasor``).
     """
 

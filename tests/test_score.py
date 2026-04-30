@@ -8,7 +8,6 @@ from efax import Flattener, NormalEP, NormalNP
 from jax import tree
 from tjax import frozendict
 
-from cem.perceptron.nonlinear import LayerNorm
 from cem.perceptron.target_node import PerceptronTargetConfiguration, PerceptronTargetNode
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.loss import (
@@ -275,17 +274,6 @@ def test_perceptron_target_node_partition_round_trip_preserves_behavior() -> Non
     assert isinstance(predicted_d, NormalEP)
     assert isinstance(expected_d, NormalEP)
     assert jnp.allclose(predicted_d.mean, expected_d.mean)
-
-
-def test_layer_norm_partition_round_trip_preserves_eps() -> None:
-    layer_norm = LayerNorm.create(2, eps=1e-3)
-    extracted, remainder = eqx.partition(layer_norm, lambda x: isinstance(x, float))
-    round_tripped = eqx.combine(extracted, remainder)
-
-    assert tree.leaves(extracted) == [1e-3]
-
-    x = jnp.asarray([1.0, 3.0])
-    assert jnp.allclose(round_tripped.infer(x), layer_norm.infer(x))
 
 
 def test_parameter_type_partition_round_trip_preserves_type() -> None:

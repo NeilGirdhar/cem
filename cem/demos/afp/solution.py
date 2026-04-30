@@ -263,7 +263,7 @@ class AFPSolver(Solver[IVProblem]):
         delta: U → Y coefficient (direct confounding).
         endo_latent: Dimension of the endogenous latent space.
         exo_latent: Dimension of the exogenous latent space.
-        num_groups: Number of rivalry groups for the nonlinear layers.
+        num_groups: Number of rivalry groups for the gated projections.
     """
 
     training_examples: int = int_field(default=5000, domain=IntDistribution(1, 1 << 17, log=True))
