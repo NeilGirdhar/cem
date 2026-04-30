@@ -179,7 +179,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     link_kind: LinkKind = eqx.field(static=True)
     use_spectral_loss: bool = eqx.field(default=False, static=True)
     training_examples: int = int_field(
-        default=1000, domain=IntDistribution(1, 1 << 16, log=True), optimize=True
+        default=200, domain=IntDistribution(1, 1 << 16, log=True), optimize=True
     )
     training_batch_size: int = int_field(
         default=32, domain=IntDistribution(1, 1 << 10, log=True), optimize=True
