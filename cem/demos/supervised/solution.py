@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import KW_ONLY
 from enum import Enum
+from functools import cache
 from typing import Any, Self, override
 
 import equinox as eqx
-from efax import Flattener
+import jax.numpy as jnp
+from efax import Flattener, UnitVarianceNormalNP
 from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream, frozendict
 
@@ -27,6 +29,27 @@ from .problem import (
     load_iris,
     load_synthetic_regression,
 )
+
+
+# This has to be a cached function to avoid initializing JAX before training.
+@cache
+def _scalar_prior() -> UnitVarianceNormalNP:
+    return UnitVarianceNormalNP(jnp.zeros(()))
+
+
+def _y_fields(n_targets: int) -> dict[str, UnitVarianceNormalNP]:
+    """One scalar field per target, named 'y' for single-target or 'y_i' for multi."""
+    if n_targets == 1:
+        return {"y": _scalar_prior()}
+    return {f"y_{i}": _scalar_prior() for i in range(n_targets)}
+
+
+def _y_flat_observed(observation_y: JaxRealArray) -> frozendict[str, JaxRealArray]:
+    """Split observation.y (shape (n_targets,)) into per-field flat encodings."""
+    n = observation_y.shape[0]
+    if n == 1:
+        return frozendict({"y": observation_y})
+    return frozendict({f"y_{i}": observation_y[i : i + 1] for i in range(n)})
 
 
 class DatasetKind(Enum):
@@ -59,7 +82,7 @@ class PerceptronSupervisedModel(Model):
             link=perceptron.Nonlinear.create(
                 in_size, out_size, mid_features=hidden_size, streams=streams
             ),
-            target=PerceptronTargetNode.create({"y": sup.y_prior}),
+            target=PerceptronTargetNode.create(_y_fields(sup.n_targets)),
         )
 
     @override
@@ -73,7 +96,7 @@ class PerceptronSupervisedModel(Model):
     ) -> ModelResult:
         assert isinstance(observation, SupervisedProblemState)
         y_hat = self.link.infer(observation.x, streams=streams, inference=inference)
-        config = self.target.infer(frozendict({"y": observation.y}), y_hat)
+        config = self.target.infer(_y_flat_observed(observation.y), y_hat)
         return ModelResult(
             loss=config.total_loss(),
             configurations=frozendict({"target": config}),
@@ -109,7 +132,7 @@ class PhasorSupervisedModel(Model):
                 in_size, out_size, num_groups, mid_features=hidden_size, streams=streams
             ),
             target=PhasorTargetNode.create(
-                {"y": sup.y_prior}, freqs, use_spectral_loss=use_spectral_loss
+                _y_fields(sup.n_targets), freqs, use_spectral_loss=use_spectral_loss
             ),
             _x_flattener=FixedParameter(x_flattener),
             _frequencies=FixedParameter(freqs),
@@ -125,12 +148,15 @@ class PhasorSupervisedModel(Model):
         inference: bool,
     ) -> ModelResult:
         assert isinstance(observation, SupervisedProblemState)
-        n_frequencies = self._frequencies.value.shape[0]
+        # observation.x: (n_features,), flat UnitVarianceNormalNP encodings.
         x_dist = self._x_flattener.value.unflatten(observation.x, return_vector=True)
+        # x_phasor: (n_features * n_frequencies,), raveled input phasors.
         x_phasor = PhasorMessage.from_distribution(x_dist, self._frequencies.value, raveled=True)
+        # z_hat: (n_targets * n_frequencies,), concatenated target phasors.
         z_hat = self.link.infer(x_phasor, streams=streams, inference=inference)
-        z_hat_2d = z_hat.split_frequencies(n_frequencies)
-        config = self.target.infer(frozendict({"y": observation.y}), z_hat_2d)
+        # observation.y: (n_targets,), split into scalar fields; z_hat stays concatenated so
+        # PhasorTargetNode can split it by field_sizes along the last axis.
+        config = self.target.infer(_y_flat_observed(observation.y), z_hat)
         return ModelResult(
             loss=config.total_loss(),
             configurations=frozendict({"target": config}),
