@@ -10,31 +10,27 @@ from tjax import JaxRealArray, RngStream
 from cem.phasor.gate import phasor_gate
 from cem.phasor.log_space_projection import LogSpaceProjection
 from cem.phasor.message import PhasorMessage
-from cem.phasor.rivalry import RivalryNorm
 from cem.structure.graph import FixedParameter
 
 
 class GatedProjection(eqx.Module):
-    """GLU-style nonlinear projection followed by rivalry normalization, with optional dropout.
+    """GLU-style nonlinear projection with optional dropout.
 
-    h(z) = d(r(f3(g(f1(z), f2(z)))))
+    h(z) = d(f3(g(f1(z), f2(z))))
 
-    where f1, f2, f3 are linear links, g is a phasor gate, r is rivalry normalization,
-    and d is an optional final phasor dropout.  Pass ``inference=True`` to :meth:`infer`
-    to skip all dropout at eval time.
+    where f1, f2, f3 are linear links, g is a phasor gate, and d is an optional final phasor
+    dropout.  Pass ``inference=True`` to :meth:`infer` to skip all dropout at eval time.
 
     Attributes:
         f1: Gate signal projection, in_features → mid_features.
         f2: Content projection, in_features → mid_features.
         f3: Output projection, mid_features → out_features.
-        rivalry_norm: Rivalry normalization applied to the output.
-        dropout_rate: Fraction of outputs zeroed after rivalry normalization.  0.0 disables.
+        dropout_rate: Fraction of outputs zeroed after f3.  0.0 disables.
     """
 
     f1: LogSpaceProjection
     f2: LogSpaceProjection
     f3: LogSpaceProjection
-    rivalry_norm: RivalryNorm
     dropout_rate: FixedParameter[JaxRealArray]
 
     @classmethod
@@ -42,7 +38,6 @@ class GatedProjection(eqx.Module):
         cls,
         in_features: int,
         out_features: int,
-        num_groups: int,
         *,
         mid_features: int | None = None,
         dropout_rate: float = 0.0,
@@ -54,14 +49,13 @@ class GatedProjection(eqx.Module):
             f1=LogSpaceProjection.create(in_features, mid_features, streams=streams),
             f2=LogSpaceProjection.create(in_features, mid_features, streams=streams),
             f3=LogSpaceProjection.create(mid_features, out_features, streams=streams),
-            rivalry_norm=RivalryNorm.create(out_features, num_groups, streams=streams),
             dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
         )
 
     def infer(
         self, z: PhasorMessage, *, streams: Mapping[str, RngStream], inference: bool
     ) -> PhasorMessage:
-        """Apply GLU-style nonlinear transform with rivalry normalization and optional dropout.
+        """Apply GLU-style nonlinear transform with optional dropout.
 
         Args:
             z: Input phasors, shape (..., in_features).
@@ -73,7 +67,7 @@ class GatedProjection(eqx.Module):
         """
         data = z.data
         gated = phasor_gate(self.f1.infer(data), self.f2.infer(data))
-        result = PhasorMessage(self.rivalry_norm.infer(self.f3.infer(gated)))
+        result = PhasorMessage(self.f3.infer(gated))
         if inference:
             return result
         return result.dropout(streams["inference"].key(), self.dropout_rate.value)

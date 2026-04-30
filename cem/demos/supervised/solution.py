@@ -124,11 +124,10 @@ class PhasorSupervisedModel(Model):
         freqs = geometric_frequencies(n_frequencies, base=1)
         in_size = sup.n_features * n_frequencies
         out_size = sup.n_targets * n_frequencies
-        num_groups = max(1, out_size // 8)
         x_flattener, _ = Flattener.flatten(sup.x_prior, mapped_to_plane=True)
         return cls(
             link=GatedProjection.create(
-                in_size, out_size, num_groups, mid_features=hidden_size, streams=streams
+                in_size, out_size, mid_features=hidden_size, streams=streams
             ),
             target=PhasorTargetNode.create(
                 _y_fields(sup.n_targets), freqs, use_spectral_loss=use_spectral_loss

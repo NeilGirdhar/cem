@@ -89,7 +89,6 @@ class AFPModel(Model):
         n_frequencies: int,
         endo_latent: int,
         exo_latent: int,
-        num_groups: int,
         streams: Mapping[str, RngStream],
     ) -> Self:
         freqs = geometric_frequencies(n_frequencies, base=1)
@@ -107,23 +106,17 @@ class AFPModel(Model):
             exo_latent=exo_latent,
             obs_features=encoded_obs_features,
             endo_purifier=GatedProjection.create(
-                encoded_endo_features, endo_latent, num_groups, streams=streams
+                encoded_endo_features, endo_latent, streams=streams
             ),
-            exo_purifier=GatedProjection.create(
-                encoded_exo_features, exo_latent, num_groups, streams=streams
-            ),
+            exo_purifier=GatedProjection.create(encoded_exo_features, exo_latent, streams=streams),
             endo_predictor=LogSpaceProjection.create(
                 endo_latent, encoded_obs_features, streams=streams
             ),
             exo_predictor=LogSpaceProjection.create(
                 exo_latent, encoded_obs_features, streams=streams
             ),
-            exo_critic=GatedProjection.create(
-                exo_latent, encoded_obs_features, num_groups, streams=streams
-            ),
-            endo_critic=GatedProjection.create(
-                endo_latent, exo_latent, num_groups, streams=streams
-            ),
+            exo_critic=GatedProjection.create(exo_latent, encoded_obs_features, streams=streams),
+            endo_critic=GatedProjection.create(endo_latent, exo_latent, streams=streams),
             _x_flattener=FixedParameter(x_flattener),
             _y_flattener=FixedParameter(y_flattener),
             _frequencies=FixedParameter(freqs),
@@ -263,7 +256,6 @@ class AFPSolver(Solver[IVProblem]):
         delta: U → Y coefficient (direct confounding).
         endo_latent: Dimension of the endogenous latent space.
         exo_latent: Dimension of the exogenous latent space.
-        num_groups: Number of rivalry groups for the gated projections.
     """
 
     training_examples: int = int_field(default=5000, domain=IntDistribution(1, 1 << 17, log=True))
@@ -276,7 +268,6 @@ class AFPSolver(Solver[IVProblem]):
     delta: float = float_field(default=1.0, domain=FloatDistribution(0.0, 4.0), optimize=False)
     endo_latent: int = int_field(default=4, domain=IntDistribution(1, 16), optimize=True)
     exo_latent: int = int_field(default=4, domain=IntDistribution(1, 16), optimize=True)
-    num_groups: int = int_field(default=2, domain=IntDistribution(1, 8), optimize=True)
     n_frequencies: int = int_field(default=10, domain=IntDistribution(2, 16), optimize=True)
 
     @override
@@ -299,6 +290,5 @@ class AFPSolver(Solver[IVProblem]):
             n_frequencies=self.n_frequencies,
             endo_latent=self.endo_latent,
             exo_latent=self.exo_latent,
-            num_groups=self.num_groups,
             streams=streams,
         )
