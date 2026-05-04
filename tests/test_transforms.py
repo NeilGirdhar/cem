@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import jax.numpy as jnp
-import pytest
 from tjax import RngStream
 
 from cem.phasor import (
@@ -12,8 +11,6 @@ from cem.phasor import (
     LogSpaceProjection,
     LogSpaceProjectionWithDropout,
     PhasorMessage,
-    RivalryGroups,
-    RivalryNorm,
     interpolate,
     phasor_gate,
     rotate_by_location,
@@ -202,55 +199,6 @@ def test_linear_with_dropout_applies_dropout_when_inference_false(
     out_train = f.infer(z, streams=streams, inference=False)
     out_eval = f.infer(z, streams=streams, inference=True)
     assert not jnp.allclose(out_train, out_eval)
-
-
-# ── RivalryGroups ─────────────────────────────────────────────────────────────
-
-
-def test_rivalry_groups_weights_shape(streams: Mapping[str, RngStream]) -> None:
-    assert RivalryGroups.create(8, 4, streams=streams).weights.shape == (4, 8)
-
-
-def test_rivalry_groups_weights_sum_to_one_columnwise(streams: Mapping[str, RngStream]) -> None:
-    g = RivalryGroups.create(8, 4, streams=streams)
-    assert jnp.allclose(g.weights.sum(axis=0), jnp.ones(8))
-
-
-def test_rivalry_groups_weights_nonnegative(streams: Mapping[str, RngStream]) -> None:
-    assert jnp.all(RivalryGroups.create(8, 4, streams=streams).weights >= 0)
-
-
-# ── RivalryNorm ───────────────────────────────────────────────────────────────
-
-
-@pytest.fixture
-def rivalry_norm(streams: Mapping[str, RngStream]) -> RivalryNorm:
-    return RivalryNorm.create(6, 3, streams=streams)
-
-
-@pytest.fixture
-def rivalry_z() -> jnp.ndarray:
-    return jnp.array([1 + 1j, 2 - 1j, 0.5 + 0.5j, -1 + 0j, 0.3 - 0.7j, 1 + 0j])
-
-
-def test_rivalry_norm_output_shape(rivalry_norm: RivalryNorm, rivalry_z: jnp.ndarray) -> None:
-    assert rivalry_norm.infer(rivalry_z).shape == (6,)
-
-
-def test_rivalry_norm_preserves_phase(rivalry_norm: RivalryNorm, rivalry_z: jnp.ndarray) -> None:
-    out = rivalry_norm.infer(rivalry_z)
-    assert jnp.allclose(jnp.angle(out), jnp.angle(rivalry_z), atol=1e-6)
-
-
-def test_rivalry_norm_gauge_invariance(rivalry_norm: RivalryNorm, rivalry_z: jnp.ndarray) -> None:
-    # Scaling all presences by a constant c leaves normalized presences unchanged.
-    out1 = rivalry_norm.infer(rivalry_z)
-    out2 = rivalry_norm.infer(10.0 * rivalry_z)
-    assert jnp.allclose(jnp.abs(out1), jnp.abs(out2), rtol=1e-5)
-
-
-def test_rivalry_norm_batched_shape(rivalry_norm: RivalryNorm) -> None:
-    assert rivalry_norm.infer(jnp.ones((3, 6), dtype=jnp.complex128)).shape == (3, 6)
 
 
 # ── GatedProjection ───────────────────────────────────────────────────────────
