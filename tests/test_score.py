@@ -15,7 +15,7 @@ from cem.phasor.loss import (
     spectral_reconstruction_loss,
     spectral_reconstruction_loss_and_score,
 )
-from cem.phasor.message import PhasorMessage
+from cem.phasor.message import JaxComplexArray, phasor_from_distribution
 from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
 from cem.structure.graph import LearnableParameter, ParameterType
 
@@ -37,7 +37,7 @@ def target_node(freqs: jnp.ndarray) -> PhasorTargetNode:
 def infer_target_node(
     target_node: PhasorTargetNode,
     observed: dict[str, UnitVarianceNormalNP],
-    predicted: dict[str, PhasorMessage],
+    predicted: dict[str, JaxComplexArray],
 ) -> PhasorTargetConfiguration:
     flat_observed = frozendict(
         {
@@ -45,9 +45,7 @@ def infer_target_node(
             for field, dist in observed.items()
         }
     )
-    z_hat_combined = PhasorMessage(
-        jnp.concatenate([predicted[f].data for f in target_node.field_sizes], axis=-1)
-    )
+    z_hat_combined = jnp.concatenate([predicted[f] for f in target_node.field_sizes], axis=-1)
     return target_node.infer(flat_observed, z_hat_combined)
 
 
@@ -55,71 +53,69 @@ def infer_target_node(
 
 
 def test_reconstruction_loss_and_score_returns_loss_and_score() -> None:
-    z = PhasorMessage(jnp.array([1 + 0j, 0 + 1j]))
+    z = jnp.array([1 + 0j, 0 + 1j])
     assert isinstance(spectral_reconstruction_loss_and_score(z, z), LossAndScore)
 
 
-def test_reconstruction_loss_and_score_score_is_phasor_message() -> None:
-    z = PhasorMessage(jnp.array([1 + 0j, 0.5 - 0.5j]))
-    z_hat = PhasorMessage(jnp.array([0.5 + 0.5j, 1 + 0j]))
-    assert isinstance(spectral_reconstruction_loss_and_score(z, z_hat).score, PhasorMessage)
+def test_reconstruction_loss_and_score_score_is_array() -> None:
+    z = jnp.array([1 + 0j, 0.5 - 0.5j])
+    z_hat = jnp.array([0.5 + 0.5j, 1 + 0j])
+    assert spectral_reconstruction_loss_and_score(z, z_hat).score.shape == z_hat.shape
 
 
 def test_reconstruction_loss_and_score_score_shape() -> None:
-    z = PhasorMessage(jnp.array([1 + 0j, 0.5 - 0.5j, -1 + 0j]))
-    z_hat = PhasorMessage(jnp.array([0.5 + 0.5j, 1 + 0j, 0 + 1j]))
+    z = jnp.array([1 + 0j, 0.5 - 0.5j, -1 + 0j])
+    z_hat = jnp.array([0.5 + 0.5j, 1 + 0j, 0 + 1j])
     out = spectral_reconstruction_loss_and_score(z, z_hat)
-    assert out.score.data.shape == z_hat.data.shape
+    assert out.score.shape == z_hat.shape
 
 
 def test_reconstruction_loss_and_score_loss_shape() -> None:
-    z = PhasorMessage(jnp.array([1 + 0j, 0.5 - 0.5j]))
-    z_hat = PhasorMessage(jnp.array([0.5 + 0.5j, 1 + 0j]))
+    z = jnp.array([1 + 0j, 0.5 - 0.5j])
+    z_hat = jnp.array([0.5 + 0.5j, 1 + 0j])
     out = spectral_reconstruction_loss_and_score(z, z_hat)
-    assert out.loss.shape == z_hat.data.shape
+    assert out.loss.shape == z_hat.shape
 
 
 def test_reconstruction_loss_and_score_loss_matches_reconstruction_loss() -> None:
-    observed = PhasorMessage(jnp.array([1 + 0j, 0.5 + 0.5j]))
-    z_hat = PhasorMessage(jnp.array([0.8 + 0.2j, 0.3 - 0.3j]))
+    observed = jnp.array([1 + 0j, 0.5 + 0.5j])
+    z_hat = jnp.array([0.8 + 0.2j, 0.3 - 0.3j])
     out = spectral_reconstruction_loss_and_score(observed, z_hat)
-    assert jnp.allclose(out.loss, spectral_reconstruction_loss(observed.data, z_hat.data))
+    assert jnp.allclose(out.loss, spectral_reconstruction_loss(observed, z_hat))
 
 
 def test_reconstruction_loss_and_score_total_loss_is_scalar() -> None:
-    z = PhasorMessage(jnp.array([1 + 0j, 0 + 1j, 0.5 + 0.5j]))
+    z = jnp.array([1 + 0j, 0 + 1j, 0.5 + 0.5j])
     assert spectral_reconstruction_loss_and_score(z, z).total_loss().shape == ()
 
 
 def test_reconstruction_loss_and_score_total_loss_is_sum_of_loss() -> None:
-    observed = PhasorMessage(jnp.array([1 + 0j, 0.5 + 0.5j]))
-    z_hat = PhasorMessage(jnp.array([0.8 + 0.2j, 0.3 - 0.3j]))
+    observed = jnp.array([1 + 0j, 0.5 + 0.5j])
+    z_hat = jnp.array([0.8 + 0.2j, 0.3 - 0.3j])
     out = spectral_reconstruction_loss_and_score(observed, z_hat)
     assert jnp.allclose(out.total_loss(), jnp.sum(out.loss))
 
 
 def test_reconstruction_loss_and_score_self_score_is_zero() -> None:
     # At the minimum z_hat = observed, the gradient of the loss is zero.
-    z = PhasorMessage(jnp.array([1 + 0j, 0 + 1j, 0.5 - 0.5j]))
-    assert jnp.allclose(spectral_reconstruction_loss_and_score(z, z).score.data, 0.0, atol=1e-6)
+    z = jnp.array([1 + 0j, 0 + 1j, 0.5 - 0.5j])
+    assert jnp.allclose(spectral_reconstruction_loss_and_score(z, z).score, 0.0, atol=1e-6)
 
 
 def test_reconstruction_loss_and_score_score_equals_gradient() -> None:
-    # score.data must equal jax.grad of the summed reconstruction loss w.r.t. z_hat.
-    observed = PhasorMessage(jnp.array([1 + 0j, 0.5 + 0.5j]))
-    z_hat = PhasorMessage(jnp.array([0.8 + 0.2j, 0.3 - 0.3j]))
+    # score must equal jax.grad of the summed reconstruction loss w.r.t. z_hat.
+    observed = jnp.array([1 + 0j, 0.5 + 0.5j])
+    z_hat = jnp.array([0.8 + 0.2j, 0.3 - 0.3j])
     out = spectral_reconstruction_loss_and_score(observed, z_hat)
-    expected = jax.grad(lambda z: jnp.sum(spectral_reconstruction_loss(observed.data, z.data)))(
-        z_hat
-    )
-    assert jnp.allclose(out.score.data, expected.data)
+    expected = jax.grad(lambda z: jnp.sum(spectral_reconstruction_loss(observed, z)))(z_hat)
+    assert jnp.allclose(out.score, expected)
 
 
 def test_reconstruction_loss_and_score_batched_shapes() -> None:
-    observed = PhasorMessage(jnp.ones((3, 4), dtype=jnp.complex128))
-    z_hat = PhasorMessage(jnp.ones((3, 4), dtype=jnp.complex128) * (0.5 + 0.5j))
+    observed = jnp.ones((3, 4), dtype=jnp.complex128)
+    z_hat = jnp.ones((3, 4), dtype=jnp.complex128) * (0.5 + 0.5j)
     out = spectral_reconstruction_loss_and_score(observed, z_hat)
-    assert out.score.data.shape == (3, 4)
+    assert out.score.shape == (3, 4)
     assert out.loss.shape == (3, 4)
     assert out.total_loss().shape == ()
 
@@ -159,11 +155,11 @@ def test_phasor_target_configuration_total_loss_is_zero(
     target_node: PhasorTargetNode, freqs: jnp.ndarray
 ) -> None:
     dist = UnitVarianceNormalNP(jnp.array(0.5))
-    phasor = PhasorMessage.from_distribution(dist, freqs)
+    phasor = phasor_from_distribution(dist, freqs)
     config = PhasorTargetConfiguration(
         values=frozendict({"obs": phasor}),
         observed_distributions=frozendict({"obs": dist.to_exp()}),
-        score=phasor.zeros_like(),
+        score=jnp.zeros_like(phasor),
         spectral_loss=frozendict({"obs": jnp.zeros(phasor.shape)}),
         loss=frozendict({"obs": jnp.zeros(phasor.shape)}),
         predicted_distributions=frozendict({"obs": dist.to_exp()}),
@@ -174,18 +170,17 @@ def test_phasor_target_configuration_total_loss_is_zero(
 def test_phasor_target_node_returns_configuration(
     target_node: PhasorTargetNode, freqs: jnp.ndarray
 ) -> None:
-    z_hat = PhasorMessage.from_distribution(_PRIOR, freqs)
+    z_hat = phasor_from_distribution(_PRIOR, freqs)
     out = infer_target_node(target_node, {"obs": _PRIOR}, {"obs": z_hat})
     assert isinstance(out, PhasorTargetConfiguration)
 
 
-def test_phasor_target_node_score_is_phasor_message(
+def test_phasor_target_node_score_is_array(
     target_node: PhasorTargetNode, freqs: jnp.ndarray
 ) -> None:
-    z_hat = PhasorMessage.from_distribution(_PRIOR, freqs)
+    z_hat = phasor_from_distribution(_PRIOR, freqs)
     out = infer_target_node(target_node, {"obs": _PRIOR}, {"obs": z_hat})
-    assert isinstance(out.score, PhasorMessage)
-    assert out.score.data.shape == z_hat.data.shape
+    assert out.score.shape == z_hat.shape
 
 
 def test_phasor_target_node_predicted_distribution_recovers_mean(
@@ -193,7 +188,7 @@ def test_phasor_target_node_predicted_distribution_recovers_mean(
 ) -> None:
     mu = 0.5
     dist = UnitVarianceNormalNP(jnp.array(mu))
-    z_hat = PhasorMessage.from_distribution(dist, freqs)
+    z_hat = phasor_from_distribution(dist, freqs)
     out = infer_target_node(target_node, {"obs": dist}, {"obs": z_hat})
     assert jnp.allclose(out.predicted_distributions["obs"].mean, jnp.array(mu), atol=1e-4)  # ty: ignore[unresolved-attribute]
 
@@ -214,8 +209,8 @@ def test_phasor_target_node_total_loss_is_sum_of_field_losses(
         node,
         {"x": x_dist, "y": y_dist},
         {
-            "x": PhasorMessage.from_distribution(x_dist, freqs),
-            "y": PhasorMessage.from_distribution(y_dist, freqs),
+            "x": phasor_from_distribution(x_dist, freqs),
+            "y": phasor_from_distribution(y_dist, freqs),
         },
     )
     assert jnp.allclose(out.total_loss(), jnp.sum(out.loss["x"]) + jnp.sum(out.loss["y"]))
@@ -231,8 +226,8 @@ def test_phasor_target_node_multi_field_score_is_joined_on_last_dimension(
         },
         freqs,
     )
-    x_phasor = PhasorMessage.from_distribution(UnitVarianceNormalNP(jnp.array(0.1)), freqs)
-    y_phasor = PhasorMessage.from_distribution(UnitVarianceNormalNP(jnp.array(0.7)), freqs)
+    x_phasor = phasor_from_distribution(UnitVarianceNormalNP(jnp.array(0.1)), freqs)
+    y_phasor = phasor_from_distribution(UnitVarianceNormalNP(jnp.array(0.7)), freqs)
     out = infer_target_node(
         node,
         {
@@ -241,7 +236,7 @@ def test_phasor_target_node_multi_field_score_is_joined_on_last_dimension(
         },
         {"x": x_phasor, "y": y_phasor},
     )
-    assert out.score.data.shape == (x_phasor.data.shape[-1] + y_phasor.data.shape[-1],)
+    assert out.score.shape == (x_phasor.shape[-1] + y_phasor.shape[-1],)
 
 
 def infer_perceptron_target_node(

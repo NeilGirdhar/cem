@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from efax import ComplexVonMisesNP
 from tjax import JaxArray
 
-from cem.phasor.message import PhasorMessage
+from cem.phasor.message import JaxComplexArray
 
 
 class LossAndScore(eqx.Module):
@@ -18,7 +18,7 @@ class LossAndScore(eqx.Module):
     """
 
     loss: JaxArray
-    score: PhasorMessage
+    score: JaxComplexArray
 
     def total_loss(self) -> JaxArray:
         """Return the summed scalar spectral reconstruction loss."""
@@ -26,7 +26,7 @@ class LossAndScore(eqx.Module):
 
 
 def spectral_reconstruction_loss_and_score(
-    observed: PhasorMessage, z_hat: PhasorMessage
+    observed: JaxComplexArray, z_hat: JaxComplexArray
 ) -> LossAndScore:
     """Compute spectral reconstruction loss and score jointly for a latent variable.
 
@@ -42,8 +42,8 @@ def spectral_reconstruction_loss_and_score(
         LossAndScore with per-element von Mises cross-entropy and score ∂loss/∂ẑ.
     """
 
-    def loss_fn(z: PhasorMessage) -> tuple[JaxArray, JaxArray]:
-        losses = spectral_reconstruction_loss(observed.data, z.data)
+    def loss_fn(z: JaxComplexArray) -> tuple[JaxArray, JaxArray]:
+        losses = spectral_reconstruction_loss(observed, z)
         return jnp.sum(losses), losses
 
     (_, losses), score = jax.value_and_grad(loss_fn, has_aux=True)(z_hat)

@@ -10,7 +10,6 @@ from cem.phasor import (
     GatedProjection,
     LogSpaceProjection,
     LogSpaceProjectionWithDropout,
-    PhasorMessage,
     interpolate,
     phasor_gate,
     rotate_by_location,
@@ -206,17 +205,13 @@ def test_linear_with_dropout_applies_dropout_when_inference_false(
 
 def test_gated_projection_output_shape(streams: Mapping[str, RngStream]) -> None:
     f = GatedProjection.create(4, 6, streams=streams)
-    assert f.infer(
-        PhasorMessage(jnp.ones(4, dtype=jnp.complex128)), streams=streams, inference=True
-    ).shape == (6,)
+    assert f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams, inference=True).shape == (6,)
 
 
 def test_gated_projection_output_dtype(streams: Mapping[str, RngStream]) -> None:
     f = GatedProjection.create(4, 6, streams=streams)
     assert (
-        f.infer(
-            PhasorMessage(jnp.ones(4, dtype=jnp.complex128)), streams=streams, inference=True
-        ).data.dtype
+        f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams, inference=True).dtype
         == jnp.complex128
     )
 
@@ -224,15 +219,13 @@ def test_gated_projection_output_dtype(streams: Mapping[str, RngStream]) -> None
 def test_gated_projection_batched_shape(streams: Mapping[str, RngStream]) -> None:
     f = GatedProjection.create(4, 6, streams=streams)
     assert f.infer(
-        PhasorMessage(jnp.ones((5, 4), dtype=jnp.complex128)), streams=streams, inference=True
+        jnp.ones((5, 4), dtype=jnp.complex128), streams=streams, inference=True
     ).shape == (5, 6)
 
 
 def test_gated_projection_custom_mid_features(streams: Mapping[str, RngStream]) -> None:
     f = GatedProjection.create(4, 6, mid_features=8, streams=streams)
-    assert f.infer(
-        PhasorMessage(jnp.ones(4, dtype=jnp.complex128)), streams=streams, inference=True
-    ).shape == (6,)
+    assert f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams, inference=True).shape == (6,)
 
 
 # ── select ────────────────────────────────────────────────────────────────────

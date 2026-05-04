@@ -9,7 +9,7 @@ from tjax import JaxRealArray, RngStream
 
 from cem.phasor.gate import phasor_gate
 from cem.phasor.log_space_projection import LogSpaceProjection
-from cem.phasor.message import PhasorMessage
+from cem.phasor.message import JaxComplexArray, phasor_dropout
 from cem.structure.graph import FixedParameter
 
 
@@ -53,8 +53,8 @@ class GatedProjection(eqx.Module):
         )
 
     def infer(
-        self, z: PhasorMessage, *, streams: Mapping[str, RngStream], inference: bool
-    ) -> PhasorMessage:
+        self, z: JaxComplexArray, *, streams: Mapping[str, RngStream], inference: bool
+    ) -> JaxComplexArray:
         """Apply GLU-style nonlinear transform with optional dropout.
 
         Args:
@@ -65,9 +65,8 @@ class GatedProjection(eqx.Module):
         Returns:
             Output phasors, shape (..., out_features).
         """
-        data = z.data
-        gated = phasor_gate(self.f1.infer(data), self.f2.infer(data))
-        result = PhasorMessage(self.f3.infer(gated))
+        gated = phasor_gate(self.f1.infer(z), self.f2.infer(z))
+        result = self.f3.infer(gated)
         if inference:
             return result
-        return result.dropout(streams["inference"].key(), self.dropout_rate.value)
+        return phasor_dropout(result, streams["inference"].key(), self.dropout_rate.value)

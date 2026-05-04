@@ -11,12 +11,12 @@ def make_frequency_grid[NP: NaturalParametrization[Any, Any]](
     flattener: Flattener[NP],
     frequencies: JaxRealArray,
 ) -> NP:
-    """Build the frequency grid ``t`` used by ``PhasorMessage.to_distribution``.
+    """Build the frequency grid ``t`` used by ``phasor_to_distribution``.
 
     Constructs a NaturalParametrization of shape ``(m * d,)`` where element ``j * d + k``
     equals ``frequencies[j] * e_k`` — the k-th standard basis vector scaled by the j-th
     frequency.  This is the ``t`` argument expected by
-    :meth:`~cem.phasor.message.PhasorMessage.to_distribution`.
+    :func:`~cem.phasor.message.phasor_to_distribution`.
 
     Args:
         flattener: Flattener for the distribution family, with ``mapped_to_plane=False``.

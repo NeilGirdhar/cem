@@ -15,7 +15,7 @@ from tjax import JaxArray, JaxRealArray, RngStream, frozendict
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.gated_projection import GatedProjection
 from cem.phasor.loss import decorrelation_loss, spectral_reconstruction_loss_and_score
-from cem.phasor.message import PhasorMessage
+from cem.phasor.message import phasor_from_distribution
 from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration
 from cem.structure.problem import DataSource, Problem
@@ -152,17 +152,15 @@ class AFPModel(Model):
         """
         sg_target = jax.lax.stop_gradient(target)
         purifier_loss = decorrelation_loss(
-            jax.lax.stop_gradient(critic)
-            .infer(PhasorMessage(z_pure), streams=streams, inference=inference)
-            .data,
+            jax.lax.stop_gradient(critic).infer(z_pure, streams=streams, inference=inference),
             sg_target,
         )
         critic_loss = -decorrelation_loss(
             critic.infer(
-                PhasorMessage(jax.lax.stop_gradient(z_pure)),
+                jax.lax.stop_gradient(z_pure),
                 streams=streams,
                 inference=inference,
-            ).data,
+            ),
             sg_target,
         )
         return jnp.mean(purifier_loss) + jnp.mean(critic_loss)
@@ -182,18 +180,12 @@ class AFPModel(Model):
         # evaluate their characteristic phasors on the configured frequency basis.
         x_dist = self._x_flattener.value.unflatten(observation.x, return_vector=True)
         y_dist = self._y_flattener.value.unflatten(observation.y, return_vector=True)
-        z_input = PhasorMessage.from_distribution(
-            x_dist, self._frequencies.value, raveled=True
-        ).data
-        z_obs = PhasorMessage.from_distribution(y_dist, self._frequencies.value, raveled=True).data
+        z_input = phasor_from_distribution(x_dist, self._frequencies.value, raveled=True)
+        z_obs = phasor_from_distribution(y_dist, self._frequencies.value, raveled=True)
 
         # Purify: map inputs to latent representations.
-        z_endo_pure = self.endo_purifier.infer(
-            PhasorMessage(z_input), streams=streams, inference=inference
-        ).data
-        z_exo_pure = self.exo_purifier.infer(
-            PhasorMessage(z_input), streams=streams, inference=inference
-        ).data
+        z_endo_pure = self.endo_purifier.infer(z_input, streams=streams, inference=inference)
+        z_exo_pure = self.exo_purifier.infer(z_input, streams=streams, inference=inference)
 
         # Predict: reconstruct the observation from both pathways.
         z_endo_hat = self.endo_predictor.infer(z_endo_pure, streams=streams, inference=inference)
@@ -201,26 +193,20 @@ class AFPModel(Model):
         z_hat = z_endo_hat + z_exo_hat
 
         # Reconstruction loss and score (∂loss/∂ẑ).
-        loss_and_score = spectral_reconstruction_loss_and_score(
-            PhasorMessage(z_obs), PhasorMessage(z_hat)
-        )
+        loss_and_score = spectral_reconstruction_loss_and_score(z_obs, z_hat)
         recon_loss = loss_and_score.loss
-        s = loss_and_score.score.data
+        s = loss_and_score.score
 
         # Monitoring losses (stop_gradient so they don't affect training).
         exo_loss: JaxArray = jax.lax.stop_gradient(
             decorrelation_loss(
-                self.exo_critic.infer(
-                    PhasorMessage(z_exo_pure), streams=streams, inference=inference
-                ).data,
+                self.exo_critic.infer(z_exo_pure, streams=streams, inference=inference),
                 jax.lax.stop_gradient(s),
             )
         )
         endo_loss: JaxArray = jax.lax.stop_gradient(
             decorrelation_loss(
-                self.endo_critic.infer(
-                    PhasorMessage(z_endo_pure), streams=streams, inference=inference
-                ).data,
+                self.endo_critic.infer(z_endo_pure, streams=streams, inference=inference),
                 jax.lax.stop_gradient(z_exo_pure),
             )
         )

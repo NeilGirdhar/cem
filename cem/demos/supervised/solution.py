@@ -18,7 +18,7 @@ from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.gated_projection import GatedProjection
-from cem.phasor.message import PhasorMessage
+from cem.phasor.message import phasor_from_distribution
 from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.problem import DataSource, Problem
@@ -146,7 +146,7 @@ class PhasorSupervisedModel(Model):
         # observation.x: (n_features,), flat UnitVarianceNormalNP encodings.
         x_dist = self._x_flattener.value.unflatten(observation.x, return_vector=True)
         # x_phasor: (n_features * n_frequencies,), raveled input phasors.
-        x_phasor = PhasorMessage.from_distribution(x_dist, self._frequencies.value, raveled=True)
+        x_phasor = phasor_from_distribution(x_dist, self._frequencies.value, raveled=True)
         # z_hat: (n_targets * n_frequencies,), concatenated target phasors.
         z_hat = self.link.infer(x_phasor, streams=streams, inference=inference)
         # observation.y: (n_targets,), split into scalar fields; z_hat stays concatenated so

@@ -11,7 +11,7 @@ from tjax import JaxArray, JaxRealArray, copy_cotangent, frozendict
 from cem.phasor.frequency import make_frequency_grid
 from cem.phasor.input_node import PhasorInputConfiguration
 from cem.phasor.loss import spectral_reconstruction_loss_and_score
-from cem.phasor.message import PhasorMessage
+from cem.phasor.message import JaxComplexArray, phasor_from_distribution, phasor_to_distribution
 from cem.structure.graph import FixedParameter
 from cem.structure.graph.node import TargetConfiguration, TargetNode
 
@@ -19,7 +19,7 @@ from cem.structure.graph.node import TargetConfiguration, TargetNode
 class PhasorTargetConfiguration(PhasorInputConfiguration, TargetConfiguration):
     """Scored phasor targets, keyed by field name."""
 
-    score: PhasorMessage
+    score: JaxComplexArray
     spectral_loss: frozendict[str, JaxArray]
 
     def total_spectral_loss(self) -> JaxArray:
@@ -39,7 +39,7 @@ class PhasorTargetNode(TargetNode):
         field_sizes: Per-field phasor dimension ``m * d``, used to split the incoming
             concatenated prediction.
         frequencies: Geometric frequency grid forwarded to
-            :meth:`~cem.phasor.message.PhasorMessage.from_distribution`.
+            :func:`~cem.phasor.message.phasor_from_distribution`.
     """
 
     frequency_grids: FixedParameter[frozendict[str, NaturalParametrization[Any, Any]]]
@@ -64,14 +64,14 @@ class PhasorTargetNode(TargetNode):
         assert len(field_defaults) > 0, "PhasorTargetNode requires at least one field"
         assert frequencies.ndim == 1
         flatteners_param, _ = cls._build_flatteners(field_defaults)
-        phasor_defaults: dict[str, PhasorMessage] = {}
+        phasor_defaults: dict[str, JaxComplexArray] = {}
         frequency_grids: dict[str, NaturalParametrization[Any, Any]] = {}
         for field_name, dist in field_defaults.items():
-            phasor_defaults[field_name] = PhasorMessage.from_distribution(dist, frequencies)
+            phasor_defaults[field_name] = phasor_from_distribution(dist, frequencies)
             nat_flattener, _ = Flattener.flatten(dist, mapped_to_plane=False)
             frequency_grids[field_name] = make_frequency_grid(nat_flattener, frequencies)
         field_sizes = frozendict(
-            {field: phasor.data.shape[-1] for field, phasor in phasor_defaults.items()}
+            {field: phasor.shape[-1] for field, phasor in phasor_defaults.items()}
         )
         return cls(
             _flatteners=flatteners_param,
@@ -83,7 +83,7 @@ class PhasorTargetNode(TargetNode):
     def infer(
         self,
         flat_observed: frozendict[str, JaxRealArray],
-        prediction: PhasorMessage,
+        prediction: JaxComplexArray,
     ) -> PhasorTargetConfiguration:
         """Compute reconstruction loss between observations and a predicted phasor.
 
@@ -96,26 +96,25 @@ class PhasorTargetNode(TargetNode):
             A :class:`PhasorTargetConfiguration` with per-field losses, scores, and
             distributions.
         """
-        phasors: dict[str, PhasorMessage] = {}
-        scores: list[PhasorMessage] = []
+        phasors: dict[str, JaxComplexArray] = {}
+        scores: list[JaxComplexArray] = []
         losses: dict[str, JaxArray] = {}
         spectral_losses: dict[str, JaxArray] = {}
         observed_distributions: dict[str, ExpectationParametrization] = {}
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
-        field_values = self._split_by_field_sizes(prediction.data, self.field_sizes)
-        field_phasors = {f: PhasorMessage(p) for f, p in field_values.items()}
+        field_phasors = self._split_by_field_sizes(prediction, self.field_sizes)
 
         for field_name, z_hat in field_phasors.items():
             grid = self.frequency_grids.value[field_name]
             observed_np = self._unflatten_observed(field_name, flat_observed[field_name])
-            obs_phasor = PhasorMessage.from_distribution(observed_np, self.frequencies.value)
+            obs_phasor = phasor_from_distribution(observed_np, self.frequencies.value)
             phasors[field_name] = obs_phasor
             observed_exp = observed_np.to_exp()
             assert isinstance(observed_exp, HasEntropyEP)
 
             spectral = spectral_reconstruction_loss_and_score(obs_phasor, z_hat)
-            predicted_exp = z_hat.to_distribution(grid)
+            predicted_exp = phasor_to_distribution(z_hat, grid)
             assert isinstance(predicted_exp, type(observed_exp))
 
             observed_distributions[field_name] = observed_exp
@@ -135,6 +134,6 @@ class PhasorTargetNode(TargetNode):
             loss=frozendict(losses),
             spectral_loss=frozendict(spectral_losses),
             observed_distributions=frozendict(observed_distributions),
-            score=PhasorMessage(jnp.concatenate([s.data for s in scores], axis=-1)),
+            score=jnp.concatenate(scores, axis=-1),
             predicted_distributions=frozendict(predicted_distributions),
         )

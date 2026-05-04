@@ -41,7 +41,7 @@ def test_phasor_supervised_multi_target_infer_splits_target_fields(
     assert isinstance(config, PhasorTargetConfiguration)
 
     assert tuple(config.loss) == ("y_0", "y_1")
-    assert config.score.data.shape == (problem.n_targets * 10,)
+    assert config.score.shape == (problem.n_targets * 10,)
     assert jnp.isfinite(result.loss)
 
 
