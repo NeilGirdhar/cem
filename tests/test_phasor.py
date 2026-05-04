@@ -13,15 +13,9 @@ from cem.phasor.message import (
     phasor_concordance,
     phasor_dropout,
     phasor_from_distribution,
-    phasor_from_polar,
-    phasor_presence,
     phasor_to_conjugate_prior,
     phasor_to_distribution,
     phasor_to_real,
-    phasor_value,
-    rotate_phasors,
-    scale_phasors,
-    zero_phasors,
 )
 
 # ── from_distribution / to_distribution / to_conjugate_prior ─────────────────
@@ -62,7 +56,7 @@ def test_from_distribution_unit_magnitude_for_point_mass() -> None:
     dist = NormalNP(jnp.array(1e6), jnp.array(-1e6))  # huge precision → near point mass
     freqs = geometric_frequencies(4)
     p = phasor_from_distribution(dist, freqs)
-    assert jnp.all(phasor_presence(p) <= 1.0 + 1e-6)
+    assert jnp.all(jnp.abs(p) <= 1.0 + 1e-6)
 
 
 def test_from_distribution_presences_scales_magnitude() -> None:
@@ -71,8 +65,8 @@ def test_from_distribution_presences_scales_magnitude() -> None:
     presence = 2.0
     z_scaled = phasor_from_distribution(dist, freqs, presences=jnp.array(presence))
     z_base = phasor_from_distribution(dist, freqs)
-    assert jnp.allclose(phasor_presence(z_scaled), phasor_presence(z_base) * presence)
-    assert jnp.allclose(phasor_value(z_scaled), phasor_value(z_base), atol=1e-7)
+    assert jnp.allclose(jnp.abs(z_scaled), jnp.abs(z_base) * presence)
+    assert jnp.allclose(jnp.angle(z_scaled), jnp.angle(z_base), atol=1e-7)
 
 
 def test_to_distribution_recovers_normal_mean() -> None:
@@ -102,49 +96,12 @@ def test_to_conjugate_prior_recovers_mean_and_presence() -> None:
         assert jnp.allclose(a, b, atol=1e-4)
 
 
-# ── construction ──────────────────────────────────────────────────────────────
-
-
-def test_zeros_shape() -> None:
-    assert zero_phasors(5).shape == (5,)
-
-
-def test_from_polar_roundtrip() -> None:
-    presence = jnp.array([1.0, 2.0, 0.5])
-    value = jnp.array([0.0, jnp.pi / 2, -jnp.pi / 3])
-    p = phasor_from_polar(presence, value)
-    assert jnp.allclose(phasor_presence(p), presence)
-    assert jnp.allclose(phasor_value(p), value, atol=1e-7)
-
-
-# ── scaled ────────────────────────────────────────────────────────────────────
-
-
-def test_scaled_adjusts_presence_preserves_phase() -> None:
-    p = jnp.array([1 + 1j, 0 + 2j, -1 + 0j])
-    factor = jnp.array([3.0, 0.5, 2.0])
-    scaled = scale_phasors(p, factor)
-    assert jnp.allclose(phasor_presence(scaled), phasor_presence(p) * factor)
-    assert jnp.allclose(phasor_value(scaled), phasor_value(p), atol=1e-7)
-
-
-# ── rotated ───────────────────────────────────────────────────────────────────
-
-
-def test_rotated_unit_preserves_presence_shifts_phase() -> None:
-    p = jnp.array([2 + 0j])  # phase = 0, presence = 2
-    rotation = jnp.array([jnp.exp(0.5j)])
-    out = rotate_phasors(p, rotation)
-    assert jnp.allclose(phasor_presence(out), phasor_presence(p), atol=1e-7)
-    assert jnp.allclose(phasor_value(out), jnp.array([0.5]), atol=1e-7)
-
-
 # ── concordance ───────────────────────────────────────────────────────────────
 
 
 def test_concordance_with_self_is_squared_presence() -> None:
     p = jnp.array([3 + 4j, 1 + 0j, 0 + 2j])
-    assert jnp.allclose(phasor_concordance(p, p), phasor_presence(p) ** 2)
+    assert jnp.allclose(phasor_concordance(p, p), jnp.abs(p) ** 2)
 
 
 def test_concordance_orthogonal_is_zero_antiphase_is_negative() -> None:
@@ -192,8 +149,8 @@ def test_encode_scalar_presence_and_phase() -> None:
     x, weight = 0.3, 2.5
     p = encode_scalar_phasors(jnp.array(x), jnp.array(weight), freqs)
     expected_phases = (x * freqs + jnp.pi) % (2 * jnp.pi) - jnp.pi
-    assert jnp.allclose(phasor_presence(p), jnp.full(4, weight))
-    assert jnp.allclose(phasor_value(p), expected_phases, atol=1e-6)
+    assert jnp.allclose(jnp.abs(p), jnp.full(4, weight))
+    assert jnp.allclose(jnp.angle(p), expected_phases, atol=1e-6)
 
 
 # ── geometric_frequencies ─────────────────────────────────────────────────────

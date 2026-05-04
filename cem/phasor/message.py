@@ -27,21 +27,6 @@ def has_single_scalar_parameter(p: Distribution) -> bool:
     )
 
 
-def phasor_presence(z: JaxComplexArray) -> JaxRealArray:
-    """Magnitude of each phasor: evidence strength."""
-    return jnp.abs(z)
-
-
-def phasor_value(z: JaxComplexArray) -> JaxRealArray:
-    """Phase of each phasor in (-pi, pi]: supported feature value."""
-    return jnp.angle(z)
-
-
-def zero_phasors(features: int) -> JaxComplexArray:
-    """Zero phasor vector: no evidence."""
-    return jnp.zeros(features, dtype=jnp.complex128)
-
-
 def phasor_from_distribution(
     dist: NaturalParametrization,
     frequencies: JaxRealArray,
@@ -109,11 +94,6 @@ def phasor_to_conjugate_prior(
     return ep.conjugate_prior_distribution(presence)
 
 
-def phasor_from_polar(presence: JaxRealArray, value: JaxRealArray) -> JaxComplexArray:
-    """Construct phasors from presence magnitude and value phase."""
-    return presence * jnp.exp(1j * value)
-
-
 def encode_scalar_phasors(
     x: JaxArray,
     presence: JaxArray,
@@ -123,26 +103,6 @@ def encode_scalar_phasors(
     assert frequencies.ndim == 1
     phases = x[..., jnp.newaxis] * jnp.reshape(frequencies, (1,) * x.ndim + (-1,))
     return presence[..., jnp.newaxis] * jnp.exp(1j * phases)
-
-
-def split_phasor_frequencies(z: JaxComplexArray, n_frequencies: int) -> JaxComplexArray:
-    """Reshape a raveled phasor vector into (n_components, n_frequencies)."""
-    return z.reshape(-1, n_frequencies)
-
-
-def combine_phasors(left: JaxComplexArray, right: JaxComplexArray) -> JaxComplexArray:
-    """Combine independent evidence by complex addition."""
-    return left + right
-
-
-def scale_phasors(z: JaxComplexArray, scale: JaxArray) -> JaxComplexArray:
-    """Scale evidence strength by a real factor, preserving phase."""
-    return z * scale
-
-
-def rotate_phasors(z: JaxComplexArray, rotation: JaxArray) -> JaxComplexArray:
-    """Rotate phasors by a complex value, shifting their phases."""
-    return z * rotation
 
 
 def phasor_concordance(left: JaxComplexArray, right: JaxComplexArray) -> JaxRealArray:
