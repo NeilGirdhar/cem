@@ -13,13 +13,14 @@ from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxArray, JaxRealArray, RngStream, frozendict
 
 from cem.phasor.frequency import geometric_frequencies
-from cem.phasor.gated_projection import GatedProjection, LogSpaceProjection
+from cem.phasor.gated_projection import GatedProjection
 from cem.phasor.loss import decorrelation_loss, spectral_reconstruction_loss_and_score
 from cem.phasor.message import PhasorMessage
 from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, int_field
+from cem.transforms import AffineWithDropout
 
 from .problem import IVObservation, IVProblem
 
@@ -71,8 +72,8 @@ class AFPModel(Model):
     obs_features: int = eqx.field(static=True)
     endo_purifier: GatedProjection
     exo_purifier: GatedProjection
-    endo_predictor: LogSpaceProjection
-    exo_predictor: LogSpaceProjection
+    endo_predictor: AffineWithDropout
+    exo_predictor: AffineWithDropout
     exo_critic: GatedProjection
     endo_critic: GatedProjection
     _x_flattener: FixedParameter[Flattener[Any]]
@@ -109,10 +110,10 @@ class AFPModel(Model):
                 encoded_endo_features, endo_latent, streams=streams
             ),
             exo_purifier=GatedProjection.create(encoded_exo_features, exo_latent, streams=streams),
-            endo_predictor=LogSpaceProjection.create(
+            endo_predictor=AffineWithDropout.create(
                 endo_latent, encoded_obs_features, streams=streams
             ),
-            exo_predictor=LogSpaceProjection.create(
+            exo_predictor=AffineWithDropout.create(
                 exo_latent, encoded_obs_features, streams=streams
             ),
             exo_critic=GatedProjection.create(exo_latent, encoded_obs_features, streams=streams),
@@ -195,8 +196,8 @@ class AFPModel(Model):
         ).data
 
         # Predict: reconstruct the observation from both pathways.
-        z_endo_hat = self.endo_predictor.infer(z_endo_pure)
-        z_exo_hat = self.exo_predictor.infer(z_exo_pure)
+        z_endo_hat = self.endo_predictor.infer(z_endo_pure, streams=streams, inference=inference)
+        z_exo_hat = self.exo_predictor.infer(z_exo_pure, streams=streams, inference=inference)
         z_hat = z_endo_hat + z_exo_hat
 
         # Reconstruction loss and score (∂loss/∂ẑ).

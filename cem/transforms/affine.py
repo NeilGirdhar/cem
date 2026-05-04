@@ -101,7 +101,7 @@ class AffineWithDropout(Affine):
         in_features: int,
         out_features: int,
         *,
-        complex_matrix: bool = False,
+        complex_matrix: bool = True,
         dropout_rate: float = 0.1,
         streams: Mapping[str, RngStream],
     ) -> Self:

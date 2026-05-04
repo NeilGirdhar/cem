@@ -40,7 +40,7 @@ class MLP(eqx.Module):
         feature_sizes = (in_features, *hidden_features, out_features)
         return cls(
             layers=tuple(
-                Affine.create(n_in, n_out, streams=streams)
+                Affine.create(n_in, n_out, complex_matrix=False, streams=streams)
                 for n_in, n_out in it.pairwise(feature_sizes)
             ),
             dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
