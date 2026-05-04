@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import jax
 import jax.numpy as jnp
-from efax import Flattener, NormalNP
+from efax import Flattener, NormalNP, UnitVarianceNormalNP
 from tjax import RngStream
 
 from cem.phasor.frequency import geometric_frequencies, make_frequency_grid
 from cem.phasor.message import PhasorMessage
 
-# ── from_distribution / to_distribution ──────────────────────────────────────
+# ── from_distribution / to_distribution / to_conjugate_prior ─────────────────
 
 
 def _normal_t(m: int, base: float = 2.0 * float(jnp.pi)) -> NormalNP:
@@ -17,6 +18,12 @@ def _normal_t(m: int, base: float = 2.0 * float(jnp.pi)) -> NormalNP:
     flattener, _ = Flattener.flatten(
         NormalNP(jnp.array(0.0), jnp.array(0.0)), mapped_to_plane=False
     )
+    return make_frequency_grid(flattener, geometric_frequencies(m, base=base))
+
+
+def _uvnormal_t(m: int, base: float = 1.0) -> UnitVarianceNormalNP:
+    """Frequency grid t for UnitVarianceNormalNP with m frequencies, d=1."""
+    flattener, _ = Flattener.flatten(UnitVarianceNormalNP(jnp.array(0.0)), mapped_to_plane=False)
     return make_frequency_grid(flattener, geometric_frequencies(m, base=base))
 
 
@@ -44,20 +51,41 @@ def test_from_distribution_unit_magnitude_for_point_mass() -> None:
     assert jnp.all(p.presence <= 1.0 + 1e-6)
 
 
+def test_from_distribution_presences_scales_magnitude() -> None:
+    dist = UnitVarianceNormalNP(jnp.array(0.5))
+    freqs = geometric_frequencies(8, base=1.0)
+    presence = 2.0
+    z_scaled = PhasorMessage.from_distribution(dist, freqs, presences=jnp.array(presence))
+    z_base = PhasorMessage.from_distribution(dist, freqs)
+    assert jnp.allclose(z_scaled.presence, z_base.presence * presence)
+    assert jnp.allclose(z_scaled.value, z_base.value, atol=1e-7)
+
+
 def test_to_distribution_recovers_normal_mean() -> None:
-    # OLS recovery uses Im(log CF(t)) ≈ ⟨t, E[T(x)]⟩, valid when |f * σ²| << 1.
-    # base=1e-4, m=8 → max f = 1e-4 * 2^7 = 0.0128; max f*σ² = 0.0128 << 1 ✓
-    mu, sigma2 = 0.5, 1.0
-    dist = NormalNP(jnp.array(mu / sigma2), jnp.array(-0.5 / sigma2))
+    # NormalNP is d=2; to_distribution works for any d, no presence recovery.
+    mu, var = 0.5, 1.0
+    dist = NormalNP(jnp.array(mu), jnp.array(-0.5 / var))
     m = 8
-    base = 1e-4
-    freqs = geometric_frequencies(m, base=base)
-    p = PhasorMessage.from_distribution(dist, freqs)
-    t = _normal_t(m, base=base)
-    ep = p.to_distribution(t)
-    # NormalEP fields: mean=μ, second_moment=μ²+σ²
-    assert jnp.allclose(ep.mean, jnp.array(mu), atol=1e-3)  # ty: ignore
-    assert jnp.allclose(ep.second_moment, jnp.array(mu**2 + sigma2), atol=1e-3)  # ty: ignore
+    t = _normal_t(m, base=1.0)
+    z = PhasorMessage.from_distribution(dist, geometric_frequencies(m, base=1.0))
+    ep = z.to_distribution(t)
+    assert jnp.allclose(ep.mean, jnp.array(mu), atol=1e-4)  # ty: ignore
+
+
+def test_to_conjugate_prior_recovers_mean_and_presence() -> None:
+    # UnitVarianceNormal is d=1 with HasConjugatePrior; OLS is exact for Normal.
+    mu, presence = 0.5, 2.0
+    dist = UnitVarianceNormalNP(jnp.array(mu))
+    m = 8
+    freqs = geometric_frequencies(m, base=1.0)
+    z = PhasorMessage.from_distribution(dist, freqs, presences=jnp.array(presence))
+    t = _uvnormal_t(m, base=1.0)
+    cp = z.to_conjugate_prior(t)
+    expected_cp = dist.to_exp().conjugate_prior_distribution(jnp.array(presence))
+    for a, b in zip(
+        jax.tree_util.tree_leaves(cp), jax.tree_util.tree_leaves(expected_cp), strict=True
+    ):
+        assert jnp.allclose(a, b, atol=1e-4)
 
 
 # ── construction ──────────────────────────────────────────────────────────────

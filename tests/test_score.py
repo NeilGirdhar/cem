@@ -4,7 +4,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest
-from efax import Flattener, NormalEP, NormalNP
+from efax import Flattener, NormalEP, NormalNP, UnitVarianceNormalNP
 from jax import tree
 from tjax import frozendict
 
@@ -20,8 +20,8 @@ from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
 from cem.structure.graph import LearnableParameter, ParameterType
 
 _M = 8
-_BASE = 1e-4
-_PRIOR = NormalNP(jnp.array(0.0), jnp.array(0.0))
+_BASE = 1.0  # f* = 1/σ = 1 for UnitVarianceNormal
+_PRIOR = UnitVarianceNormalNP(jnp.array(0.0))
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def target_node(freqs: jnp.ndarray) -> PhasorTargetNode:
 
 def infer_target_node(
     target_node: PhasorTargetNode,
-    observed: dict[str, NormalNP],
+    observed: dict[str, UnitVarianceNormalNP],
     predicted: dict[str, PhasorMessage],
 ) -> PhasorTargetConfiguration:
     flat_observed = frozendict(
@@ -138,16 +138,16 @@ def test_phasor_target_node_has_frequency_grid_per_field(target_node: PhasorTarg
 def test_phasor_target_node_frequency_grid_shape(
     target_node: PhasorTargetNode, freqs: jnp.ndarray
 ) -> None:
-    # NormalNP has d=2 sufficient statistics; m=8 frequencies → shape (m*d,) = (16,)
+    # UnitVarianceNormalNP has d=1 sufficient statistic; m=8 frequencies → shape (m,) = (8,)
     grid = target_node.frequency_grids.value["obs"]
-    assert grid.shape == (_M * 2,)
+    assert grid.shape == (_M,)
 
 
 def test_phasor_target_node_multi_field(freqs: jnp.ndarray) -> None:
     node = PhasorTargetNode.create(
         {
-            "x": NormalNP(jnp.array(0.0), jnp.array(0.0)),
-            "y": NormalNP(jnp.array(1.0), jnp.array(-0.5)),
+            "x": UnitVarianceNormalNP(jnp.array(0.0)),
+            "y": UnitVarianceNormalNP(jnp.array(1.0)),
         },
         freqs,
     )
@@ -158,7 +158,7 @@ def test_phasor_target_node_multi_field(freqs: jnp.ndarray) -> None:
 def test_phasor_target_configuration_total_loss_is_zero(
     target_node: PhasorTargetNode, freqs: jnp.ndarray
 ) -> None:
-    dist = NormalNP(jnp.array(0.5), jnp.array(-0.5))
+    dist = UnitVarianceNormalNP(jnp.array(0.5))
     phasor = PhasorMessage.from_distribution(dist, freqs)
     config = PhasorTargetConfiguration(
         values=frozendict({"obs": phasor}),
@@ -190,11 +190,11 @@ def test_phasor_target_node_score_is_phasor_message(
 def test_phasor_target_node_predicted_distribution_recovers_mean(
     target_node: PhasorTargetNode, freqs: jnp.ndarray
 ) -> None:
-    mu, sigma2 = 0.5, 1.0
-    dist = NormalNP(jnp.array(mu / sigma2), jnp.array(-0.5 / sigma2))
+    mu = 0.5
+    dist = UnitVarianceNormalNP(jnp.array(mu))
     z_hat = PhasorMessage.from_distribution(dist, freqs)
     out = infer_target_node(target_node, {"obs": dist}, {"obs": z_hat})
-    assert jnp.allclose(out.predicted_distributions["obs"].mean, jnp.array(mu), atol=1e-2)  # ty: ignore[unresolved-attribute]
+    assert jnp.allclose(out.predicted_distributions["obs"].mean, jnp.array(mu), atol=1e-4)  # ty: ignore[unresolved-attribute]
 
 
 def test_phasor_target_node_total_loss_is_sum_of_field_losses(
@@ -202,13 +202,13 @@ def test_phasor_target_node_total_loss_is_sum_of_field_losses(
 ) -> None:
     node = PhasorTargetNode.create(
         {
-            "x": NormalNP(jnp.array(0.0), jnp.array(0.0)),
-            "y": NormalNP(jnp.array(1.0), jnp.array(-0.5)),
+            "x": UnitVarianceNormalNP(jnp.array(0.0)),
+            "y": UnitVarianceNormalNP(jnp.array(1.0)),
         },
         freqs,
     )
-    x_dist = NormalNP(jnp.array(0.1), jnp.array(-0.5))
-    y_dist = NormalNP(jnp.array(0.7), jnp.array(-0.25))
+    x_dist = UnitVarianceNormalNP(jnp.array(0.1))
+    y_dist = UnitVarianceNormalNP(jnp.array(0.7))
     out = infer_target_node(
         node,
         {"x": x_dist, "y": y_dist},
@@ -225,18 +225,18 @@ def test_phasor_target_node_multi_field_score_is_joined_on_last_dimension(
 ) -> None:
     node = PhasorTargetNode.create(
         {
-            "x": NormalNP(jnp.array(0.0), jnp.array(0.0)),
-            "y": NormalNP(jnp.array(1.0), jnp.array(-0.5)),
+            "x": UnitVarianceNormalNP(jnp.array(0.0)),
+            "y": UnitVarianceNormalNP(jnp.array(1.0)),
         },
         freqs,
     )
-    x_phasor = PhasorMessage.from_distribution(NormalNP(jnp.array(0.1), jnp.array(-0.5)), freqs)
-    y_phasor = PhasorMessage.from_distribution(NormalNP(jnp.array(0.7), jnp.array(-0.25)), freqs)
+    x_phasor = PhasorMessage.from_distribution(UnitVarianceNormalNP(jnp.array(0.1)), freqs)
+    y_phasor = PhasorMessage.from_distribution(UnitVarianceNormalNP(jnp.array(0.7)), freqs)
     out = infer_target_node(
         node,
         {
-            "x": NormalNP(jnp.array(0.1), jnp.array(-0.5)),
-            "y": NormalNP(jnp.array(0.7), jnp.array(-0.25)),
+            "x": UnitVarianceNormalNP(jnp.array(0.1)),
+            "y": UnitVarianceNormalNP(jnp.array(0.7)),
         },
         {"x": x_phasor, "y": y_phasor},
     )

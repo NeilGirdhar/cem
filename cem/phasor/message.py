@@ -5,14 +5,25 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 from efax import (
+    Distribution,
     ExpectationParametrization,
     Flattener,
+    HasConjugatePrior,
     NaturalParametrization,
+    ScalarSupport,
     expectation_parameters_from_characteristic_function,
+    parameters,
 )
-from tjax import JaxArray, JaxComplexArray, JaxRealArray
+from tjax import JaxArray, JaxRealArray
 
 from cem.phasor.frequency import make_frequency_grid
+
+
+def has_single_scalar_parameter(p: Distribution) -> bool:
+    params = parameters(p, fixed=False, support=True)
+    return len(params) == 1 and all(
+        isinstance(support, ScalarSupport) for _value, support in params.values()
+    )
 
 
 class PhasorMessage(eqx.Module):
@@ -63,6 +74,7 @@ class PhasorMessage(eqx.Module):
         dist: NaturalParametrization,
         frequencies: JaxRealArray,
         *,
+        presences: JaxRealArray | None = None,
         raveled: bool = False,
     ) -> PhasorMessage:
         """Encode a belief distribution as a matrix of phasors via the characteristic function.
@@ -80,6 +92,9 @@ class PhasorMessage(eqx.Module):
                 in the output.
             frequencies: Geometric frequency grid, shape (m,).  Typically produced by
                 ``geometric_frequencies(m, base)``.
+            presences: Optional per-sample evidence weight, shape (*s,) matching ``dist.shape``.
+                Scales each phasor's magnitude by the corresponding presence.  When None,
+                presences default to 1.
             raveled: If False (default), returns data of shape (*s, m * d).  If True, all
                 dimensions are raveled into a single flat vector of shape (prod(*s) * m * d,).
 
@@ -98,33 +113,73 @@ class PhasorMessage(eqx.Module):
         for _ in dist.shape:
             cf_fn = jax.vmap(cf_fn)
         cf = cf_fn(dist)  # shape (*s, m * d)
+        if presences is not None:
+            cf *= presences[..., jnp.newaxis]
         return cls(cf.reshape(-1) if raveled else cf)
 
     def to_distribution(
         self,
         t: NaturalParametrization,
     ) -> ExpectationParametrization:
-        """Recover a belief distribution from phasors via the inverse characteristic function.
+        """Recover the expectation parametrization from phasors via the characteristic function.
 
-        Solves the overdetermined linear system
-
-            Im(log Z[j, k]) ≈ f_j * E[T(x)_k]
-
-        for the expectation parameters E[T(x)].  The estimate is exact for Normal
-        distributions and a first-order approximation for other families.
+        Works for any exponential family (any d).  Does not recover presence.
+        Use :meth:`to_conjugate_prior` for d=1 distributions when presence is also needed.
 
         Args:
-            t: The frequency grid used to produce this PhasorMessage, i.e. the same ``t``
-                built internally by ``from_distribution``.  Shape (m * d,), where m is the
-                number of frequencies and d is the natural-parameter dimension.  Each leaf
-                has shape (m * d, *field_shape).
+            t: Frequency grid built by ``make_frequency_grid`` for this distribution family.
 
         Returns:
-            ExpectationParametrization with shape (*s,), where *s are the batch dimensions
-            of this PhasorMessage's data (shape (*s, m * d)).
+            The recovered expectation parametrization, shape (*s,).
         """
-        cf_values: JaxComplexArray = self.data
-        return expectation_parameters_from_characteristic_function(t, cf_values)
+        return expectation_parameters_from_characteristic_function(t, self.data)
+
+    def to_conjugate_prior(
+        self,
+        t: NaturalParametrization,
+    ) -> NaturalParametrization:
+        """Recover a d=1 HasConjugatePrior distribution and presence from phasors via OLS.
+
+        Requires a scalar exponential family.
+
+        Two OLS passes on log Z_j:
+        - Expectation parameter: Im(log Z_j) ≈ f_j · μ.  Solved by OLS on the imaginary
+          part.  Exact for Normal distributions.
+        - Presence: Re(log Z_j) ≈ log p − f_j²/(2p).  Solved by OLS of the real part on
+          f_j².  The intercept gives log p.  Exact for Normal distributions.
+
+        Args:
+            t: Frequency grid of shape (m,), built by ``make_frequency_grid`` for this
+               distribution family.
+
+        Returns:
+            The conjugate prior natural parametrization encoding the recovered mean and
+            presence, shape (*s,).
+        """
+        ep_cls = type(t).expectation_parametrization_cls()
+        assert issubclass(ep_cls, HasConjugatePrior), (
+            f"{ep_cls.__name__} does not implement HasConjugatePrior"
+        )
+        assert has_single_scalar_parameter(t), f"{ep_cls.__name__} is non-scalar."
+
+        ep = expectation_parameters_from_characteristic_function(t, self.data)
+        assert isinstance(ep, HasConjugatePrior)
+
+        # Presence from Re OLS: Re(log Z_j) = log p − f_j²/(2p)
+        # b̂ = Cov_j(f_j², Re(log Z_j)) / Var_j(f_j²)
+        # log p = E_j[Re(log Z_j)] − b̂ · E_j[f_j²]
+        f: JaxRealArray = jax.tree_util.tree_leaves(t)[0]  # frequencies, shape (m,)
+        f_sq = f**2  # (m,)
+        re_log_z: JaxRealArray = jnp.real(jnp.log(self.data))  # (..., m)
+
+        mean_f_sq = jnp.mean(f_sq)
+        var_f_sq = jnp.mean(f_sq**2) - mean_f_sq**2
+        mean_re = jnp.mean(re_log_z, axis=-1)  # (...,)
+        cov = jnp.mean(f_sq * re_log_z, axis=-1) - mean_f_sq * mean_re  # (...,)
+        b_hat = cov / var_f_sq
+        presence: JaxRealArray = jnp.exp(mean_re - b_hat * mean_f_sq)  # (...,)
+
+        return ep.conjugate_prior_distribution(presence)
 
     def zeros_like(self) -> PhasorMessage:
         return type(self)(jnp.zeros_like(self.data))
