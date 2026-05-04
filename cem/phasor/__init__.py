@@ -18,6 +18,7 @@ from cem.phasor.loss import (
 from cem.phasor.message import PhasorMessage
 from cem.phasor.rivalry import RivalryGroups, RivalryNorm
 from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
+from cem.phasor.telemetry import SpectralLossTelemetry
 
 __all__ = [
     "Accumulator",
@@ -31,6 +32,7 @@ __all__ = [
     "PhasorTargetNode",
     "RivalryGroups",
     "RivalryNorm",
+    "SpectralLossTelemetry",
     "centering_loss",
     "decorrelation_loss",
     "geometric_frequencies",

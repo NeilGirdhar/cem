@@ -20,6 +20,11 @@ class PhasorTargetConfiguration(PhasorInputConfiguration, TargetConfiguration):
     """Scored phasor targets, keyed by field name."""
 
     score: PhasorMessage
+    spectral_loss: frozendict[str, JaxArray]
+
+    def total_spectral_loss(self) -> JaxArray:
+        """Return the summed scalar spectral loss across all fields."""
+        return sum((jnp.sum(v) for v in self.spectral_loss.values()), start=jnp.asarray(0.0))
 
 
 class PhasorTargetNode(TargetNode):
@@ -94,6 +99,7 @@ class PhasorTargetNode(TargetNode):
         phasors: dict[str, PhasorMessage] = {}
         scores: list[PhasorMessage] = []
         losses: dict[str, JaxArray] = {}
+        spectral_losses: dict[str, JaxArray] = {}
         observed_distributions: dict[str, ExpectationParametrization] = {}
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
@@ -115,16 +121,19 @@ class PhasorTargetNode(TargetNode):
             observed_distributions[field_name] = observed_exp
             scores.append(spectral.score)
             distributional_loss = observed_exp.cross_entropy(predicted_exp.to_nat())
+            field_spectral_loss = jnp.sum(spectral.loss, axis=-1)
+            spectral_losses[field_name] = jnp.mean(spectral.loss, axis=-1)
             # Report distributional loss but optimize spectral gradient for testing purposes.
             losses[field_name] = copy_cotangent(
                 stop_gradient(distributional_loss),
-                jnp.sum(spectral.loss, axis=-1),
+                field_spectral_loss,
             )
             predicted_distributions[field_name] = predicted_exp
 
         return PhasorTargetConfiguration(
             values=frozendict(phasors),
             loss=frozendict(losses),
+            spectral_loss=frozendict(spectral_losses),
             observed_distributions=frozendict(observed_distributions),
             score=PhasorMessage(jnp.concatenate([s.data for s in scores], axis=-1)),
             predicted_distributions=frozendict(predicted_distributions),

@@ -164,6 +164,7 @@ def test_phasor_target_configuration_total_loss_is_zero(
         values=frozendict({"obs": phasor}),
         observed_distributions=frozendict({"obs": dist.to_exp()}),
         score=phasor.zeros_like(),
+        spectral_loss=frozendict({"obs": jnp.zeros(phasor.shape)}),
         loss=frozendict({"obs": jnp.zeros(phasor.shape)}),
         predicted_distributions=frozendict({"obs": dist.to_exp()}),
     )
