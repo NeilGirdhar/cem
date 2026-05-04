@@ -118,7 +118,6 @@ class PhasorSupervisedModel(Model):
         n_frequencies: int,
         hidden_size: int,
         *,
-        use_spectral_loss: bool = False,
         streams: Mapping[str, RngStream],
     ) -> Self:
         freqs = geometric_frequencies(n_frequencies, base=1)
@@ -129,9 +128,7 @@ class PhasorSupervisedModel(Model):
             link=GatedProjection.create(
                 in_size, out_size, mid_features=hidden_size, streams=streams
             ),
-            target=PhasorTargetNode.create(
-                _y_fields(sup.n_targets), freqs, use_spectral_loss=use_spectral_loss
-            ),
+            target=PhasorTargetNode.create(_y_fields(sup.n_targets), freqs),
             _x_flattener=FixedParameter(x_flattener),
             _frequencies=FixedParameter(freqs),
         )
@@ -175,7 +172,6 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     _: KW_ONLY
     dataset_kind: DatasetKind = eqx.field(static=True)
     link_kind: LinkKind = eqx.field(static=True)
-    use_spectral_loss: bool = eqx.field(default=False, static=True)
     training_examples: int = int_field(
         default=200, domain=IntDistribution(1, 1 << 16, log=True), optimize=True
     )
@@ -214,6 +210,5 @@ class SupervisedSolver(Solver[SupervisedProblem]):
             problem,
             self.n_frequencies,
             self.hidden_size,
-            use_spectral_loss=self.use_spectral_loss,
             streams=streams,
         )

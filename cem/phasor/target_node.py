@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Self
 
-import equinox as eqx
 import jax.numpy as jnp
 from efax import ExpectationParametrization, Flattener, HasEntropyEP, NaturalParametrization
 from jax.lax import stop_gradient
@@ -26,9 +25,8 @@ class PhasorTargetConfiguration(PhasorInputConfiguration, TargetConfiguration):
 class PhasorTargetNode(TargetNode):
     """Target node computing reconstruction loss between observed and predicted distributions.
 
-    When ``use_spectral_loss`` is False (default), the distributional reconstruction loss is
-    optimized directly.  When True, the distributional loss is reported but the spectral
-    reconstruction loss drives the gradient, which is better conditioned.
+    The distributional loss is reported but the spectral reconstruction loss drives the gradient,
+    which is better conditioned.
 
     Attributes:
         frequency_grids: Per-field frequency grid ``t``, shape ``(m * d,)`` each,
@@ -37,21 +35,16 @@ class PhasorTargetNode(TargetNode):
             concatenated prediction.
         frequencies: Geometric frequency grid forwarded to
             :meth:`~cem.phasor.message.PhasorMessage.from_distribution`.
-        use_spectral_loss: If True, optimize spectral reconstruction loss and report
-            distributional loss.  If False, optimize distributional reconstruction loss.
     """
 
     frequency_grids: FixedParameter[frozendict[str, NaturalParametrization[Any, Any]]]
     frequencies: FixedParameter[JaxRealArray]
-    use_spectral_loss: bool = eqx.field(static=True)
 
     @classmethod
     def create(
         cls,
         field_defaults: Mapping[str, NaturalParametrization[Any, Any]],
         frequencies: JaxRealArray,
-        *,
-        use_spectral_loss: bool = False,
     ) -> Self:
         """Construct a PhasorTargetNode from distribution priors and a frequency grid.
 
@@ -59,7 +52,6 @@ class PhasorTargetNode(TargetNode):
             field_defaults: Per-field prior distributions, in the order they will be
                 split from the incoming concatenated prediction.
             frequencies: Geometric frequency grid, shape ``(m,)``.
-            use_spectral_loss: Whether to optimize the spectral reconstruction loss.
 
         Returns:
             A new :class:`PhasorTargetNode`.
@@ -81,7 +73,6 @@ class PhasorTargetNode(TargetNode):
             frequency_grids=FixedParameter(frozendict(frequency_grids)),
             field_sizes=field_sizes,
             frequencies=FixedParameter(frequencies),
-            use_spectral_loss=use_spectral_loss,
         )
 
     def infer(
@@ -124,14 +115,11 @@ class PhasorTargetNode(TargetNode):
             observed_distributions[field_name] = observed_exp
             scores.append(spectral.score)
             distributional_loss = observed_exp.cross_entropy(predicted_exp.to_nat())
-            if self.use_spectral_loss:
-                # Report distributional loss but optimize spectral gradient for testing purposes.
-                losses[field_name] = copy_cotangent(
-                    stop_gradient(distributional_loss),
-                    jnp.sum(spectral.loss, axis=-1),
-                )
-            else:
-                losses[field_name] = distributional_loss
+            # Report distributional loss but optimize spectral gradient for testing purposes.
+            losses[field_name] = copy_cotangent(
+                stop_gradient(distributional_loss),
+                jnp.sum(spectral.loss, axis=-1),
+            )
             predicted_distributions[field_name] = predicted_exp
 
         return PhasorTargetConfiguration(
