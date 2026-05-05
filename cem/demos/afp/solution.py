@@ -22,7 +22,7 @@ from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, int_field
 from cem.transforms import AffineWithDropout
 
-from .problem import IVObservation, IVProblem
+from .problem import IVObservation, IVProblem, NonlinearityKind, build_iv_problem
 
 
 class AFPConfiguration(NodeConfiguration):
@@ -206,32 +206,47 @@ class AFPModel(Model):
 
 
 class AFPSolver(Solver[IVProblem]):
-    """Solver for the AFP IV demo.
+    """Solver for the AFP IV demo on a parameterized synthetic IV problem.
+
+    Structural fields (``n_instruments``, ``n_confounders``, ``n_treatments``,
+    ``n_outcomes``, ``n_environments``, ``nonlinearity``) configure the DGP.  The
+    coefficient matrices are sampled deterministically from ``coefficient_seed``
+    with i.i.d. ``N(0, coefficient_scale**2)`` entries.
 
     Attributes:
-        alpha: Z → T coefficient.
-        beta: U → T coefficient.
-        gamma: T → Y coefficient (true causal effect).
-        delta: U → Y coefficient (direct confounding).
-        endo_latent: Dimension of the endogenous latent space.
-        exo_latent: Dimension of the exogenous latent space.
+        endo_latent: Dimension of the purified endogenous latent space.
+        exo_latent: Dimension of the purified exogenous latent space.
+        n_frequencies: Number of phasor frequencies in the encoded representation.
     """
 
-    training_examples: int = int_field(default=5000, domain=IntDistribution(1, 1 << 17, log=True))
+    training_examples: int = int_field(default=3000, domain=IntDistribution(1, 1 << 17, log=True))
     training_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
-    inference_examples: int = int_field(default=500, domain=IntDistribution(1, 1 << 12, log=True))
+    inference_examples: int = int_field(default=0, domain=IntDistribution(0, 1 << 12))
     inference_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
-    alpha: float = float_field(default=1.5, domain=FloatDistribution(0.1, 4.0), optimize=False)
-    beta: float = float_field(default=1.2, domain=FloatDistribution(0.1, 4.0), optimize=False)
-    gamma: float = float_field(default=2.0, domain=FloatDistribution(0.1, 4.0), optimize=False)
-    delta: float = float_field(default=1.0, domain=FloatDistribution(0.0, 4.0), optimize=False)
-    endo_latent: int = int_field(default=4, domain=IntDistribution(1, 16), optimize=True)
-    exo_latent: int = int_field(default=4, domain=IntDistribution(1, 16), optimize=True)
+    n_instruments: int = int_field(default=2, domain=IntDistribution(1, 8))
+    n_confounders: int = int_field(default=1, domain=IntDistribution(1, 4))
+    n_treatments: int = int_field(default=1, domain=IntDistribution(1, 4))
+    n_outcomes: int = int_field(default=1, domain=IntDistribution(1, 4))
+    n_environments: int = int_field(default=1, domain=IntDistribution(1, 4))
+    nonlinearity: NonlinearityKind = eqx.field(static=True, default=NonlinearityKind.none)
+    coefficient_seed: int = int_field(default=0, domain=IntDistribution(0, 1 << 16))
+    coefficient_scale: float = float_field(default=1.0, domain=FloatDistribution(0.1, 4.0))
+    endo_latent: int = int_field(default=8, domain=IntDistribution(1, 16), optimize=True)
+    exo_latent: int = int_field(default=8, domain=IntDistribution(1, 16), optimize=True)
     n_frequencies: int = int_field(default=10, domain=IntDistribution(2, 16), optimize=True)
 
     @override
     def problem(self) -> IVProblem:
-        return IVProblem(alpha=self.alpha, beta=self.beta, gamma=self.gamma, delta=self.delta)
+        return build_iv_problem(
+            n_instruments=self.n_instruments,
+            n_confounders=self.n_confounders,
+            n_treatments=self.n_treatments,
+            n_outcomes=self.n_outcomes,
+            n_environments=self.n_environments,
+            nonlinearity=self.nonlinearity,
+            seed=self.coefficient_seed,
+            scale=self.coefficient_scale,
+        )
 
     @override
     def create_model(
@@ -241,11 +256,12 @@ class AFPSolver(Solver[IVProblem]):
         *,
         streams: Mapping[str, RngStream],
     ) -> Model:
-        del data_source, problem
+        del data_source
+        assert isinstance(problem, IVProblem)
         return AFPModel.create(
-            endo_features=2,
-            exo_features=2,
-            obs_features=1,
+            endo_features=problem.obs_x_features,
+            exo_features=problem.obs_x_features,
+            obs_features=problem.obs_y_features,
             n_frequencies=self.n_frequencies,
             endo_latent=self.endo_latent,
             exo_latent=self.exo_latent,

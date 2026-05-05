@@ -92,10 +92,8 @@ class AFPLossPlotter(PlotterWithSmoothGraph):
         inference_results: InferenceResults,
         label: str,
     ) -> None:
-        del label
+        del inference_results, label
         telemetry = AFPTelemetry(selected_node=self.selected_node)
         training_losses = training_results.telemetries[telemetry]
-        inference_losses = inference_results.telemetries[telemetry]
-        axes = figure.subplots(1, 2, squeeze=False)
-        self._plot_axis(axes[0, 0], training_losses, split="Training")
-        self._plot_axis(axes[0, 1], inference_losses, split="Inference")
+        ax = figure.subplots(1, 1)
+        self._plot_axis(ax, training_losses, split="Training")

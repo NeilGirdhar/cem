@@ -1,4 +1,4 @@
-"""AFP IV variant."""
+"""AFP synthetic IV demo."""
 
 from __future__ import annotations
 
@@ -17,11 +17,16 @@ from .solution import AFPSolver
 
 
 class AFPVariant(Variant):
-    """Variant for adversarial factor purification on the synthetic IV problem."""
+    """Variant for adversarial factor purification on the parameterized IV problem."""
 
     @override
     def create_solver(self) -> Solver[IVProblem]:
-        return AFPSolver()
+        return AFPSolver(
+            n_instruments=4,
+            n_confounders=3,
+            n_treatments=3,
+            n_outcomes=1,
+        )
 
     @override
     def plotters(self) -> Sequence[Plotter]:
@@ -35,13 +40,14 @@ class AFPVariant(Variant):
     def demo_loss(
         self, training_results: TrainingResults, inference_results: InferenceResults
     ) -> float:
+        del inference_results
         telemetry = AFPTelemetry(selected_node="afp")
-        config = inference_results.telemetries[telemetry]
+        config = training_results.telemetries[telemetry]
         # Shapes after telemetry stacking:
-        # recon_loss, exo_loss, endo_loss: (inference_examples, inference_batch_size)
+        # recon_loss, exo_loss, endo_loss: (training_examples, training_batch_size)
         # Each term is already a summed per-example objective.
         per_example_objective = config.recon_loss + config.exo_loss + config.endo_loss
         return float(jnp.mean(per_example_objective))
 
 
-afp_demo = Demo(name="afp", variants=[AFPVariant()])
+afp_synthetic_iv_demo = Demo(name="afp-synthetic-iv", variants=[AFPVariant()])

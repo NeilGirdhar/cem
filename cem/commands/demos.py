@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from cem.demos.afp.demo import afp_demo
+from cem.demos.afp.demo import afp_synthetic_iv_demo
 from cem.demos.supervised.demo import (
     supervised_bike_sharing_demand_demo,
     supervised_cpu_activity_demo,
@@ -21,7 +21,7 @@ class DemoEnum(Enum):
     supervised_bike_sharing_demand = "supervised-bike-sharing-demand"
     supervised_elevators = "supervised-elevators"
     supervised_cpu_activity = "supervised-cpu-activity"
-    afp = "afp"
+    afp_synthetic_iv = "afp-synthetic-iv"
 
 
 demo_registry: dict[DemoEnum, Demo] = {
@@ -30,5 +30,5 @@ demo_registry: dict[DemoEnum, Demo] = {
     DemoEnum.supervised_bike_sharing_demand: supervised_bike_sharing_demand_demo,
     DemoEnum.supervised_elevators: supervised_elevators_demo,
     DemoEnum.supervised_cpu_activity: supervised_cpu_activity_demo,
-    DemoEnum.afp: afp_demo,
+    DemoEnum.afp_synthetic_iv: afp_synthetic_iv_demo,
 }
