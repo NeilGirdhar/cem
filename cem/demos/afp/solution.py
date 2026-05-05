@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from efax import Flattener, UnitVarianceNormalNP
 from jax.lax import stop_gradient
 from optuna.distributions import FloatDistribution, IntDistribution
-from tjax import JaxArray, JaxRealArray, RngStream, copy_cotangent, frozendict
+from tjax import JaxArray, JaxRealArray, RngStream, frozendict, negate_cotangent
 
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.gated_projection import GatedProjection
@@ -23,11 +23,6 @@ from cem.structure.solver import Solver, float_field, int_field
 from cem.transforms import AffineWithDropout
 
 from .problem import IVObservation, IVProblem
-
-
-def _negate_cotangent(x: JaxArray) -> JaxArray:
-    """Return ``x`` while reversing the cotangent sent back to ``x``."""
-    return copy_cotangent(stop_gradient(x), -x)
 
 
 class AFPConfiguration(NodeConfiguration):
@@ -136,7 +131,7 @@ class AFPModel(Model):
         """Compute one adversarial loss with reversed critic cotangents.
 
         The primal loss is ``decorrelation_loss(critic(stop_gradient(u)), z)``. Minimizing it
-        pushes ``z`` away from the critic prediction, while ``_negate_cotangent`` makes the critic
+        pushes ``z`` away from the critic prediction, while ``negate_cotangent`` makes the critic
         parameters maximize the same concordance.
 
         Args:
@@ -150,7 +145,7 @@ class AFPModel(Model):
             Scalar adversarial loss contribution.
         """
         prediction = critic.infer(stop_gradient(u), streams=streams, inference=inference)
-        return jnp.sum(decorrelation_loss(_negate_cotangent(prediction), z))
+        return jnp.sum(decorrelation_loss(negate_cotangent(prediction), z))
 
     @override
     def infer(

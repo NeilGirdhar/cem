@@ -49,7 +49,7 @@ dependencies = [
   "scipy>=1.16",
   "seaborn>=0.13.2",
   "threadpoolctl>=3.5.0",
-  "tjax>=1.4.9",
+  "tjax>=1.5.0",
   "typer>=0.15.1",
   "wandb>=0.19.4"
 ]
