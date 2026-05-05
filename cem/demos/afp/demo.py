@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import override
+from typing import Any, override
 
 import jax.numpy as jnp
 
@@ -36,10 +36,17 @@ class AFPVariant(Variant):
     def extra_telemetries(self) -> Telemetries:
         return Telemetries()
 
-    @override
+
+class AFPDemo(Demo):
+    """AFP demo scored from the full set of variant results."""
+
     def demo_loss(
-        self, training_results: TrainingResults, inference_results: InferenceResults
+        self,
+        variant_results: Sequence[tuple[Variant, TrainingResults, InferenceResults]],
+        hyperparameters: dict[str, Any],
     ) -> float:
+        del hyperparameters
+        _variant, training_results, inference_results = variant_results[0]
         del inference_results
         telemetry = AFPTelemetry(selected_node="afp")
         config = training_results.telemetries[telemetry]
@@ -50,4 +57,4 @@ class AFPVariant(Variant):
         return float(jnp.mean(per_example_objective))
 
 
-afp_synthetic_iv_demo = Demo(name="afp-synthetic-iv", variants=[AFPVariant()])
+afp_synthetic_iv_demo = AFPDemo(name="afp-synthetic-iv", variants=[AFPVariant()])

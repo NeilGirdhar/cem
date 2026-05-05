@@ -37,21 +37,6 @@ class Variant:
         raise NotImplementedError
 
     @abstractmethod
-    def demo_loss(
-        self, training_results: TrainingResults, inference_results: InferenceResults
-    ) -> float:
-        """Return a scalar loss used to drive hyperparameter optimisation.
-
-        Args:
-            training_results: Results from the training run.
-            inference_results: Results from the inference run.
-
-        Returns:
-            A scalar loss; lower is better.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
     def plotters(self) -> Sequence[Plotter]:
         """Return the plotters that visualise results for this variant."""
         raise NotImplementedError
@@ -149,3 +134,11 @@ class Demo:
             (v.all_telemetries() for v in self.variants),
             Telemetries(),
         )
+
+    def demo_loss(
+        self,
+        variant_results: Sequence[tuple[Variant, TrainingResults, InferenceResults]],
+        hyperparameters: dict[str, Any],
+    ) -> float:
+        """Return the scalar optimisation objective for a complete demo run."""
+        raise NotImplementedError

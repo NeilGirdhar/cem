@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from typing import cast
 
 import jax.numpy as jnp
 import jax.random as jr
@@ -27,8 +28,11 @@ from cem.phasor.frequency import frequency_base_for_domain_width
 from cem.structure.plotter import Demo
 from cem.structure.solution import (
     ExecutionPacket,
+    InferenceResults,
     LossTelemetry,
+    SolutionState,
     Telemetries,
+    TrainingResults,
 )
 
 mpl.use("Agg")
@@ -199,6 +203,63 @@ def test_hf_supervised_solver_short_training_is_finite(
         losses = training_results.telemetries[telemetry]
         assert losses.shape[0] == solver.training_examples
         assert jnp.all(jnp.isfinite(losses))
+
+
+def _training_results_with_target_losses(losses: jnp.ndarray) -> TrainingResults:
+    telemetry = LossTelemetry(selected_node="target")
+    return TrainingResults(
+        count=losses.shape[0],
+        telemetries={telemetry: losses},
+        final_state=cast("SolutionState", None),
+    )
+
+
+def _inference_results() -> InferenceResults:
+    return InferenceResults(count=0, telemetries={})
+
+
+def test_supervised_demo_loss_penalizes_unsettled_training() -> None:
+    variants = supervised_bike_sharing_demand_demo.variants
+    settled = jnp.array([4.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
+    unsettled = jnp.array([8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0])
+    hyperparameters = {"training_examples": 8, "training_batch_size": 4, "hidden_size": 8}
+
+    settled_loss = supervised_bike_sharing_demand_demo.demo_loss(
+        [
+            (variants[0], _training_results_with_target_losses(settled), _inference_results()),
+            (variants[1], _training_results_with_target_losses(settled), _inference_results()),
+        ],
+        hyperparameters,
+    )
+    unsettled_loss = supervised_bike_sharing_demand_demo.demo_loss(
+        [
+            (variants[0], _training_results_with_target_losses(unsettled), _inference_results()),
+            (variants[1], _training_results_with_target_losses(settled), _inference_results()),
+        ],
+        hyperparameters,
+    )
+
+    assert unsettled_loss > settled_loss
+
+
+def test_supervised_demo_loss_penalizes_compute_proxy() -> None:
+    variants = supervised_bike_sharing_demand_demo.variants
+    losses = jnp.array([2.0, 2.0, 2.0, 2.0])
+    variant_results = [
+        (variants[0], _training_results_with_target_losses(losses), _inference_results()),
+        (variants[1], _training_results_with_target_losses(losses), _inference_results()),
+    ]
+
+    small = supervised_bike_sharing_demand_demo.demo_loss(
+        variant_results,
+        {"training_examples": 4, "training_batch_size": 4, "hidden_size": 8},
+    )
+    large = supervised_bike_sharing_demand_demo.demo_loss(
+        variant_results,
+        {"training_examples": 400, "training_batch_size": 32, "hidden_size": 128},
+    )
+
+    assert large > small
 
 
 def _assert_demo_second_half_loss_below(demo: Demo, thresholds: dict[str, float]) -> None:

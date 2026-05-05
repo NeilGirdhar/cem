@@ -201,6 +201,14 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         condition=lambda solver: solver.link_kind == LinkKind.phasor,  # ty: ignore
     )
 
+    def compute_proxy(self) -> JaxRealArray:
+        """Proxy for supervised demo runtime cost.
+
+        Uses the tunable dimensions that dominate local training cost:
+        ``training_examples * training_batch_size * hidden_size**2``.
+        """
+        return jnp.asarray(self.training_examples * self.training_batch_size * self.hidden_size**2)
+
     @override
     def problem(self) -> SupervisedProblem:
         if self.dataset_kind == DatasetKind.iris:

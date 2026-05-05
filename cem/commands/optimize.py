@@ -91,7 +91,7 @@ def objective(
         if wandb
         else None
     )
-    losses: list[float] = []
+    variant_results = []
     for variant in demo.variants:
         if len(demo.variants) > 1:
             prefix = f"{variant.label}."
@@ -114,8 +114,8 @@ def objective(
             training_results, inference_results = solver.training_and_inference_result(
                 packet=packet
             )
-            losses.append(variant.demo_loss(training_results, inference_results))
-    return max(losses)
+            variant_results.append((variant, training_results, inference_results))
+    return demo.demo_loss(variant_results, hyperparameters)
 
 
 @app.command()
