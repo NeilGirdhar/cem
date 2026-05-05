@@ -103,7 +103,7 @@ def strength_loss(z: JaxArray) -> JaxArray:
 
 
 def decorrelation_loss(prediction: JaxArray, target: JaxArray) -> JaxArray:
-    """Adversarial decorrelation alignment: Re(prediction^H target).
+    """Adversarial decorrelation concordance: Re(prediction^H target).
 
     L_crit = Re(Σᵢ conj(predictionᵢ) · targetᵢ)
 
@@ -116,6 +116,6 @@ def decorrelation_loss(prediction: JaxArray, target: JaxArray) -> JaxArray:
         target: Target phasors u, shape (..., features).
 
     Returns:
-        Alignment, shape (...) — a scalar per batch element.
+        Concordance, shape (...) — a scalar per batch element.
     """
     return jnp.real(jnp.sum(jnp.conj(prediction) * target, axis=-1))

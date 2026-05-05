@@ -6,11 +6,11 @@ from collections.abc import Mapping
 from typing import Any, Self, override
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 from efax import Flattener, UnitVarianceNormalNP
+from jax.lax import stop_gradient
 from optuna.distributions import FloatDistribution, IntDistribution
-from tjax import JaxArray, JaxRealArray, RngStream, frozendict
+from tjax import JaxArray, JaxRealArray, RngStream, copy_cotangent, frozendict
 
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.gated_projection import GatedProjection
@@ -25,13 +25,18 @@ from cem.transforms import AffineWithDropout
 from .problem import IVObservation, IVProblem
 
 
+def _negate_cotangent(x: JaxArray) -> JaxArray:
+    """Return ``x`` while reversing the cotangent sent back to ``x``."""
+    return copy_cotangent(stop_gradient(x), -x)
+
+
 class AFPConfiguration(NodeConfiguration):
     """Per-step AFP losses, stored for telemetry.
 
     Attributes:
         recon_loss: Per-element von Mises reconstruction cross-entropy, shape (..., obs_features).
-        exo_loss: Alignment Re(exo_critic(z_exo_pure)^H · score), shape (...).
-        endo_loss: Alignment Re(endo_critic(z_endo_pure)^H · z_exo_pure), shape (...).
+        exo_loss: Concordance Re(exo_critic(score)^H · z_exo_pure), shape (...).
+        endo_loss: Concordance Re(endo_critic(z_exo_pure)^H · z_endo_pure), shape (...).
     """
 
     recon_loss: JaxArray
@@ -48,12 +53,8 @@ class AFPModel(Model):
     - Exogeneity:  Z_exo ⊥ Score(Z_obs, Ẑ)  — exo latents uninformative about the residual
     - Endogeneity: Z_endo ⊥ Z_exo            — endo latents uninformative about exo latents
 
-    Gradient routing uses the double-computation trick to properly implement min-max training
-    within a single scalar loss:
-
-    - Purifier losses: gradient flows through z_*_pure (critic parameters are stopped).
-    - Critic losses: gradient flows through critic parameters (z_*_pure is stopped),
-      with a sign flip so that minimizing the total loss maximizes critic alignment.
+    Gradient routing reverses the critic prediction's cotangent so minimization pushes purified
+    latents away from the critic while pushing critic parameters to maximize concordance.
 
     Attributes:
         endo_latent: Dimension of the purified endogenous latent space.
@@ -63,8 +64,8 @@ class AFPModel(Model):
         exo_purifier: Gated projection from observed inputs to purified exogenous latents.
         endo_predictor: Log-space map from purified endogenous latents to observation space.
         exo_predictor: Log-space map from purified exogenous latents to observation space.
-        exo_critic: Log-space probe detecting alignment between Z_exo_pure and Score.
-        endo_critic: Log-space probe detecting alignment between Z_endo_pure and Z_exo_pure.
+        exo_critic: Log-space probe detecting concordance between Z_exo_pure and Score.
+        endo_critic: Log-space probe detecting concordance between Z_endo_pure and Z_exo_pure.
     """
 
     endo_latent: int = eqx.field(static=True)
@@ -116,8 +117,8 @@ class AFPModel(Model):
             exo_predictor=AffineWithDropout.create(
                 exo_latent, encoded_obs_features, streams=streams
             ),
-            exo_critic=GatedProjection.create(exo_latent, encoded_obs_features, streams=streams),
-            endo_critic=GatedProjection.create(endo_latent, exo_latent, streams=streams),
+            exo_critic=GatedProjection.create(encoded_obs_features, exo_latent, streams=streams),
+            endo_critic=GatedProjection.create(exo_latent, endo_latent, streams=streams),
             _x_flattener=FixedParameter(x_flattener),
             _y_flattener=FixedParameter(y_flattener),
             _frequencies=FixedParameter(freqs),
@@ -126,44 +127,30 @@ class AFPModel(Model):
     def _adversarial_loss(
         self,
         critic: GatedProjection,
-        z_pure: JaxArray,
-        target: JaxArray,
+        u: JaxArray,
+        z: JaxArray,
         *,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxArray:
-        """Compute the combined adversarial loss for one critic/purifier pair.
+        """Compute one adversarial loss with reversed critic cotangents.
 
-        Returns purifier_loss + critic_loss, where:
-
-        - purifier_loss: gradient flows through z_pure (critic params stopped).
-        - critic_loss: gradient flows through critic params (z_pure stopped), negated so
-          that minimising the total loss makes the critic *maximise* alignment.
+        The primal loss is ``decorrelation_loss(critic(stop_gradient(u)), z)``. Minimizing it
+        pushes ``z`` away from the critic prediction, while ``_negate_cotangent`` makes the critic
+        parameters maximize the same concordance.
 
         Args:
             critic: The adversarial critic module.
-            z_pure: Purified latent representation, shape (..., latent).
-            target: Target phasors to align against (stop_gradient applied internally).
+            u: Nuisance phasor.
+            z: Message phasor.
             streams: RNG streams.
             inference: Whether to run in inference mode.
 
         Returns:
             Scalar adversarial loss contribution.
         """
-        sg_target = jax.lax.stop_gradient(target)
-        purifier_loss = decorrelation_loss(
-            jax.lax.stop_gradient(critic).infer(z_pure, streams=streams, inference=inference),
-            sg_target,
-        )
-        critic_loss = -decorrelation_loss(
-            critic.infer(
-                jax.lax.stop_gradient(z_pure),
-                streams=streams,
-                inference=inference,
-            ),
-            sg_target,
-        )
-        return jnp.mean(purifier_loss) + jnp.mean(critic_loss)
+        prediction = critic.infer(stop_gradient(u), streams=streams, inference=inference)
+        return jnp.sum(decorrelation_loss(_negate_cotangent(prediction), z))
 
     @override
     def infer(
@@ -195,31 +182,16 @@ class AFPModel(Model):
         # Reconstruction loss and score (∂loss/∂ẑ).
         loss_and_score = spectral_reconstruction_loss_and_score(z_obs, z_hat)
         recon_loss = loss_and_score.loss
-        s = loss_and_score.score
+        score = loss_and_score.score
 
-        # Monitoring losses (stop_gradient so they don't affect training).
-        exo_loss: JaxArray = jax.lax.stop_gradient(
-            decorrelation_loss(
-                self.exo_critic.infer(z_exo_pure, streams=streams, inference=inference),
-                jax.lax.stop_gradient(s),
-            )
+        # Adversarial losses double as telemetry; _adversarial_loss handles gradient routing.
+        exo_loss = self._adversarial_loss(
+            self.exo_critic, score, z_exo_pure, streams=streams, inference=inference
         )
-        endo_loss: JaxArray = jax.lax.stop_gradient(
-            decorrelation_loss(
-                self.endo_critic.infer(z_endo_pure, streams=streams, inference=inference),
-                jax.lax.stop_gradient(z_exo_pure),
-            )
+        endo_loss = self._adversarial_loss(
+            self.endo_critic, z_exo_pure, z_endo_pure, streams=streams, inference=inference
         )
-
-        total_loss = (
-            jnp.mean(recon_loss)
-            + self._adversarial_loss(
-                self.exo_critic, z_exo_pure, s, streams=streams, inference=inference
-            )
-            + self._adversarial_loss(
-                self.endo_critic, z_endo_pure, z_exo_pure, streams=streams, inference=inference
-            )
-        )
+        total_loss = jnp.sum(recon_loss) + exo_loss + endo_loss
 
         afp_config = AFPConfiguration(
             recon_loss=recon_loss,
