@@ -22,7 +22,7 @@ from cem.structure.solution.inference import (
 )
 
 from .model import RLModel
-from .problem import ProblemAction, ProblemReward, RLProblem
+from .problem import RLProblem
 
 
 class _RLInferenceState(_InferenceState):
@@ -117,7 +117,7 @@ class RLInference(Inference):
     def _rl_inference_body_fun(
         self,
         body_function: Callable[[_InferenceState], tuple[Any, frozendict[str, NodeConfiguration]]],
-        problem: RLProblem[ProblemState, ProblemAction, ProblemReward],
+        problem: RLProblem,
         learnable_parameters: Model,
         inference_state: _RLInferenceState,
     ) -> _RLInferenceState:
