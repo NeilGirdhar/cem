@@ -33,7 +33,7 @@ class _SupervisedLossPlotter(PlotterWithSmoothGraph):
         if losses.ndim > 1:
             losses = np.mean(losses, axis=tuple(range(1, losses.ndim)))
         times = np.arange(losses.shape[0], dtype=np.float64)
-        ax.plot(times, smooth_data(losses, self.smoothing), label=label or "Loss")
+        ax.plot(times, smooth_data(losses, self.smoothing, log_space=True), label=label or "Loss")
         ax.set_xlabel("Episode")
         ax.set_ylabel("Loss")
         ax.set_yscale("log")
