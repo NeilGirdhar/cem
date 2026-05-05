@@ -27,6 +27,7 @@ from cem.structure.solver import Solver, float_field, int_field
 from .problem import (
     SupervisedProblem,
     SupervisedProblemState,
+    load_hf_tabular_regression,
     load_iris,
     load_synthetic_regression,
 )
@@ -56,11 +57,21 @@ def _y_flat_observed(observation_y: JaxRealArray) -> frozendict[str, JaxRealArra
 class DatasetKind(Enum):
     iris = "iris"
     synthetic_regression = "synthetic_regression"
+    bike_sharing_demand = "bike_sharing_demand"
+    elevators = "elevators"
+    cpu_activity = "cpu_activity"
 
 
 class LinkKind(Enum):
     perceptron = "perceptron"
     phasor = "phasor"
+
+
+_HF_TABULAR_REGRESSION_CONFIGS: dict[DatasetKind, str] = {
+    DatasetKind.bike_sharing_demand: "reg_num_Bike_Sharing_Demand",
+    DatasetKind.elevators: "reg_num_elevators",
+    DatasetKind.cpu_activity: "reg_num_cpu_act",
+}
 
 
 class PerceptronSupervisedModel(Model):
@@ -193,6 +204,8 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     def problem(self) -> SupervisedProblem:
         if self.dataset_kind == DatasetKind.iris:
             return load_iris()
+        if self.dataset_kind in _HF_TABULAR_REGRESSION_CONFIGS:
+            return load_hf_tabular_regression(_HF_TABULAR_REGRESSION_CONFIGS[self.dataset_kind])
         return load_synthetic_regression()
 
     @override

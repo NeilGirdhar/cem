@@ -9,6 +9,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
+import pandas as pd
 from datasets import load_dataset
 from efax import Flattener, UnitVarianceNormalNP
 from sklearn.datasets import make_classification, make_regression
@@ -131,6 +132,45 @@ def _encode_dataset(
     return x_flat, y_flat, x_prior, y_prior, n_features, n_targets
 
 
+def problem_from_numeric_dataframe(
+    df: pd.DataFrame,
+    *,
+    max_rows: int | None,
+    seed: int,
+) -> SupervisedProblem:
+    """Build a supervised problem from a numeric table, using the final column as target."""
+    numeric_df = df.select_dtypes(include=[np.number]).dropna()
+    if len(numeric_df.columns) < 2:  # noqa: PLR2004
+        msg = "tabular regression data must contain at least one numeric feature and target"
+        raise ValueError(msg)
+    if max_rows is not None:
+        numeric_df = numeric_df.sample(frac=1.0, random_state=seed).head(max_rows)
+    x = numeric_df.iloc[:, :-1].to_numpy(dtype=np.float64)
+    y = numeric_df.iloc[:, -1].to_numpy(dtype=np.float64)
+    x_flat, y_flat, x_prior, y_prior, n_features, n_targets = _encode_dataset(x, y)
+    return SupervisedProblem(
+        x_flat=x_flat,
+        y_flat=y_flat,
+        x_prior=x_prior,
+        y_prior=y_prior,
+        n_features=n_features,
+        n_targets=n_targets,
+    )
+
+
+@cache
+def load_hf_tabular_regression(
+    config_name: str,
+    *,
+    max_rows: int | None = 5000,
+    seed: int = 0,
+) -> SupervisedProblem:
+    """Load a numeric Hugging Face tabular-regression config as a supervised problem."""
+    ds = load_dataset("inria-soda/tabular-benchmark", config_name, split="train")
+    df = cast("pd.DataFrame", ds.to_pandas())
+    return problem_from_numeric_dataframe(df, max_rows=max_rows, seed=seed)
+
+
 @cache
 def load_iris() -> SupervisedProblem:
     """Load the Iris dataset from HuggingFace as a 4-feature -> 1-target problem.
@@ -141,8 +181,6 @@ def load_iris() -> SupervisedProblem:
     Returns:
         A :class:`SupervisedProblem` with 150 samples, 4 features, 1 target.
     """
-    import pandas as pd  # noqa: PLC0415
-
     ds = load_dataset(
         "scikit-learn/iris",
         split="train",

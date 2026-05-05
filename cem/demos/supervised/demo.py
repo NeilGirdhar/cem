@@ -61,8 +61,8 @@ class SupervisedVariant(Variant):
     ) -> float:
         telemetry = LossTelemetry(selected_node="target")
         losses = training_results.telemetries[telemetry]
-        # Shape after telemetry stacking: (training_examples, training_batch_size).
-        # LossTelemetry already returns each example's summed target objective.
+        # Shape after telemetry stacking: (training_examples,).
+        # Each episode records the summed target objective after the batch update.
         return float(jnp.mean(losses))
 
 
@@ -84,5 +84,35 @@ supervised_synthetic_regression_demo = Demo(
             dataset_kind=DatasetKind.synthetic_regression,
             link_kind=LinkKind.phasor,
         ),
+    ],
+)
+
+supervised_bike_sharing_demand_demo = Demo(
+    name="supervised-bike-sharing-demand",
+    variants=[
+        SupervisedVariant(
+            dataset_kind=DatasetKind.bike_sharing_demand,
+            link_kind=LinkKind.perceptron,
+        ),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.bike_sharing_demand,
+            link_kind=LinkKind.phasor,
+        ),
+    ],
+)
+
+supervised_elevators_demo = Demo(
+    name="supervised-elevators",
+    variants=[
+        SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.perceptron),
+        SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.phasor),
+    ],
+)
+
+supervised_cpu_activity_demo = Demo(
+    name="supervised-cpu-activity",
+    variants=[
+        SupervisedVariant(dataset_kind=DatasetKind.cpu_activity, link_kind=LinkKind.perceptron),
+        SupervisedVariant(dataset_kind=DatasetKind.cpu_activity, link_kind=LinkKind.phasor),
     ],
 )
