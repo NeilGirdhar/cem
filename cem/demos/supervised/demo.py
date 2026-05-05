@@ -14,7 +14,11 @@ from cem.structure.solver import Solver
 
 from .plotter import SupervisedTrainingLossPlotter
 from .problem import SupervisedProblem
-from .solution import DatasetKind, LinkKind, SupervisedSolver
+from .solution import (
+    DatasetKind,
+    LinkKind,
+    SupervisedSolver,
+)
 
 _PLATEAU_WEIGHT = 10.0
 _COMPUTE_WEIGHT = 0.1
@@ -94,10 +98,16 @@ class SupervisedDemo(Demo):
 
 
 # TODO: Move this to a shared demo-loss utility once another demo needs plateau scoring.
+SUPERVISED_MIN_TRAINING_EXAMPLES = 4
+
+
 def _plateau_gap_and_final_mean(losses: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    if losses.shape[0] < SUPERVISED_MIN_TRAINING_EXAMPLES:
+        msg = "supervised demo plateau scoring requires at least 4 training examples"
+        raise ValueError(msg)
     quarter = max(1, losses.shape[0] // 4)
-    second_last_mean = jnp.mean(losses[-2 * quarter : -quarter])
     final_mean = jnp.mean(losses[-quarter:])
+    second_last_mean = jnp.mean(losses[-2 * quarter : -quarter])
     plateau_gap = jnp.abs(final_mean - second_last_mean) / (second_last_mean + _LOSS_EPSILON)
     return plateau_gap, final_mean
 

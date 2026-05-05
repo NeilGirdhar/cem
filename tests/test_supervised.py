@@ -242,6 +242,28 @@ def test_supervised_demo_loss_penalizes_unsettled_training() -> None:
     assert unsettled_loss > settled_loss
 
 
+def test_supervised_demo_loss_rejects_fewer_than_four_training_examples() -> None:
+    variants = supervised_bike_sharing_demand_demo.variants
+    losses = jnp.array([2.0])
+
+    with pytest.raises(ValueError, match="at least 4 training examples"):
+        supervised_bike_sharing_demand_demo.demo_loss(
+            [
+                (
+                    variants[0],
+                    _training_results_with_target_losses(losses),
+                    _inference_results(),
+                ),
+                (
+                    variants[1],
+                    _training_results_with_target_losses(losses),
+                    _inference_results(),
+                ),
+            ],
+            {"training_examples": 1, "training_batch_size": 4, "hidden_size": 8},
+        )
+
+
 def test_supervised_demo_loss_penalizes_compute_proxy() -> None:
     variants = supervised_bike_sharing_demand_demo.variants
     losses = jnp.array([2.0, 2.0, 2.0, 2.0])
