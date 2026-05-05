@@ -115,7 +115,8 @@ def objective(
                 packet=packet
             )
             variant_results.append((variant, training_results, inference_results))
-    return demo.demo_loss(variant_results, hyperparameters)
+    with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
+        return demo.demo_loss(variant_results, hyperparameters)
 
 
 @app.command()
