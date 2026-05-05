@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import replace
 from enum import StrEnum
 from typing import Annotated, Any
@@ -14,7 +15,7 @@ from optuna.distributions import (
     FloatDistribution,
     IntDistribution,
 )
-from optuna.study import create_study, delete_study
+from optuna.study import Study, create_study, delete_study
 from optuna.trial import Trial, create_trial
 from tjax import GenericString, register_graph_as_jax_pytree
 from typer import Argument, BadParameter, Option
@@ -84,7 +85,7 @@ def objective(
     *,
     wandb: bool,
     profiling: bool,
-    progress_bar: bool,
+    progress_manager: rp.Progress | None,
 ) -> float:
     adjusted_wandb_settings = (
         replace(wandb_settings, name=demo.name, config=hyperparameters, reinit=True)
@@ -103,9 +104,9 @@ def objective(
         else:
             variant_hyper = hyperparameters
         solver = variant.create_solver().populate_from_hyperparameters(variant_hyper)
-        progress_manager = console_progress_bar() if progress_bar else rp.Progress(disable=True)
         packet = ExecutionPacket(
             progress_manager=progress_manager,
+            run_label=variant.label or None,
             telemetries=variant.all_telemetries(),
             wandb_settings=adjusted_wandb_settings,
             enable_profiling=profiling,
@@ -117,6 +118,45 @@ def objective(
             variant_results.append((variant, training_results, inference_results))
     with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
         return demo.demo_loss(variant_results, hyperparameters)
+
+
+type BoundObjective = Callable[[dict[str, Any], rp.Progress | None], float]
+
+
+def _progress_manager(*, enabled: bool) -> rp.Progress:
+    return console_progress_bar() if enabled else rp.Progress(disable=True)
+
+
+def _run_default_objective(
+    bound_objective: BoundObjective,
+    hyperparameters: dict[str, Any],
+    *,
+    progress_bar: bool,
+) -> float:
+    progress_manager = _progress_manager(enabled=progress_bar)
+    with progress_manager:
+        task_id = progress_manager.add_task("Optimization", total=1)
+        value = bound_objective(hyperparameters, progress_manager)
+        progress_manager.advance(task_id, 1)
+        return value
+
+
+def _run_single_task_trials(
+    study: Study,
+    hyper_space: dict[str, BaseDistribution],
+    trials: int,
+    bound_objective: BoundObjective,
+    *,
+    progress_bar: bool,
+) -> None:
+    progress_manager = _progress_manager(enabled=progress_bar)
+    with progress_manager:
+        task_id = progress_manager.add_task("Optimization", total=trials)
+        for _ in range(trials):
+            trial = study.ask(hyper_space)
+            value = bound_objective(trial.params, progress_manager)
+            study.tell(trial, values=value)
+            progress_manager.advance(task_id, 1)
 
 
 @app.command()
@@ -158,19 +198,21 @@ def optimize(  # noqa: C901
     if jax_is_initialized():
         raise RuntimeError
 
-    def bound_objective(hyperparameters: dict[str, Any]) -> float:
+    def bound_objective(
+        hyperparameters: dict[str, Any], progress_manager: rp.Progress | None
+    ) -> float:
         return objective(
             demo,
             hyperparameters,
             wandb=wandb,
             profiling=profiling,
-            progress_bar=progress_bar and mode != OptimizationMode.multi_task,
+            progress_manager=progress_manager,
         )
 
     if defaults:
         hyperparameters = demo.default_hyperparameters()
         _log.info("Running with defaults: %s", GenericString(hyperparameters))
-        value = bound_objective(hyperparameters)
+        value = _run_default_objective(bound_objective, hyperparameters, progress_bar=progress_bar)
         trial_params = {k: v for k, v in hyperparameters.items() if k in hyper_space}
         study.add_trial(
             create_trial(params=trial_params, distributions=dict(hyper_space), value=value)
@@ -179,10 +221,13 @@ def optimize(  # noqa: C901
         _log.info("Optimizing: %s", GenericString(tuple(hyper_space)))
         match mode:
             case OptimizationMode.single_task:
-                for _ in range(trials):
-                    trial = study.ask(hyper_space)
-                    value = bound_objective(trial.params)
-                    study.tell(trial, values=value)
+                _run_single_task_trials(
+                    study,
+                    hyper_space,
+                    trials,
+                    bound_objective,
+                    progress_bar=progress_bar,
+                )
             case OptimizationMode.multi_task:
 
                 def parallel_objective(trial: Trial) -> float:
@@ -190,7 +235,7 @@ def optimize(  # noqa: C901
                         dist_name: suggest_from_distribution(trial, dist_name, distribution)
                         for dist_name, distribution in hyper_space.items()
                     }
-                    return bound_objective(hyperparameters)
+                    return bound_objective(hyperparameters, None)
 
                 study.optimize(
                     parallel_objective,

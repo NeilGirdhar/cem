@@ -13,4 +13,5 @@ def console_progress_bar() -> rp.Progress:
         rp.TimeElapsedColumn(),
         rp.TextColumn("•"),
         rp.TimeRemainingColumn(compact=True, elapsed_when_finished=True),
+        transient=True,
     )

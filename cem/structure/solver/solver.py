@@ -58,7 +58,7 @@ class Solver[P: Problem](eqx.Module):
     def training_results(self, *, packet: ExecutionPacket) -> TrainingResults:
         solution = self.solution()
         return train_episodes(
-            self.name,
+            packet.run_label or self.name,
             self.training_batch_size,
             solution,
             packet,
@@ -111,7 +111,7 @@ class Solver[P: Problem](eqx.Module):
         solution = self.solution()
         inference_key = jr.key(self.inference_seed)
         return infer_episodes(
-            self.name,
+            packet.run_label or self.name,
             self.inference_batch_size,
             self.inference_examples,
             inference_key,

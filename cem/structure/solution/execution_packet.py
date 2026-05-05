@@ -9,6 +9,7 @@ from .wandb_tools import WAndBInitSettings
 
 class ExecutionPacket(eqx.Module):
     progress_manager: rp.Progress | None = None
+    run_label: str | None = None
     telemetries: Telemetries = eqx.field(default_factory=Telemetries)
     wandb_settings: WAndBInitSettings | None = None
     enable_profiling: bool = False

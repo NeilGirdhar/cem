@@ -80,7 +80,6 @@ def train_episodes(
     if episodes <= 0:
         msg = f"training_examples must be > 0, got {episodes}"
         raise ValueError(msg)
-    log.info("Training")
     solution_state = solution.solution_state
     data_source = solution.problem.create_data_source()
     example_key_base, inference_key_base = jr.split(key)

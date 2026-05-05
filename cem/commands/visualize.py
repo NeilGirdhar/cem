@@ -67,7 +67,9 @@ def visualize(
         solver = variant.create_solver().populate_from_hyperparameters(variant_hyper)
         with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
             packet = ExecutionPacket(
-                progress_manager=console_progress_bar(), telemetries=variant.all_telemetries()
+                progress_manager=console_progress_bar(),
+                run_label=variant.label or None,
+                telemetries=variant.all_telemetries(),
             )
             results = solver.training_and_inference_result(packet=packet)
         labeled_results.append((variant.label, results))

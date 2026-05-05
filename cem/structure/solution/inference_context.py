@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from functools import partial
 from typing import Any
 
@@ -15,8 +14,6 @@ from cem.structure.solution.inference import Inference, InferenceResult, Solutio
 from .execution_context import ExecutionContext, ExecutionPacket
 from .results import InferenceResults
 from .telemetry import Telemetry
-
-log = logging.getLogger(__name__)
 
 
 def inference_snapshots(
@@ -81,7 +78,6 @@ def infer_episodes(
         raise ValueError(msg)
     if episodes == 0:
         return InferenceResults(count=0, telemetries={})
-    log.info("Inferring")
     data_source = problem.create_data_source()
     with ExecutionContext.create(
         solver_name=solver_name,

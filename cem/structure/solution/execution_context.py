@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import tempfile
 from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
@@ -13,7 +12,7 @@ import numpy as np
 import rich.progress as rp
 from jax import tree
 from jax.profiler import trace
-from tjax import JaxArray, Timer, display_time
+from tjax import JaxArray
 from tjax.dataclasses import DataclassInstance
 from wandb.sdk.wandb_run import Run
 
@@ -21,11 +20,21 @@ from .execution_packet import ExecutionPacket
 from .telemetry import Telemetry
 from .wandb_tools import WandBDict, wandb_init
 
-log = logging.getLogger(__name__)
+_JOB_TYPE_TITLES = {
+    "inference": "Inferring",
+    "training": "Training",
+}
 
 
 def _stack(*elements: JaxArray) -> JaxArray:
     return jnp.asarray(np.stack(elements))  # np.stack is much faster than jnp.stack
+
+
+def _task_title(job_type: str, solver_name: str | None) -> str:
+    title = _JOB_TYPE_TITLES.get(job_type, job_type.title())
+    if solver_name is None:
+        return title
+    return f"{title} {solver_name}"
 
 
 def _snapshots_to_wandb_dict(x: DataclassInstance | dict[Any, Any], /) -> WandBDict:
@@ -102,11 +111,11 @@ class ExecutionContext[T: Telemetry]:
         exit_stack = ExitStack()
         task_id: rp.TaskID | None = None
         if packet.progress_manager is not None:
-            task_title = (
-                job_type.title() if solver_name is None else f"{solver_name} {job_type.title()}"
+            task_id = packet.progress_manager.add_task(
+                _task_title(job_type, solver_name), total=episodes
             )
-            task_id = packet.progress_manager.add_task(task_title, total=episodes)
-            exit_stack.enter_context(packet.progress_manager)
+            if not packet.progress_manager.live.is_started:
+                exit_stack.enter_context(packet.progress_manager)
         if packet.wandb_settings is not None and use_wandb:
             wandb_settings = replace(packet.wandb_settings, job_type=job_type, group=solver_name)
             assert isinstance(wandb_settings.dir, Path)
@@ -126,12 +135,8 @@ class ExecutionContext[T: Telemetry]:
         with exit_stack:
             yield inference_manager
 
-        with Timer("Stacking"):
-            inference_manager._stack_telemetries()
+        inference_manager._stack_telemetries()
 
         if packet.progress_manager is not None:
             assert task_id is not None
-            task = packet.progress_manager._tasks[task_id]  # noqa: SLF001
-            if task.elapsed is not None:
-                log.info(f"Average iteration period {display_time(task.elapsed * 1e6 / episodes)}")
             packet.progress_manager.remove_task(task_id)
