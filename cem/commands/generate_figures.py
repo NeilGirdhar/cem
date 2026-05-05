@@ -23,7 +23,7 @@ class _MatplotlibSettings(eqx.Module):
 
 def _pdf_matplotlib_settings() -> _MatplotlibSettings:
     dpi = 1200
-    width = 8.5 - 0.5 / 2.54
+    width = 8.5 - 4 / 2.54
     height = width / golden_ratio
     figure_size = (width, height)
     return _MatplotlibSettings(
