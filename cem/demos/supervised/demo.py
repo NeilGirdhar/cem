@@ -61,6 +61,8 @@ class SupervisedVariant(Variant):
     ) -> float:
         telemetry = LossTelemetry(selected_node="target")
         losses = training_results.telemetries[telemetry]
+        # Shape after telemetry stacking: (training_examples, training_batch_size).
+        # LossTelemetry already returns each example's summed target objective.
         return float(jnp.mean(losses))
 
 

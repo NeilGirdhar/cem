@@ -26,12 +26,17 @@ from .problem import IVObservation, IVProblem
 
 
 class AFPConfiguration(NodeConfiguration):
-    """Per-step AFP losses, stored for telemetry.
+    """Per-example AFP objective terms, stored for telemetry.
+
+    Each field is a summed scalar objective term for one model inference.  Telemetry accumulation
+    may add leading episode/example axes to these arrays.
 
     Attributes:
-        recon_loss: Per-element von Mises reconstruction cross-entropy, shape (..., obs_features).
-        exo_loss: Concordance Re(exo_critic(score)^H · z_exo_pure), shape (...).
-        endo_loss: Concordance Re(endo_critic(z_exo_pure)^H · z_endo_pure), shape (...).
+        recon_loss: Summed reconstruction objective, scalar before telemetry stacking.
+        exo_loss: Summed exogeneity objective from
+            Re(exo_critic(score)^H · z_exo_pure), scalar before telemetry stacking.
+        endo_loss: Summed endogenous-separation objective from
+            Re(endo_critic(z_exo_pure)^H · z_endo_pure), scalar before telemetry stacking.
     """
 
     recon_loss: JaxArray
@@ -128,7 +133,7 @@ class AFPModel(Model):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxArray:
-        """Compute one adversarial loss with reversed critic cotangents.
+        """Compute one summed adversarial objective with reversed critic cotangents.
 
         The primal loss is ``decorrelation_loss(critic(stop_gradient(u)), z)``. Minimizing it
         pushes ``z`` away from the critic prediction, while ``negate_cotangent`` makes the critic
@@ -142,7 +147,7 @@ class AFPModel(Model):
             inference: Whether to run in inference mode.
 
         Returns:
-            Scalar adversarial loss contribution.
+            Scalar per-example adversarial objective contribution.
         """
         prediction = critic.infer(stop_gradient(u), streams=streams, inference=inference)
         return jnp.sum(decorrelation_loss(negate_cotangent(prediction), z))
@@ -179,7 +184,7 @@ class AFPModel(Model):
         recon_loss = loss_and_score.loss
         score = loss_and_score.score
 
-        # Adversarial losses double as telemetry; _adversarial_loss handles gradient routing.
+        # Objective terms are also stored for telemetry; _adversarial_loss handles gradient routing.
         exo_loss = self._adversarial_loss(
             self.exo_critic, score, z_exo_pure, streams=streams, inference=inference
         )

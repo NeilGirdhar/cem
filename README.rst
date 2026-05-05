@@ -108,6 +108,28 @@ Model layer
     useful for plotting.  ``TargetConfiguration`` adds a ``loss`` dict and
     implements ``total_loss()`` by summing over fields.
 
+Loss reduction policy
+---------------------
+
+Reduction semantics are part of the model contract.
+
+Use ``jnp.sum`` for objective terms inside one model inference.  Feature axes,
+field axes, phasor-frequency axes, and per-node objective terms are additive
+evidence or additive penalties for the same example.  ``ModelResult.loss``
+should therefore be a per-example scalar formed by summing those contributions.
+
+Use ``jnp.mean`` only for empirical averages over independent examples, samples,
+or reporting windows.  The training infrastructure already averages a batch of
+per-example ``ModelResult.loss`` values in ``Inference._v_infer``.  Do not divide
+inside a model merely to make the loss smaller; that changes the objective scale
+relative to feature count and other nodes.
+
+Telemetry may store normalized values for readability, but names and docstrings
+must say so.  If a demo score should report the objective, first sum all
+non-example axes to recover the per-example objective and then average over
+examples.  Plotters may average non-time axes when the goal is visual
+normalization rather than the training objective.
+
 Parameter system
 ----------------
 

@@ -13,41 +13,45 @@ class LossAndScore(eqx.Module):
     """Spectral reconstruction loss and its phasor-space gradient, computed jointly via autodiff.
 
     Attributes:
-        loss: Per-element von Mises cross-entropy, same shape as the input phasors.
-        score: ∂loss/∂ẑ — gradient of the summed loss w.r.t. predicted phasors.
+        loss: Summed von Mises cross-entropy over the final phasor-feature axis.
+        score: ∂sum(loss)/∂ẑ — gradient of the total summed loss w.r.t. predicted phasors.
     """
 
     loss: JaxArray
     score: JaxComplexArray
 
     def total_loss(self) -> JaxArray:
-        """Return the summed scalar spectral reconstruction loss."""
+        """Return the scalar spectral reconstruction objective."""
         return jnp.sum(self.loss)
 
 
 def spectral_reconstruction_loss_and_score(
     observed: JaxComplexArray, z_hat: JaxComplexArray
 ) -> LossAndScore:
-    """Compute spectral reconstruction loss and score jointly for a latent variable.
+    """Compute spectral reconstruction loss and score jointly.
 
     Treats observed and predicted phasors as von Mises natural parameters and computes their
-    cross-entropy directly in phasor space.  Uses ``jax.value_and_grad`` to obtain both the
-    per-element losses and the score ∂loss/∂ẑ in a single pass.
+    cross-entropy directly in phasor space.  The final axis is the phasor-feature axis and is
+    summed into the per-example objective.
 
     Args:
-        observed: Observed phasors.
-        z_hat: Predicted phasors from the network.
+        observed: Observed phasors, shape ``(..., features)``.
+        z_hat: Predicted phasors from the network, shape ``(..., features)``.
 
     Returns:
-        LossAndScore with per-element von Mises cross-entropy and score ∂loss/∂ẑ.
+        ``LossAndScore`` with:
+
+        - ``loss``: summed spectral objective, shape ``(...)``.
+        - ``score``: gradient of ``jnp.sum(loss)`` w.r.t. ``z_hat``, shape ``(..., features)``.
     """
 
     def loss_fn(z: JaxComplexArray) -> tuple[JaxArray, JaxArray]:
-        losses = spectral_reconstruction_loss(observed, z)
-        return jnp.sum(losses), losses
+        elementwise_loss = spectral_reconstruction_loss(observed, z)
+        loss = jnp.sum(elementwise_loss, axis=-1)
+        return jnp.sum(loss), loss
 
-    (_, losses), score = jax.value_and_grad(loss_fn, has_aux=True)(z_hat)
-    return LossAndScore(loss=losses, score=score)
+    (_, loss), score = jax.value_and_grad(loss_fn, has_aux=True)(z_hat)
+    return LossAndScore(loss=loss, score=score)
 
 
 def spectral_reconstruction_loss(z: JaxArray, z_hat: JaxArray) -> JaxArray:

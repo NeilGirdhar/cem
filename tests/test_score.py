@@ -74,14 +74,15 @@ def test_reconstruction_loss_and_score_loss_shape() -> None:
     z = jnp.array([1 + 0j, 0.5 - 0.5j])
     z_hat = jnp.array([0.5 + 0.5j, 1 + 0j])
     out = spectral_reconstruction_loss_and_score(z, z_hat)
-    assert out.loss.shape == z_hat.shape
+    assert out.loss.shape == ()
 
 
 def test_reconstruction_loss_and_score_loss_matches_reconstruction_loss() -> None:
     observed = jnp.array([1 + 0j, 0.5 + 0.5j])
     z_hat = jnp.array([0.8 + 0.2j, 0.3 - 0.3j])
     out = spectral_reconstruction_loss_and_score(observed, z_hat)
-    assert jnp.allclose(out.loss, spectral_reconstruction_loss(observed, z_hat))
+    elementwise_loss = spectral_reconstruction_loss(observed, z_hat)
+    assert jnp.allclose(out.loss, jnp.sum(elementwise_loss))
 
 
 def test_reconstruction_loss_and_score_total_loss_is_scalar() -> None:
@@ -116,7 +117,7 @@ def test_reconstruction_loss_and_score_batched_shapes() -> None:
     z_hat = jnp.ones((3, 4), dtype=jnp.complex128) * (0.5 + 0.5j)
     out = spectral_reconstruction_loss_and_score(observed, z_hat)
     assert out.score.shape == (3, 4)
-    assert out.loss.shape == (3, 4)
+    assert out.loss.shape == (3,)
     assert out.total_loss().shape == ()
 
 
@@ -160,8 +161,8 @@ def test_phasor_target_configuration_total_loss_is_zero(
         values=frozendict({"obs": phasor}),
         observed_distributions=frozendict({"obs": dist.to_exp()}),
         score=jnp.zeros_like(phasor),
-        spectral_loss=frozendict({"obs": jnp.zeros(phasor.shape)}),
-        loss=frozendict({"obs": jnp.zeros(phasor.shape)}),
+        spectral_loss=frozendict({"obs": jnp.zeros(())}),
+        loss=frozendict({"obs": jnp.zeros(())}),
         predicted_distributions=frozendict({"obs": dist.to_exp()}),
     )
     assert jnp.allclose(config.total_loss(), 0.0)

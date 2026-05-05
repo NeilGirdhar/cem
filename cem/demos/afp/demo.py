@@ -37,9 +37,11 @@ class AFPVariant(Variant):
     ) -> float:
         telemetry = AFPTelemetry(selected_node="afp")
         config = inference_results.telemetries[telemetry]
-        return float(
-            jnp.mean(config.recon_loss) + jnp.mean(config.exo_loss) + jnp.mean(config.endo_loss)
-        )
+        # Shapes after telemetry stacking:
+        # recon_loss, exo_loss, endo_loss: (inference_examples, inference_batch_size)
+        # Each term is already a summed per-example objective.
+        per_example_objective = config.recon_loss + config.exo_loss + config.endo_loss
+        return float(jnp.mean(per_example_objective))
 
 
 afp_demo = Demo(name="afp", variants=[AFPVariant()])

@@ -23,7 +23,7 @@ class PhasorTargetConfiguration(PhasorInputConfiguration, TargetConfiguration):
     spectral_loss: frozendict[str, JaxArray]
 
     def total_spectral_loss(self) -> JaxArray:
-        """Return the summed scalar spectral loss across all fields."""
+        """Return summed spectral objective telemetry across all fields."""
         return sum((jnp.sum(v) for v in self.spectral_loss.values()), start=jnp.asarray(0.0))
 
 
@@ -120,12 +120,11 @@ class PhasorTargetNode(TargetNode):
             observed_distributions[field_name] = observed_exp
             scores.append(spectral.score)
             distributional_loss = observed_exp.cross_entropy(predicted_exp.to_nat())
-            field_spectral_loss = jnp.sum(spectral.loss, axis=-1)
-            spectral_losses[field_name] = jnp.mean(spectral.loss, axis=-1)
+            spectral_losses[field_name] = spectral.loss
             # Report distributional loss but optimize spectral gradient for testing purposes.
             losses[field_name] = copy_cotangent(
                 stop_gradient(distributional_loss),
-                field_spectral_loss,
+                spectral.loss,
             )
             predicted_distributions[field_name] = predicted_exp
 

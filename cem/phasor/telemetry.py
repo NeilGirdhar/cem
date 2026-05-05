@@ -12,7 +12,7 @@ from cem.structure.solution.training_solution import TrainingSolution
 
 
 class SpectralLossTelemetry(Telemetry):
-    """Telemetry that records the total spectral loss for a phasor target node."""
+    """Telemetry that records summed spectral objective loss for a phasor target node."""
 
     selected_node: str = field(static=True)
 
