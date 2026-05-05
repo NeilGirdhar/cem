@@ -10,14 +10,12 @@ from cem.demos.supervised.demo import (
     supervised_cpu_activity_demo,
     supervised_elevators_demo,
     supervised_iris_demo,
-    supervised_synthetic_regression_demo,
 )
 from cem.structure.plotter.demo import Demo
 
 
 class DemoEnum(Enum):
     supervised_iris = "supervised-iris"
-    supervised_synthetic_regression = "supervised-synthetic-regression"
     supervised_bike_sharing_demand = "supervised-bike-sharing-demand"
     supervised_elevators = "supervised-elevators"
     supervised_cpu_activity = "supervised-cpu-activity"
@@ -26,7 +24,6 @@ class DemoEnum(Enum):
 
 demo_registry: dict[DemoEnum, Demo] = {
     DemoEnum.supervised_iris: supervised_iris_demo,
-    DemoEnum.supervised_synthetic_regression: supervised_synthetic_regression_demo,
     DemoEnum.supervised_bike_sharing_demand: supervised_bike_sharing_demand_demo,
     DemoEnum.supervised_elevators: supervised_elevators_demo,
     DemoEnum.supervised_cpu_activity: supervised_cpu_activity_demo,

@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from datasets import load_dataset
 from efax import Flattener, UnitVarianceNormalNP
-from sklearn.datasets import make_classification, make_regression
+from sklearn.datasets import make_classification
 from sklearn.preprocessing import StandardScaler
 from tjax import JaxRealArray, KeyArray
 
@@ -137,16 +137,20 @@ def problem_from_numeric_dataframe(
     *,
     max_rows: int | None,
     seed: int,
+    n_targets: int = 1,
 ) -> SupervisedProblem:
-    """Build a supervised problem from a numeric table, using the final column as target."""
+    """Build a supervised problem from a numeric table, using final columns as targets."""
     numeric_df = df.select_dtypes(include=[np.number]).dropna()
-    if len(numeric_df.columns) < 2:  # noqa: PLR2004
+    if n_targets < 1:
+        msg = f"n_targets must be positive, got {n_targets}"
+        raise ValueError(msg)
+    if len(numeric_df.columns) <= n_targets:
         msg = "tabular regression data must contain at least one numeric feature and target"
         raise ValueError(msg)
     if max_rows is not None:
         numeric_df = numeric_df.sample(frac=1.0, random_state=seed).head(max_rows)
-    x = numeric_df.iloc[:, :-1].to_numpy(dtype=np.float64)
-    y = numeric_df.iloc[:, -1].to_numpy(dtype=np.float64)
+    x = numeric_df.iloc[:, :-n_targets].to_numpy(dtype=np.float64)
+    y = numeric_df.iloc[:, -n_targets:].to_numpy(dtype=np.float64)
     x_flat, y_flat, x_prior, y_prior, n_features, n_targets = _encode_dataset(x, y)
     return SupervisedProblem(
         x_flat=x_flat,
@@ -199,43 +203,6 @@ def load_iris() -> SupervisedProblem:
         y_prior=y_prior,
         n_features=n_features,
         n_targets=n_targets,
-    )
-
-
-@cache
-def load_synthetic_regression(
-    n_samples: int = 500,
-    n_features: int = 8,
-    n_targets: int = 2,
-    *,
-    seed: int = 0,
-) -> SupervisedProblem:
-    """Generate a synthetic regression dataset.
-
-    Args:
-        n_samples: Number of examples.
-        n_features: Number of input features.
-        n_targets: Number of regression targets.
-        seed: Random seed for reproducibility.
-
-    Returns:
-        A :class:`SupervisedProblem`.
-    """
-    x, y = make_regression(
-        n_samples=n_samples,
-        n_features=n_features,
-        n_targets=n_targets,
-        noise=0.1,
-        random_state=seed,
-    )
-    x_flat, y_flat, x_prior, y_prior, n_feats, n_tgts = _encode_dataset(x, y)
-    return SupervisedProblem(
-        x_flat=x_flat,
-        y_flat=y_flat,
-        x_prior=x_prior,
-        y_prior=y_prior,
-        n_features=n_feats,
-        n_targets=n_tgts,
     )
 
 

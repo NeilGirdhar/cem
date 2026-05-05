@@ -74,19 +74,6 @@ supervised_iris_demo = Demo(
     ],
 )
 
-supervised_synthetic_regression_demo = Demo(
-    name="supervised-synthetic-regression",
-    variants=[
-        SupervisedVariant(
-            dataset_kind=DatasetKind.synthetic_regression, link_kind=LinkKind.perceptron
-        ),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.synthetic_regression,
-            link_kind=LinkKind.phasor,
-        ),
-    ],
-)
-
 supervised_bike_sharing_demand_demo = Demo(
     name="supervised-bike-sharing-demand",
     variants=[

@@ -29,7 +29,6 @@ from .problem import (
     SupervisedProblemState,
     load_hf_tabular_regression,
     load_iris,
-    load_synthetic_regression,
 )
 
 
@@ -56,7 +55,6 @@ def _y_flat_observed(observation_y: JaxRealArray) -> frozendict[str, JaxRealArra
 
 class DatasetKind(Enum):
     iris = "iris"
-    synthetic_regression = "synthetic_regression"
     bike_sharing_demand = "bike_sharing_demand"
     elevators = "elevators"
     cpu_activity = "cpu_activity"
@@ -209,7 +207,8 @@ class SupervisedSolver(Solver[SupervisedProblem]):
             return load_iris()
         if self.dataset_kind in _HF_TABULAR_REGRESSION_CONFIGS:
             return load_hf_tabular_regression(_HF_TABULAR_REGRESSION_CONFIGS[self.dataset_kind])
-        return load_synthetic_regression()
+        msg = f"Unsupported supervised dataset kind: {self.dataset_kind}"
+        raise ValueError(msg)
 
     @override
     def create_model(

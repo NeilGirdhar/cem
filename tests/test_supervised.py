@@ -19,9 +19,8 @@ from cem.demos.supervised.demo import (
     supervised_cpu_activity_demo,
     supervised_elevators_demo,
     supervised_iris_demo,
-    supervised_synthetic_regression_demo,
 )
-from cem.demos.supervised.problem import SupervisedProblem, load_synthetic_regression
+from cem.demos.supervised.problem import SupervisedProblem
 from cem.demos.supervised.solution import DatasetKind, PhasorSupervisedModel
 from cem.phasor import PhasorTargetConfiguration
 from cem.phasor.frequency import frequency_base_for_domain_width
@@ -48,6 +47,20 @@ def _small_supervised_problem() -> SupervisedProblem:
     return supervised_problem.problem_from_numeric_dataframe(df, max_rows=16, seed=0)
 
 
+def _small_multi_target_problem() -> SupervisedProblem:
+    rng = np.random.default_rng(1)
+    x = rng.normal(size=(32, 4))
+    df = pd.DataFrame({f"x_{i}": x[:, i] for i in range(x.shape[1])})
+    df["target_0"] = 0.5 * x[:, 0] - 0.25 * x[:, 1]
+    df["target_1"] = -0.3 * x[:, 2] + 0.2 * x[:, 3]
+    return supervised_problem.problem_from_numeric_dataframe(
+        df,
+        max_rows=None,
+        seed=0,
+        n_targets=2,
+    )
+
+
 def _problem_with_targets(targets: np.ndarray) -> SupervisedProblem:
     features = np.linspace(-1.0, 1.0, targets.shape[0])
     df = pd.DataFrame({"feature": features, "target": targets})
@@ -57,7 +70,7 @@ def _problem_with_targets(targets: np.ndarray) -> SupervisedProblem:
 def test_phasor_supervised_multi_target_infer_splits_target_fields(
     streams: Mapping[str, RngStream],
 ) -> None:
-    problem = load_synthetic_regression()
+    problem = _small_multi_target_problem()
     model = PhasorSupervisedModel.create(
         problem,
         n_frequencies=10,
@@ -210,11 +223,4 @@ def test_supervised_iris_demo_second_half_loss_is_low() -> None:
     _assert_demo_second_half_loss_below(
         supervised_iris_demo,
         thresholds={"perceptron": 52.0, "phasor": 52.0, "phasor-spectral": 52.0},
-    )
-
-
-def test_supervised_synthetic_regression_demo_second_half_loss_is_low() -> None:
-    _assert_demo_second_half_loss_below(
-        supervised_synthetic_regression_demo,
-        thresholds={"perceptron": 120.0, "phasor": 230.0, "phasor-spectral": 120.0},
     )
