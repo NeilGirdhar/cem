@@ -39,7 +39,7 @@ class Solver[P: Problem](eqx.Module):
     name: str | None = None
     inference_examples: int = int_field(default=0, domain=IntDistribution(0, 0))
     inference_batch_size: int = int_field(
-        default=1, domain=IntDistribution(1, (1 << 32) - 1, log=True)
+        default=256, domain=IntDistribution(1, (1 << 32) - 1, log=True)
     )
     inference_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
 
@@ -48,7 +48,7 @@ class Solver[P: Problem](eqx.Module):
     )
     training_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
     training_batch_size: int = int_field(
-        default=1, domain=IntDistribution(1, (1 << 32) - 1, log=True)
+        default=256, domain=IntDistribution(1, (1 << 32) - 1, log=True)
     )
     parameters_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
     learning_rate: float = float_field(

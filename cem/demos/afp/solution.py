@@ -220,9 +220,7 @@ class AFPSolver(Solver[IVProblem]):
     """
 
     training_examples: int = int_field(default=3000, domain=IntDistribution(1, 1 << 17, log=True))
-    training_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
     inference_examples: int = int_field(default=0, domain=IntDistribution(0, 1 << 12))
-    inference_batch_size: int = int_field(default=32, domain=IntDistribution(1, 1 << 10, log=True))
     n_instruments: int = int_field(default=2, domain=IntDistribution(1, 8))
     n_confounders: int = int_field(default=1, domain=IntDistribution(1, 4))
     n_treatments: int = int_field(default=1, domain=IntDistribution(1, 4))

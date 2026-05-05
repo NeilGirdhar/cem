@@ -188,11 +188,8 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     link_kind: LinkKind = eqx.field(static=True)
     training_examples: int = int_field(
         default=200,
-        domain=IntDistribution(SUPERVISED_MIN_TRAINING_EXAMPLES, 1 << 16, log=True),
+        domain=IntDistribution(SUPERVISED_MIN_TRAINING_EXAMPLES, 1024, log=True),
         optimize=True,
-    )
-    training_batch_size: int = int_field(
-        default=32, domain=IntDistribution(1, 1 << 10, log=True), optimize=True
     )
     learning_rate: float = float_field(
         default=0.01, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
@@ -211,7 +208,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         Uses the tunable dimensions that dominate local training cost:
         ``training_examples * training_batch_size * hidden_size**2``.
         """
-        return jnp.asarray(self.training_examples * self.training_batch_size * self.hidden_size**2)
+        return jnp.asarray(self.training_examples * self.hidden_size**2)
 
     @override
     def problem(self) -> SupervisedProblem:
