@@ -16,7 +16,7 @@ from tjax import JaxRealArray, RngStream, frozendict
 
 from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
-from cem.phasor.frequency import geometric_frequencies
+from cem.phasor.frequency import frequency_base_for_domain_width, geometric_frequencies
 from cem.phasor.gated_projection import GatedProjection
 from cem.phasor.message import phasor_from_distribution
 from cem.phasor.target_node import PhasorTargetNode
@@ -131,7 +131,10 @@ class PhasorSupervisedModel(Model):
         *,
         streams: Mapping[str, RngStream],
     ) -> Self:
-        freqs = geometric_frequencies(n_frequencies, base=1)
+        target_domain_width = jnp.max(sup.y_flat) - jnp.min(sup.y_flat)
+        freqs = geometric_frequencies(
+            n_frequencies, base=frequency_base_for_domain_width(target_domain_width)
+        )
         in_size = sup.n_features * n_frequencies
         out_size = sup.n_targets * n_frequencies
         x_flattener, _ = Flattener.flatten(sup.x_prior, mapped_to_plane=True)

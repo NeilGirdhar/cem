@@ -24,6 +24,7 @@ from cem.demos.supervised.demo import (
 from cem.demos.supervised.problem import SupervisedProblem, load_synthetic_regression
 from cem.demos.supervised.solution import DatasetKind, PhasorSupervisedModel
 from cem.phasor import PhasorTargetConfiguration
+from cem.phasor.frequency import frequency_base_for_domain_width
 from cem.structure.plotter import Demo
 from cem.structure.solution import (
     ExecutionPacket,
@@ -47,6 +48,12 @@ def _small_supervised_problem() -> SupervisedProblem:
     return supervised_problem.problem_from_numeric_dataframe(df, max_rows=16, seed=0)
 
 
+def _problem_with_targets(targets: np.ndarray) -> SupervisedProblem:
+    features = np.linspace(-1.0, 1.0, targets.shape[0])
+    df = pd.DataFrame({"feature": features, "target": targets})
+    return supervised_problem.problem_from_numeric_dataframe(df, max_rows=None, seed=0)
+
+
 def test_phasor_supervised_multi_target_infer_splits_target_fields(
     streams: Mapping[str, RngStream],
 ) -> None:
@@ -66,6 +73,38 @@ def test_phasor_supervised_multi_target_infer_splits_target_fields(
     assert tuple(config.loss) == ("y_0", "y_1")
     assert config.score.shape == (problem.n_targets * 10,)
     assert jnp.isfinite(result.loss)
+
+
+def test_frequency_base_for_domain_width_keeps_unit_base_for_small_domains() -> None:
+    problem = _problem_with_targets(np.array([-1.0, 0.0, 1.0]))
+    domain_width = jnp.max(problem.y_flat) - jnp.min(problem.y_flat)
+    assert jnp.allclose(frequency_base_for_domain_width(domain_width), 1.0)
+
+
+def test_frequency_base_for_domain_width_scales_large_domains() -> None:
+    problem = _problem_with_targets(np.concatenate([np.zeros(99), np.array([10.0])]))
+    domain_width = jnp.max(problem.y_flat) - jnp.min(problem.y_flat)
+    expected = 0.9 * 2.0 * jnp.pi / domain_width
+    assert jnp.allclose(frequency_base_for_domain_width(domain_width), expected)
+
+
+def test_frequency_base_for_domain_width_handles_constant_targets() -> None:
+    problem = _problem_with_targets(np.array([3.0, 3.0, 3.0]))
+    domain_width = jnp.max(problem.y_flat) - jnp.min(problem.y_flat)
+    assert jnp.allclose(frequency_base_for_domain_width(domain_width), 1.0)
+
+
+def test_phasor_supervised_model_scales_target_frequencies(
+    streams: Mapping[str, RngStream],
+) -> None:
+    problem = _problem_with_targets(np.concatenate([np.zeros(99), np.array([10.0])]))
+    model = PhasorSupervisedModel.create(
+        problem,
+        n_frequencies=4,
+        hidden_size=8,
+        streams=streams,
+    )
+    assert model.target.frequencies.value[0] < 1.0
 
 
 def test_hf_tabular_regression_dataframe_loader_is_deterministic() -> None:

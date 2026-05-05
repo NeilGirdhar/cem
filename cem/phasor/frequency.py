@@ -4,7 +4,7 @@ from typing import Any
 
 import jax.numpy as jnp
 from efax import Flattener, NaturalParametrization
-from tjax import JaxArray, JaxRealArray
+from tjax import JaxArray, JaxRealArray, RealNumeric
 
 
 def make_frequency_grid[NP: NaturalParametrization[Any, Any]](
@@ -35,7 +35,7 @@ def make_frequency_grid[NP: NaturalParametrization[Any, Any]](
     return flattener.unflatten(t_flat)
 
 
-def geometric_frequencies(num_features: int, base: float = 1.0) -> JaxArray:
+def geometric_frequencies(num_features: int, base: RealNumeric = 1.0) -> JaxArray:
     """Generate geometrically spaced angular frequencies f_j = base · 2^j (rad/unit).
 
     **Discriminatory power.**  The phasor encoding of Normal(μ, σ²) at angular frequency f has
@@ -62,3 +62,10 @@ def geometric_frequencies(num_features: int, base: float = 1.0) -> JaxArray:
         Float array of shape (m,) with f_j = base / 2^j rad/unit, for j = 0, ..., m-1.
     """
     return base / jnp.pow(2.0, jnp.arange(num_features, dtype=jnp.float64))
+
+
+def frequency_base_for_domain_width(domain_width: JaxArray) -> JaxArray:
+    """Choose the highest frequency for a scalar domain width."""
+    # Keep the domain inside one full turn to avoid phase-wrap on decode.
+    safe_base = 0.9 * 2.0 * jnp.pi / domain_width
+    return jnp.where(domain_width > 0, jnp.minimum(1.0, safe_base), jnp.asarray(1.0))
