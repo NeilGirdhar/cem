@@ -15,7 +15,7 @@ class PerceptronTargetConfiguration(PerceptronInputConfiguration, TargetConfigur
 
 
 class PerceptronTargetNode(TargetNode):
-    """Computes cross-entropy loss between observed and predicted perceptron distributions.
+    """Computes KL loss between observed and predicted perceptron distributions.
 
     Attributes:
         field_sizes: Total number of prediction values per field, used to split the
@@ -46,7 +46,7 @@ class PerceptronTargetNode(TargetNode):
         flat_observed: frozendict[str, JaxRealArray],
         prediction: JaxRealArray,
     ) -> PerceptronTargetConfiguration:
-        """Compute cross-entropy loss between observed distributions and a prediction.
+        """Compute KL loss between observed distributions and a prediction.
 
         Args:
             flat_observed: Per-field flat distribution encodings in any shape with the
@@ -71,7 +71,7 @@ class PerceptronTargetNode(TargetNode):
             predicted_exp = predicted_np.to_exp()
             assert isinstance(predicted_exp, type(observed_exp))
             observed_distributions[field_name] = observed_exp
-            losses[field_name] = observed_exp.cross_entropy(predicted_np)
+            losses[field_name] = observed_exp.kl_divergence(predicted_np, self_nat=observed_np)
             predicted_distributions[field_name] = predicted_exp
 
         return PerceptronTargetConfiguration(

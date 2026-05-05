@@ -25,14 +25,13 @@ def test_reconstruction_loss_output_shape() -> None:
     assert spectral_reconstruction_loss(z, z).shape == (3, 4)
 
 
-def test_reconstruction_loss_zero_input_equals_log_2pi() -> None:
-    # z = z_hat = 0: log(2π I₀(0)) - Re(g(0) conj(0)) = log(2π * 1) - 0 = log(2π)
+def test_reconstruction_loss_zero_input_self_is_zero() -> None:
     z = jnp.zeros(2, dtype=jnp.complex128)
-    assert jnp.allclose(spectral_reconstruction_loss(z, z), jnp.log(2.0 * jnp.pi) * jnp.ones(2))
+    assert jnp.allclose(spectral_reconstruction_loss(z, z), jnp.zeros(2))
 
 
 def test_reconstruction_loss_self_is_minimum() -> None:
-    # L(z, z) ≤ L(z, z_hat) for small perturbation.
+    # KL(z || z_hat) is minimized at z_hat = z.
     z = jnp.array([1.0 + 0j])
     z_hat = jnp.array([1.1 + 0j])
     assert spectral_reconstruction_loss(z, z)[0] <= spectral_reconstruction_loss(z, z_hat)[0]

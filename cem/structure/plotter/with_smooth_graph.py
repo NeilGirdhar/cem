@@ -14,7 +14,16 @@ def smooth_data(
     values: NumpyIntegralArray | NumpyRealArray,
     smoothing: float,
 ) -> NumpyRealArray:
-    """Apply a Butterworth low-pass filter to a 1-D array."""
+    """Apply a Butterworth low-pass filter to a 1-D array.
+
+    Args:
+        values: Time-series values to smooth, shape ``(steps,)``.
+        smoothing: Log inverse cutoff frequency.  ``0`` disables smoothing; larger values
+            smooth more aggressively.  Useful plot values are usually in ``[0, 4]``.
+
+    Returns:
+        Smoothed values with the same shape as ``values``.
+    """
     assert values.ndim == 1
     np_values = np.astype(values, np.float64)
     if smoothing <= 0.0 or values.shape[-1] < 16:  # noqa: PLR2004

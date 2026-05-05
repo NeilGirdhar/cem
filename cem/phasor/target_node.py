@@ -30,8 +30,8 @@ class PhasorTargetConfiguration(PhasorInputConfiguration, TargetConfiguration):
 class PhasorTargetNode(TargetNode):
     """Target node computing reconstruction loss between observed and predicted distributions.
 
-    The distributional loss is reported but the spectral reconstruction loss drives the gradient,
-    which is better conditioned.
+    The reported distributional loss is KL(observed || predicted), but the spectral reconstruction
+    loss drives the gradient, which is better conditioned.
 
     Attributes:
         frequency_grids: Per-field frequency grid ``t``, shape ``(m * d,)`` each,
@@ -119,7 +119,9 @@ class PhasorTargetNode(TargetNode):
 
             observed_distributions[field_name] = observed_exp
             scores.append(spectral.score)
-            distributional_loss = observed_exp.cross_entropy(predicted_exp.to_nat())
+            distributional_loss = observed_exp.kl_divergence(
+                predicted_exp.to_nat(), self_nat=observed_np
+            )
             spectral_losses[field_name] = spectral.loss
             # Report distributional loss but optimize spectral gradient for testing purposes.
             losses[field_name] = copy_cotangent(

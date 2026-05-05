@@ -13,7 +13,7 @@ class LossAndScore(eqx.Module):
     """Spectral reconstruction loss and its phasor-space gradient, computed jointly via autodiff.
 
     Attributes:
-        loss: Summed von Mises cross-entropy over the final phasor-feature axis.
+        loss: Summed von Mises KL divergence over the final phasor-feature axis.
         score: ∂sum(loss)/∂ẑ — gradient of the total summed loss w.r.t. predicted phasors.
     """
 
@@ -31,7 +31,7 @@ def spectral_reconstruction_loss_and_score(
     """Compute spectral reconstruction loss and score jointly.
 
     Treats observed and predicted phasors as von Mises natural parameters and computes their
-    cross-entropy directly in phasor space.  The final axis is the phasor-feature axis and is
+    KL divergence directly in phasor space.  The final axis is the phasor-feature axis and is
     summed into the per-example objective.
 
     Args:
@@ -55,18 +55,20 @@ def spectral_reconstruction_loss_and_score(
 
 
 def spectral_reconstruction_loss(z: JaxArray, z_hat: JaxArray) -> JaxArray:
-    """Spectral reconstruction loss: von Mises cross-entropy between observed and predicted phasors.
+    """Spectral reconstruction loss: von Mises KL divergence from observed to predicted phasors.
 
-    L(z, ẑ) = log(2π I₀(|ẑ|)) − Re(g(z) conj(ẑ))
+    L(z, ẑ) = KL(ComplexVonMises(z) || ComplexVonMises(ẑ)).
 
     Args:
         z: Observed phasors.
         z_hat: Predicted phasors.
 
     Returns:
-        Elementwise cross-entropy, same shape as z and z_hat (real-valued).
+        Elementwise KL divergence, same shape as z and z_hat (real-valued).
     """
-    return ComplexVonMisesNP(z).to_exp().cross_entropy(ComplexVonMisesNP(z_hat))
+    observed = ComplexVonMisesNP(z)
+    predicted = ComplexVonMisesNP(z_hat)
+    return observed.to_exp().kl_divergence(predicted, self_nat=observed)
 
 
 def centering_loss(z: JaxArray) -> JaxArray:
