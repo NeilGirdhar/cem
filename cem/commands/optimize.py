@@ -17,7 +17,7 @@ from optuna.distributions import (
 )
 from optuna.storages import JournalStorage
 from optuna.study import Study, create_study, delete_study, load_study
-from optuna.trial import Trial, create_trial
+from optuna.trial import Trial
 from tjax import GenericString, register_graph_as_jax_pytree
 from typer import Argument, BadParameter, Option
 
@@ -202,8 +202,7 @@ def optimize(  # noqa: C901
     progress_bar: bool = True,
     wandb: bool = False,
     profiling: bool = False,
-    continue_study: bool = True,
-    defaults: bool = False,
+    restart: bool = False,
 ) -> None:
     demo = demo_registry[name]
     register_graph_as_jax_pytree(nx.DiGraph)
@@ -211,22 +210,21 @@ def optimize(  # noqa: C901
         set_up_logging()
     else:
         logging.disable()
-    if not defaults:
-        if trials <= 0:
-            raise InvalidTrialsError
-        if jobs != -1 and jobs <= 0:
-            raise InvalidJobsError
+    if trials <= 0:
+        raise InvalidTrialsError
+    if jobs != -1 and jobs <= 0:
+        raise InvalidJobsError
     hyper_space = demo.create_hyperparameters()
     storage = get_optuna_storage()
-    if not continue_study:
+    if restart:
         _delete_study_with_confirmation(demo.name, storage)
     study = create_study(
         storage=storage,
         sampler=optuna_sampler,
         study_name=demo.name,
-        load_if_exists=continue_study,
+        load_if_exists=not restart,
     )
-    if not continue_study and not defaults:
+    if restart:
         _enqueue_default_trial(study, hyper_space, demo.default_hyperparameters())
     if jax_is_initialized():
         raise RuntimeError
@@ -242,39 +240,30 @@ def optimize(  # noqa: C901
             progress_manager=progress_manager,
         )
 
-    if defaults:
-        hyperparameters = demo.default_hyperparameters()
-        _log.info("Running with defaults: %s", GenericString(hyperparameters))
-        value = _run_default_objective(bound_objective, hyperparameters, progress_bar=progress_bar)
-        trial_params = {k: v for k, v in hyperparameters.items() if k in hyper_space}
-        study.add_trial(
-            create_trial(params=trial_params, distributions=dict(hyper_space), value=value)
-        )
-    else:
-        _log.info("Optimizing: %s", GenericString(tuple(hyper_space)))
-        match mode:
-            case OptimizationMode.single_task:
-                _run_single_task_trials(
-                    study,
-                    hyper_space,
-                    trials,
-                    bound_objective,
-                    progress_bar=progress_bar,
-                )
-            case OptimizationMode.multi_task:
+    _log.info("Optimizing: %s", GenericString(tuple(hyper_space)))
+    match mode:
+        case OptimizationMode.single_task:
+            _run_single_task_trials(
+                study,
+                hyper_space,
+                trials,
+                bound_objective,
+                progress_bar=progress_bar,
+            )
+        case OptimizationMode.multi_task:
 
-                def parallel_objective(trial: Trial) -> float:
-                    hyperparameters = {
-                        dist_name: suggest_from_distribution(trial, dist_name, distribution)
-                        for dist_name, distribution in hyper_space.items()
-                    }
-                    return bound_objective(hyperparameters, None)
+            def parallel_objective(trial: Trial) -> float:
+                hyperparameters = {
+                    dist_name: suggest_from_distribution(trial, dist_name, distribution)
+                    for dist_name, distribution in hyper_space.items()
+                }
+                return bound_objective(hyperparameters, None)
 
-                study.optimize(
-                    parallel_objective,
-                    n_trials=trials,
-                    n_jobs=jobs,
-                    show_progress_bar=progress_bar,
-                )
+            study.optimize(
+                parallel_objective,
+                n_trials=trials,
+                n_jobs=jobs,
+                show_progress_bar=progress_bar,
+            )
     _log.info("Best parameters found:")
     _log.info(GenericString(study.best_params))
