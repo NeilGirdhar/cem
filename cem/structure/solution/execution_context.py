@@ -8,11 +8,9 @@ from pathlib import Path
 from typing import Any, Self, override
 
 import jax.numpy as jnp
-import numpy as np
 import rich.progress as rp
 from jax import tree
 from jax.profiler import trace
-from tjax import JaxArray
 from tjax.dataclasses import DataclassInstance
 from wandb.sdk.wandb_run import Run
 
@@ -24,12 +22,6 @@ _JOB_TYPE_TITLES = {
     "inference": "Inferring",
     "training": "Training",
 }
-
-
-def _stack(*elements: JaxArray) -> JaxArray:
-    if np.shape(elements[0]) == ():
-        return jnp.asarray(np.stack(elements))
-    return jnp.asarray(np.asarray(elements))
 
 
 def _task_title(job_type: str, solver_name: str | None) -> str:
@@ -67,34 +59,38 @@ class ExecutionContext[T: Telemetry]:
         progress_manager: rp.Progress | None,
         task_id: rp.TaskID | None,
         wandb_run: Run | None,
-        wandb_log_period: int,
     ) -> None:
         super().__init__()
         self._progress_manager = progress_manager
         self._task_id = task_id
-        self._results: list[dict[T, Any]] = []
+        self._chunks: list[dict[T, Any]] = []
+        self._episodes_done = 0
         self._wandb_run = wandb_run
         self._telemetries: dict[T, Any] = {}
-        self._wandb_log_period = wandb_log_period
 
-    def append_result(self, snapshots: dict[T, Any]) -> None:
-        self._results.append(snapshots)
+    def append_chunk(self, snapshots: dict[T, Any], count: int) -> None:
+        if count == 0:
+            return
+        self._chunks.append(snapshots)
+        self._episodes_done += count
         if self._progress_manager is not None:
             assert self._task_id is not None
-            self._progress_manager.advance(self._task_id, 1)
-        if (
-            self._wandb_run is not None
-            and snapshots
-            and self.episodes_done() % self._wandb_log_period == 0
-        ):
+            self._progress_manager.advance(self._task_id, count)
+        if self._wandb_run is not None and snapshots:
             self._wandb_run.log(_snapshots_to_wandb_dict(snapshots))
 
     def _stack_telemetries(self) -> None:
-        result, *more_results = self._results
-        self._telemetries = tree.map(_stack, result, *more_results)
+        if not self._chunks:
+            self._telemetries = {}
+            return
+        result, *more_results = self._chunks
+        if not more_results:
+            self._telemetries = result
+            return
+        self._telemetries = tree.map(lambda *xs: jnp.concatenate(xs, axis=0), result, *more_results)
 
     def episodes_done(self) -> int:
-        return len(self._results)
+        return self._episodes_done
 
     def telemetries(self) -> dict[T, Any]:
         return self._telemetries
@@ -132,7 +128,6 @@ class ExecutionContext[T: Telemetry]:
             progress_manager=packet.progress_manager,
             task_id=task_id,
             wandb_run=wandb_run,
-            wandb_log_period=packet.wandb_log_period,
         )
         with exit_stack:
             yield inference_manager

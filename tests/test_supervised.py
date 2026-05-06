@@ -25,6 +25,7 @@ from cem.demos.supervised.problem import SupervisedProblem
 from cem.demos.supervised.solution import DatasetKind, PhasorSupervisedModel
 from cem.phasor import PhasorTargetConfiguration
 from cem.phasor.frequency import frequency_base_for_domain_width
+from cem.phasor.telemetry import SpectralLossTelemetry
 from cem.structure.plotter import Demo
 from cem.structure.solution import (
     ExecutionPacket,
@@ -203,6 +204,68 @@ def test_hf_supervised_solver_short_training_is_finite(
         losses = training_results.telemetries[telemetry]
         assert losses.shape[0] == solver.training_examples
         assert jnp.all(jnp.isfinite(losses))
+
+
+def test_supervised_training_and_inference_support_non_divisible_scan_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    examples = 5
+    monkeypatch.setattr(
+        supervised_solution,
+        "load_hf_tabular_regression",
+        lambda _config: _small_supervised_problem(),
+    )
+    telemetry = LossTelemetry(selected_node="target")
+    packet = ExecutionPacket(
+        telemetries=Telemetries((telemetry,)),
+        scan_chunk_size=2,
+    )
+    solver = replace(
+        supervised_bike_sharing_demand_demo.variants[0].create_solver(),
+        training_examples=examples,
+        inference_examples=examples,
+        training_batch_size=4,
+        inference_batch_size=4,
+        hidden_size=8,
+    )
+
+    training_results, inference_results = solver.training_and_inference_result(packet=packet)
+
+    assert training_results.count == examples
+    assert inference_results.count == examples
+    assert training_results.telemetries[telemetry].shape == (examples,)
+    assert inference_results.telemetries[telemetry].shape == (examples,)
+    assert jnp.all(jnp.isfinite(training_results.telemetries[telemetry]))
+    assert jnp.all(jnp.isfinite(inference_results.telemetries[telemetry]))
+
+
+def test_phasor_supervised_scan_chunks_stack_spectral_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    examples = 5
+    monkeypatch.setattr(
+        supervised_solution,
+        "load_hf_tabular_regression",
+        lambda _config: _small_supervised_problem(),
+    )
+    variant = supervised_bike_sharing_demand_demo.variants[1]
+    telemetry = SpectralLossTelemetry(selected_node="target")
+    packet = ExecutionPacket(
+        telemetries=variant.all_telemetries(),
+        scan_chunk_size=2,
+    )
+    solver = replace(
+        variant.create_solver(),
+        training_examples=examples,
+        training_batch_size=4,
+        hidden_size=8,
+    )
+
+    training_results = solver.training_results(packet=packet)
+
+    assert training_results.count == examples
+    assert training_results.telemetries[telemetry].shape == (examples,)
+    assert jnp.all(jnp.isfinite(training_results.telemetries[telemetry]))
 
 
 def _training_results_with_target_losses(losses: jnp.ndarray) -> TrainingResults:
