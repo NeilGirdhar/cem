@@ -27,7 +27,9 @@ _JOB_TYPE_TITLES = {
 
 
 def _stack(*elements: JaxArray) -> JaxArray:
-    return jnp.asarray(np.stack(elements))  # np.stack is much faster than jnp.stack
+    if np.shape(elements[0]) == ():
+        return jnp.asarray(np.stack(elements))
+    return jnp.asarray(np.asarray(elements))
 
 
 def _task_title(job_type: str, solver_name: str | None) -> str:
