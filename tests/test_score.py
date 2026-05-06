@@ -4,7 +4,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest
-from efax import Flattener, NormalEP, NormalNP, UnitVarianceNormalNP
+from efax import ComplexVonMisesNP, Flattener, NormalEP, NormalNP, UnitVarianceNormalNP
 from jax import tree
 from tjax import frozendict
 
@@ -12,7 +12,6 @@ from cem.perceptron.target_node import PerceptronTargetConfiguration, Perceptron
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.loss import (
     LossAndScore,
-    spectral_reconstruction_loss,
     spectral_reconstruction_loss_and_score,
 )
 from cem.phasor.message import JaxComplexArray, phasor_from_distribution
@@ -81,8 +80,10 @@ def test_reconstruction_loss_and_score_loss_matches_reconstruction_loss() -> Non
     observed = jnp.array([1 + 0j, 0.5 + 0.5j])
     z_hat = jnp.array([0.8 + 0.2j, 0.3 - 0.3j])
     out = spectral_reconstruction_loss_and_score(observed, z_hat)
-    elementwise_loss = spectral_reconstruction_loss(observed, z_hat)
-    assert jnp.allclose(out.loss, jnp.sum(elementwise_loss))
+    observed_dist = ComplexVonMisesNP(observed)
+    predicted_dist = ComplexVonMisesNP(z_hat)
+    elementwise_loss = observed_dist.to_exp().kl_divergence(predicted_dist, self_nat=observed_dist)
+    assert jnp.allclose(out.loss, jnp.mean(elementwise_loss))
 
 
 def test_reconstruction_loss_and_score_total_loss_is_scalar() -> None:
@@ -104,11 +105,22 @@ def test_reconstruction_loss_and_score_self_score_is_zero() -> None:
 
 
 def test_reconstruction_loss_and_score_score_equals_gradient() -> None:
-    # score must equal jax.grad of the summed reconstruction loss w.r.t. z_hat.
+    # score must equal jax.grad of the mean reconstruction loss w.r.t. z_hat.
     observed = jnp.array([1 + 0j, 0.5 + 0.5j])
     z_hat = jnp.array([0.8 + 0.2j, 0.3 - 0.3j])
     out = spectral_reconstruction_loss_and_score(observed, z_hat)
-    expected = jax.grad(lambda z: jnp.sum(spectral_reconstruction_loss(observed, z)))(z_hat)
+
+    def direct_loss(z: jnp.ndarray) -> jnp.ndarray:
+        observed_dist = ComplexVonMisesNP(observed)
+        predicted_dist = ComplexVonMisesNP(z)
+        elementwise_loss = observed_dist.to_exp().kl_divergence(
+            predicted_dist, self_nat=observed_dist
+        )
+        return jnp.mean(elementwise_loss)
+
+    expected = jax.grad(
+        direct_loss,
+    )(z_hat)
     assert jnp.allclose(out.score, expected)
 
 

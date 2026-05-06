@@ -113,16 +113,17 @@ Loss reduction policy
 
 Reduction semantics are part of the model contract.
 
-Use ``jnp.sum`` for objective terms inside one model inference.  Feature axes,
-field axes, phasor-frequency axes, and per-node objective terms are additive
-evidence or additive penalties for the same example.  ``ModelResult.loss``
-should therefore be a per-example scalar formed by summing those contributions.
+Use ``jnp.sum`` for semantic objective terms inside one model inference.  Field
+axes and per-node objective terms are additive evidence or additive penalties
+for the same example.  ``ModelResult.loss`` should therefore be a per-example
+scalar formed by summing those semantic contributions.
 
-Use ``jnp.mean`` only for empirical averages over independent examples, samples,
-or reporting windows.  The training infrastructure already averages a batch of
-per-example ``ModelResult.loss`` values in ``Inference._v_infer``.  Do not divide
-inside a model merely to make the loss smaller; that changes the objective scale
-relative to feature count and other nodes.
+Use ``jnp.mean`` for representation axes whose size is a modeling resolution
+choice, such as phasor-frequency axes in the spectral reconstruction objective.
+Changing ``n_frequencies`` should not directly rescale the objective or its
+cotangents.  Also use ``jnp.mean`` for empirical averages over independent
+examples, samples, or reporting windows.  The training infrastructure already
+averages a batch of per-example ``ModelResult.loss`` values in ``Inference._v_infer``.
 
 Telemetry may store normalized values for readability, but names and docstrings
 must say so.  If a demo score should report the objective, first sum all

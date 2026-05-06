@@ -121,7 +121,7 @@ supervised_iris_demo = SupervisedDemo(
     tuned_hyperparameters={
         "hidden_size": 30,
         "perceptron.learning_rate": 0.30476574430714515,
-        "phasor.learning_rate": 0.03546999312892126,
+        "phasor.learning_rate": 0.4256399175470551,
         "phasor.n_frequencies": 12,
         "training_examples": 724,
     },
@@ -142,7 +142,7 @@ supervised_bike_sharing_demand_demo = SupervisedDemo(
     tuned_hyperparameters={
         "hidden_size": 24,
         "perceptron.learning_rate": 0.4071429559809199,
-        "phasor.learning_rate": 0.04520831599987419,
+        "phasor.learning_rate": 0.6781247399981128,
         "phasor.n_frequencies": 15,
         "training_examples": 677,
     },
@@ -157,7 +157,7 @@ supervised_elevators_demo = SupervisedDemo(
     tuned_hyperparameters={
         "hidden_size": 81,
         "perceptron.learning_rate": 0.0016592994855346016,
-        "phasor.learning_rate": 0.0020022723751694158,
+        "phasor.learning_rate": 0.030034085627541237,
         "phasor.n_frequencies": 15,
         "training_examples": 414,
     },
@@ -172,7 +172,7 @@ supervised_cpu_activity_demo = SupervisedDemo(
     tuned_hyperparameters={
         "hidden_size": 125,
         "perceptron.learning_rate": 0.000302148338976774,
-        "phasor.learning_rate": 0.0001463555122325588,
+        "phasor.learning_rate": 0.0023416881957209408,
         "phasor.n_frequencies": 16,
         "training_examples": 471,
     },

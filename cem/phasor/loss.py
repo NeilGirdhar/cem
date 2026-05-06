@@ -13,8 +13,8 @@ class LossAndScore(eqx.Module):
     """Spectral reconstruction loss and its phasor-space gradient, computed jointly via autodiff.
 
     Attributes:
-        loss: Summed von Mises KL divergence over the final phasor-feature axis.
-        score: ∂sum(loss)/∂ẑ — gradient of the total summed loss w.r.t. predicted phasors.
+        loss: Mean von Mises KL divergence over the final phasor-feature axis.
+        score: ∂sum(loss)/∂ẑ — gradient of the total loss w.r.t. predicted phasors.
     """
 
     loss: JaxArray
@@ -32,7 +32,7 @@ def spectral_reconstruction_loss_and_score(
 
     Treats observed and predicted phasors as von Mises natural parameters and computes their
     KL divergence directly in phasor space.  The final axis is the phasor-feature axis and is
-    summed into the per-example objective.
+    averaged into the per-example objective.
 
     Args:
         observed: Observed phasors, shape ``(..., features)``.
@@ -41,21 +41,21 @@ def spectral_reconstruction_loss_and_score(
     Returns:
         ``LossAndScore`` with:
 
-        - ``loss``: summed spectral objective, shape ``(...)``.
+        - ``loss``: mean spectral objective over phasor features, shape ``(...)``.
         - ``score``: gradient of ``jnp.sum(loss)`` w.r.t. ``z_hat``, shape ``(..., features)``.
     """
 
     def loss_fn(z: JaxComplexArray) -> tuple[JaxArray, JaxArray]:
-        elementwise_loss = spectral_reconstruction_loss(observed, z)
-        loss = jnp.sum(elementwise_loss, axis=-1)
+        elementwise_loss = _elementwise_spectral_reconstruction_loss(observed, z)
+        loss = jnp.mean(elementwise_loss, axis=-1)
         return jnp.sum(loss), loss
 
     (_, loss), score = jax.value_and_grad(loss_fn, has_aux=True)(z_hat)
     return LossAndScore(loss=loss, score=score)
 
 
-def spectral_reconstruction_loss(z: JaxArray, z_hat: JaxArray) -> JaxArray:
-    """Spectral reconstruction loss: von Mises KL divergence from observed to predicted phasors.
+def _elementwise_spectral_reconstruction_loss(z: JaxArray, z_hat: JaxArray) -> JaxArray:
+    """Elementwise von Mises KL divergence from observed to predicted phasors.
 
     L(z, ẑ) = KL(ComplexVonMises(z) || ComplexVonMises(ẑ)).
 

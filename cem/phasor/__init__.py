@@ -11,7 +11,6 @@ from cem.phasor.loss import (
     LossAndScore,
     centering_loss,
     decorrelation_loss,
-    spectral_reconstruction_loss,
     spectral_reconstruction_loss_and_score,
     strength_loss,
 )
@@ -52,7 +51,6 @@ __all__ = [
     "phasor_to_real",
     "rotate_by_location",
     "select",
-    "spectral_reconstruction_loss",
     "spectral_reconstruction_loss_and_score",
     "strength_loss",
 ]

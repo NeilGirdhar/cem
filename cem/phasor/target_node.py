@@ -23,7 +23,7 @@ class PhasorTargetConfiguration(PhasorInputConfiguration, TargetConfiguration):
     spectral_loss: frozendict[str, JaxArray]
 
     def total_spectral_loss(self) -> JaxArray:
-        """Return summed spectral objective telemetry across all fields."""
+        """Return spectral objective telemetry summed across semantic fields."""
         return sum((jnp.sum(v) for v in self.spectral_loss.values()), start=jnp.asarray(0.0))
 
 
