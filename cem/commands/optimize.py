@@ -17,7 +17,7 @@ from optuna.distributions import (
 )
 from optuna.storages import JournalStorage
 from optuna.study import Study, create_study, delete_study, load_study
-from optuna.trial import Trial
+from optuna.trial import FrozenTrial, Trial, TrialState
 from tjax import GenericString, register_graph_as_jax_pytree
 from typer import Argument, BadParameter, Option
 
@@ -29,6 +29,7 @@ from cem.structure import (
     set_up_logging,
     solver_context_manager,
 )
+from cem.tuned_defaults import update_tuned_defaults
 
 from .demos import DemoEnum, demo_registry
 from .settings import (
@@ -149,6 +150,7 @@ def _run_single_task_trials(
     bound_objective: BoundObjective,
     *,
     progress_bar: bool,
+    sync_defaults_if_better: Callable[[], None],
 ) -> None:
     progress_manager = _progress_manager(enabled=progress_bar)
     with progress_manager:
@@ -157,6 +159,7 @@ def _run_single_task_trials(
             trial = study.ask(hyper_space)
             value = bound_objective(trial.params, progress_manager)
             study.tell(trial, values=value)
+            sync_defaults_if_better()
             progress_manager.advance(task_id, 1)
 
 
@@ -189,6 +192,23 @@ def _enqueue_default_trial(
     trial_params = {k: v for k, v in hyperparameters.items() if k in hyper_space}
     _log.info("Queueing default parameters as first trial: %s", GenericString(trial_params))
     study.enqueue_trial(trial_params)
+
+
+def _best_trial_number(study: Study) -> int | None:
+    try:
+        return study.best_trial.number
+    except ValueError:
+        return None
+
+
+def _sync_best_defaults(study: Study, demo_name: str) -> int | None:
+    try:
+        best_trial = study.best_trial
+    except ValueError:
+        return None
+    update_tuned_defaults(demo_name, best_trial.params)
+    _log.info("Updated tuned defaults from trial %s", best_trial.number)
+    return best_trial.number
 
 
 @app.command()
@@ -226,6 +246,7 @@ def optimize(  # noqa: C901
     )
     if restart:
         _enqueue_default_trial(study, hyper_space, demo.default_hyperparameters())
+    best_trial_number = _sync_best_defaults(study, demo.name)
     if jax_is_initialized():
         raise RuntimeError
 
@@ -243,12 +264,20 @@ def optimize(  # noqa: C901
     _log.info("Optimizing: %s", GenericString(tuple(hyper_space)))
     match mode:
         case OptimizationMode.single_task:
+
+            def sync_defaults_if_better() -> None:
+                nonlocal best_trial_number
+                current_best_trial_number = _best_trial_number(study)
+                if current_best_trial_number != best_trial_number:
+                    best_trial_number = _sync_best_defaults(study, demo.name)
+
             _run_single_task_trials(
                 study,
                 hyper_space,
                 trials,
                 bound_objective,
                 progress_bar=progress_bar,
+                sync_defaults_if_better=sync_defaults_if_better,
             )
         case OptimizationMode.multi_task:
 
@@ -259,11 +288,16 @@ def optimize(  # noqa: C901
                 }
                 return bound_objective(hyperparameters, None)
 
+            def sync_defaults_callback(study: Study, trial: FrozenTrial) -> None:
+                if trial.state == TrialState.COMPLETE and study.best_trial.number == trial.number:
+                    _sync_best_defaults(study, demo.name)
+
             study.optimize(
                 parallel_objective,
                 n_trials=trials,
                 n_jobs=jobs,
                 show_progress_bar=progress_bar,
+                callbacks=[sync_defaults_callback],
             )
     _log.info("Best parameters found:")
     _log.info(GenericString(study.best_params))

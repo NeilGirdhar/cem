@@ -1,0 +1,30 @@
+{
+  "supervised-bike-sharing-demand": {
+    "hidden_size": 33,
+    "perceptron.learning_rate": 0.044637945540524644,
+    "phasor.learning_rate": 0.007985200502189701,
+    "phasor.n_frequencies": 7,
+    "training_examples": 608
+  },
+  "supervised-cpu-activity": {
+    "hidden_size": 115,
+    "perceptron.learning_rate": 0.011905256599780617,
+    "phasor.learning_rate": 0.014367592290048834,
+    "phasor.n_frequencies": 14,
+    "training_examples": 483
+  },
+  "supervised-elevators": {
+    "hidden_size": 41,
+    "perceptron.learning_rate": 0.0932401659405324,
+    "phasor.learning_rate": 0.00465383622191671,
+    "phasor.n_frequencies": 8,
+    "training_examples": 307
+  },
+  "supervised-iris": {
+    "hidden_size": 59,
+    "perceptron.learning_rate": 0.04145024111951306,
+    "phasor.learning_rate": 0.0025478417203447993,
+    "phasor.n_frequencies": 14,
+    "training_examples": 584
+  }
+}
