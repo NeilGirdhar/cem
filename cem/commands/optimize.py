@@ -15,7 +15,8 @@ from optuna.distributions import (
     FloatDistribution,
     IntDistribution,
 )
-from optuna.study import Study, create_study, delete_study
+from optuna.storages import JournalStorage
+from optuna.study import Study, create_study, delete_study, load_study
 from optuna.trial import Trial, create_trial
 from tjax import GenericString, register_graph_as_jax_pytree
 from typer import Argument, BadParameter, Option
@@ -159,6 +160,37 @@ def _run_single_task_trials(
             progress_manager.advance(task_id, 1)
 
 
+def _existing_trial_count(study_name: str, storage: JournalStorage) -> int | None:
+    try:
+        study = load_study(study_name=study_name, storage=storage, sampler=optuna_sampler)
+    except KeyError:
+        return None
+    return len(study.get_trials(deepcopy=False))
+
+
+def _delete_study_with_confirmation(study_name: str, storage: JournalStorage) -> None:
+    trial_count = _existing_trial_count(study_name, storage)
+    if trial_count is None:
+        return
+    if trial_count > 0:
+        typer.confirm(
+            f"Delete Optuna study '{study_name}' with {trial_count} existing trials?",
+            abort=True,
+        )
+    _log.info("Deleting study")
+    delete_study(study_name=study_name, storage=storage)
+
+
+def _enqueue_default_trial(
+    study: Study,
+    hyper_space: dict[str, BaseDistribution],
+    hyperparameters: dict[str, Any],
+) -> None:
+    trial_params = {k: v for k, v in hyperparameters.items() if k in hyper_space}
+    _log.info("Queueing default parameters as first trial: %s", GenericString(trial_params))
+    study.enqueue_trial(trial_params)
+
+
 @app.command()
 def optimize(  # noqa: C901
     name: DemoEnum,
@@ -187,14 +219,15 @@ def optimize(  # noqa: C901
     hyper_space = demo.create_hyperparameters()
     storage = get_optuna_storage()
     if not continue_study:
-        _log.info("Deleting study")
-        delete_study(study_name=demo.name, storage=storage)
+        _delete_study_with_confirmation(demo.name, storage)
     study = create_study(
         storage=storage,
         sampler=optuna_sampler,
         study_name=demo.name,
         load_if_exists=continue_study,
     )
+    if not continue_study and not defaults:
+        _enqueue_default_trial(study, hyper_space, demo.default_hyperparameters())
     if jax_is_initialized():
         raise RuntimeError
 
