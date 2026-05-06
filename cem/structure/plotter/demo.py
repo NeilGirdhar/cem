@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from functools import reduce
 from typing import Any
 
@@ -69,8 +69,15 @@ class Demo:
 
     name: str
     variants: list[Variant]
+    tuned_hyperparameters: dict[str, Any]
 
-    def __init__(self, *, name: str, variants: Sequence[Variant]) -> None:
+    def __init__(
+        self,
+        *,
+        name: str,
+        variants: Sequence[Variant],
+        tuned_hyperparameters: Mapping[str, Any] | None = None,
+    ) -> None:
         if not variants:
             msg = "Demo requires at least one Variant"
             raise ValueError(msg)
@@ -79,6 +86,7 @@ class Demo:
             raise ValueError(msg)
         self.name = name
         self.variants = list(variants)
+        self.tuned_hyperparameters = dict(tuned_hyperparameters or {})
 
     def create_hyperparameters(self) -> dict[str, BaseDistribution]:
         """Return the hyperparameter search space for this demo.
@@ -106,7 +114,10 @@ class Demo:
     def default_hyperparameters(self) -> dict[str, Any]:
         """Return default field values for all hyperparameters, mirroring create_hyperparameters."""
         if len(self.variants) == 1:
-            return self.variants[0].create_solver().default_hyperparameters()
+            return (
+                self.variants[0].create_solver().default_hyperparameters()
+                | self.tuned_hyperparameters
+            )
         shared_names = frozenset.intersection(
             *(v.shared_hyperparameter_names() for v in self.variants)
         )
@@ -116,7 +127,7 @@ class Demo:
             prefix = f"{variant.label}."
             defaults = variant.create_solver().default_hyperparameters()
             result.update({f"{prefix}{k}": v for k, v in defaults.items() if k not in shared_names})
-        return result
+        return result | self.tuned_hyperparameters
 
     def plotters(self) -> Sequence[Plotter]:
         seen: set[str] = set()
