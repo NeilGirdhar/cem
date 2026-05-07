@@ -12,8 +12,6 @@ import numpy as np
 import pandas as pd
 from datasets import load_dataset
 from efax import Flattener, UnitVarianceNormalNP
-from sklearn.datasets import make_classification
-from sklearn.preprocessing import StandardScaler
 from tjax import JaxRealArray, KeyArray
 
 from cem.structure.problem import Problem
@@ -50,6 +48,14 @@ def _encode_flat(values: JaxRealArray) -> JaxRealArray:
     dist = UnitVarianceNormalNP(values)
     _, flat = Flattener.flatten(dist, mapped_to_plane=True)
     return flat.reshape(-1)
+
+
+def _standardize_columns(values: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=np.float64)
+    mean = values.mean(axis=0)
+    std = values.std(axis=0)
+    std = np.where(std == 0.0, 1.0, std)
+    return ((values - mean) / std).astype(np.float64)
 
 
 class SupervisedDataSource(DataSource):
@@ -111,8 +117,8 @@ def _encode_dataset(
     """
     if y.ndim == 1:
         y = y[:, np.newaxis]
-    x = StandardScaler().fit_transform(x).astype(np.float64)
-    y = StandardScaler().fit_transform(y).astype(np.float64)
+    x = _standardize_columns(x)
+    y = _standardize_columns(y)
 
     n_features = x.shape[1]
     n_targets = y.shape[1]
@@ -203,37 +209,4 @@ def load_iris() -> SupervisedProblem:
         y_prior=y_prior,
         n_features=n_features,
         n_targets=n_targets,
-    )
-
-
-@cache
-def load_synthetic_classification(
-    n_samples: int = 500,
-    n_features: int = 8,
-    *,
-    seed: int = 0,
-) -> SupervisedProblem:
-    """Generate a synthetic binary classification dataset.
-
-    Args:
-        n_samples: Number of examples.
-        n_features: Number of input features.
-        seed: Random seed for reproducibility.
-
-    Returns:
-        A :class:`SupervisedProblem` with 1 binary target.
-    """
-    x, y = make_classification(
-        n_samples=n_samples,
-        n_features=n_features,
-        random_state=seed,
-    )
-    x_flat, y_flat, x_prior, y_prior, n_feats, n_tgts = _encode_dataset(x, y)
-    return SupervisedProblem(
-        x_flat=x_flat,
-        y_flat=y_flat,
-        x_prior=x_prior,
-        y_prior=y_prior,
-        n_features=n_feats,
-        n_targets=n_tgts,
     )

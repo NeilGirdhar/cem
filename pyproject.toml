@@ -9,7 +9,6 @@ dev = [
   "lefthook>=2",
   "pytest>=8.3.4",
   "ruff>=0.15",
-  "scikit-learn>=1.8",
   "toml-sort>=0.24",
   "ty>=0.0.34",
   "vulture>=2.14"

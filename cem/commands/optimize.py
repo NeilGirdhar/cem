@@ -129,20 +129,6 @@ def _progress_manager(*, enabled: bool) -> rp.Progress:
     return console_progress_bar() if enabled else rp.Progress(disable=True)
 
 
-def _run_default_objective(
-    bound_objective: BoundObjective,
-    hyperparameters: dict[str, Any],
-    *,
-    progress_bar: bool,
-) -> float:
-    progress_manager = _progress_manager(enabled=progress_bar)
-    with progress_manager:
-        task_id = progress_manager.add_task("Optimization", total=1)
-        value = bound_objective(hyperparameters, progress_manager)
-        progress_manager.advance(task_id, 1)
-        return value
-
-
 def _run_single_task_trials(
     study: Study,
     hyper_space: dict[str, BaseDistribution],
