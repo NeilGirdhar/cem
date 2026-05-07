@@ -28,11 +28,11 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from efax import Flattener, UnitVarianceNormalNP
 from tjax import JaxRealArray, KeyArray
 
 from cem.structure.problem.data_source import DataSource, ProblemObservation, ProblemState
 from cem.structure.problem.problem import Problem
+from cem.transforms import encode_flat
 
 
 class NonlinearityKind(Enum):
@@ -85,13 +85,6 @@ class IVObservation(ProblemObservation):
 
     x: JaxRealArray
     y: JaxRealArray
-
-
-def _encode_flat(values: JaxRealArray) -> JaxRealArray:
-    assert values.ndim == 1
-    dist = UnitVarianceNormalNP(values)
-    _, flat = Flattener.flatten(dist, mapped_to_plane=True)
-    return flat.reshape(-1)
 
 
 class IVDataSource(DataSource):
@@ -216,7 +209,7 @@ class IVProblem(Problem):
             x_raw = jnp.concatenate((state.z, state.t, env_one_hot))
         else:
             x_raw = jnp.concatenate((state.z, state.t))
-        return IVObservation(x=_encode_flat(x_raw), y=_encode_flat(state.y))
+        return IVObservation(x=encode_flat(x_raw), y=encode_flat(state.y))
 
 
 def build_iv_problem(

@@ -11,11 +11,12 @@ import jax.random as jr
 import numpy as np
 import pandas as pd
 from datasets import load_dataset
-from efax import Flattener, UnitVarianceNormalNP
+from efax import UnitVarianceNormalNP
 from tjax import JaxRealArray, KeyArray
 
 from cem.structure.problem import Problem
 from cem.structure.problem.data_source import DataSource, ProblemState
+from cem.transforms import encode_flat, standardize_columns
 
 
 class SupervisedProblemState(ProblemState):
@@ -29,33 +30,6 @@ class SupervisedProblemState(ProblemState):
 
     x: JaxRealArray
     y: JaxRealArray
-
-
-def _encode_flat(values: JaxRealArray) -> JaxRealArray:
-    """Encode a real vector as flat natural params of UnitVarianceNormalNP.
-
-    Each component x_i is encoded as UnitVarianceNormalNP(x_i) (unit variance),
-    then flattened with ``mapped_to_plane=True``.  The resulting array has shape
-    ``(n,)`` for input of shape ``(n,)``.
-
-    Args:
-        values: Shape ``(n,)`` real vector.
-
-    Returns:
-        Shape ``(n,)`` flat encoding.
-    """
-    assert values.ndim == 1
-    dist = UnitVarianceNormalNP(values)
-    _, flat = Flattener.flatten(dist, mapped_to_plane=True)
-    return flat.reshape(-1)
-
-
-def _standardize_columns(values: np.ndarray) -> np.ndarray:
-    values = np.asarray(values, dtype=np.float64)
-    mean = values.mean(axis=0)
-    std = values.std(axis=0)
-    std = np.where(std == 0.0, 1.0, std)
-    return ((values - mean) / std).astype(np.float64)
 
 
 class SupervisedDataSource(DataSource):
@@ -117,8 +91,8 @@ def _encode_dataset(
     """
     if y.ndim == 1:
         y = y[:, np.newaxis]
-    x = _standardize_columns(x)
-    y = _standardize_columns(y)
+    x = standardize_columns(x)
+    y = standardize_columns(y)
 
     n_features = x.shape[1]
     n_targets = y.shape[1]
@@ -129,8 +103,8 @@ def _encode_dataset(
     # Vectorise over samples.
     from jax import vmap  # noqa: PLC0415
 
-    x_flat = vmap(_encode_flat)(x_jax)  # (n_samples, n_features)
-    y_flat = vmap(_encode_flat)(y_jax)  # (n_samples, n_targets)
+    x_flat = vmap(encode_flat)(x_jax)  # (n_samples, n_features)
+    y_flat = vmap(encode_flat)(y_jax)  # (n_samples, n_targets)
 
     # Priors: zero-mean, unit variance.
     x_prior = UnitVarianceNormalNP(jnp.zeros(n_features))
