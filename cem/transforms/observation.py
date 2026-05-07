@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import numpy as np
-from efax import Flattener, UnitVarianceNormalNP
-from tjax import JaxRealArray
+from efax import Flattener, NaturalParametrization, UnitVarianceNormalNP
+from tjax import JaxArray, JaxRealArray
+
+from cem.phasor.message import phasor_from_distribution
 
 
 def encode_flat(values: JaxRealArray) -> JaxRealArray:
@@ -31,3 +33,13 @@ def standardize_columns(values: np.ndarray) -> np.ndarray:
     std = values.std(axis=0)
     std = np.where(std == 0.0, 1.0, std)
     return ((values - mean) / std).astype(np.float64)
+
+
+def encode_phasor(
+    flat: JaxRealArray,
+    flattener: Flattener[NaturalParametrization],
+    frequencies: JaxRealArray,
+) -> JaxArray:
+    """Unflatten a flat UnitVarianceNormalNP encoding and return raveled phasors."""
+    dist = flattener.unflatten(flat, raveled=True)
+    return phasor_from_distribution(dist, frequencies, raveled=True)

@@ -15,12 +15,11 @@ from tjax import JaxArray, JaxRealArray, RngStream, frozendict, negate_cotangent
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.gated_projection import GatedProjection
 from cem.phasor.loss import decorrelation_loss, spectral_reconstruction_loss_and_score
-from cem.phasor.message import phasor_from_distribution
 from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
-from cem.transforms import AffineWithDropout
+from cem.transforms import AffineWithDropout, encode_phasor
 
 from .problem import IVObservation, IVProblem, NonlinearityKind, build_iv_problem
 
@@ -165,10 +164,8 @@ class AFPModel(Model):
 
         # Match the supervised phasor demo: unflatten UnitVarianceNormalNP encodings and
         # evaluate their characteristic phasors on the configured frequency basis.
-        x_dist = self._x_flattener.value.unflatten(observation.x, raveled=True)
-        y_dist = self._y_flattener.value.unflatten(observation.y, raveled=True)
-        z_input = phasor_from_distribution(x_dist, self._frequencies.value, raveled=True)
-        z_obs = phasor_from_distribution(y_dist, self._frequencies.value, raveled=True)
+        z_input = encode_phasor(observation.x, self._x_flattener.value, self._frequencies.value)
+        z_obs = encode_phasor(observation.y, self._y_flattener.value, self._frequencies.value)
 
         # Purify: map inputs to latent representations.
         z_endo_pure = self.endo_purifier.infer(z_input, streams=streams, inference=inference)
