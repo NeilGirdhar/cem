@@ -97,26 +97,22 @@ class PhasorTargetNode(TargetNode):
             distributions.
         """
         phasors: dict[str, JaxComplexArray] = {}
-        scores: list[JaxComplexArray] = []
+        scores: list[JaxArray] = []
         losses: dict[str, JaxArray] = {}
         spectral_losses: dict[str, JaxArray] = {}
         observed_distributions: dict[str, ExpectationParametrization] = {}
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
-        field_phasors = self._split_by_field_sizes(prediction, self.field_sizes)
-
-        for field_name, z_hat in field_phasors.items():
+        for field_name, z_hat, observed_np, observed_exp in self._iter_target_fields(
+            flat_observed, prediction
+        ):
             grid = self.frequency_grids.value[field_name]
-            observed_np = self._unflatten_observed(field_name, flat_observed[field_name])
             obs_phasor = phasor_from_distribution(observed_np, self.frequencies.value)
             phasors[field_name] = obs_phasor
-            observed_exp = observed_np.to_exp()
-            assert isinstance(observed_exp, HasEntropyEP)
-
             spectral = spectral_reconstruction_loss_and_score(obs_phasor, z_hat)
             predicted_exp = phasor_to_distribution(z_hat, grid)
+            assert isinstance(predicted_exp, HasEntropyEP)
             assert isinstance(predicted_exp, type(observed_exp))
-
             observed_distributions[field_name] = observed_exp
             scores.append(spectral.score)
             distributional_loss = observed_exp.kl_divergence(

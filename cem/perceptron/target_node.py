@@ -56,17 +56,14 @@ class PerceptronTargetNode(TargetNode):
         Returns:
             A :class:`PerceptronTargetConfiguration` with per-field losses and distributions.
         """
-        field_values = self._split_by_field_sizes(prediction, self.field_sizes)
-
         losses: dict[str, JaxArray] = {}
         observed_distributions: dict[str, ExpectationParametrization] = {}
         predicted_distributions: dict[str, HasEntropyEP] = {}
 
-        for field_name, y_hat in field_values.items():
+        for field_name, y_hat, observed_np, observed_exp in self._iter_target_fields(
+            flat_observed, prediction
+        ):
             flattener = self._flatteners.value[field_name]
-            observed_np = self._unflatten_observed(field_name, flat_observed[field_name])
-            observed_exp = observed_np.to_exp()
-            assert isinstance(observed_exp, HasEntropyEP)
             predicted_np = flattener.unflatten(y_hat)
             predicted_exp = predicted_np.to_exp()
             assert isinstance(predicted_exp, type(observed_exp))

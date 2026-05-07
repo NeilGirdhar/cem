@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 import equinox as eqx
@@ -67,9 +67,9 @@ class TargetNode(eqx.Module):
 
     @staticmethod
     def _split_by_field_sizes(
-        data: JaxRealArray,
+        data: JaxArray,
         field_sizes: frozendict[str, int],
-    ) -> dict[str, JaxRealArray]:
+    ) -> dict[str, JaxArray]:
         running, split_points = 0, []
         for s in list(field_sizes.values())[:-1]:
             running += s
@@ -82,3 +82,16 @@ class TargetNode(eqx.Module):
         flat: JaxRealArray,
     ) -> NaturalParametrization[Any, Any]:
         return self._flatteners.value[field_name].unflatten(flat)
+
+    def _iter_target_fields(
+        self,
+        flat_observed: frozendict[str, JaxRealArray],
+        prediction: JaxArray,
+    ) -> Iterator[tuple[str, JaxArray, NaturalParametrization[Any, Any], HasEntropyEP]]:
+        for field_name, field_prediction in self._split_by_field_sizes(
+            prediction, self.field_sizes
+        ).items():
+            observed_np = self._unflatten_observed(field_name, flat_observed[field_name])
+            observed_exp = observed_np.to_exp()
+            assert isinstance(observed_exp, HasEntropyEP)
+            yield field_name, field_prediction, observed_np, observed_exp
