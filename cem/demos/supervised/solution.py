@@ -11,7 +11,7 @@ from typing import Any, Self, override
 import equinox as eqx
 import jax.numpy as jnp
 from efax import Flattener, UnitVarianceNormalNP
-from optuna.distributions import FloatDistribution, IntDistribution
+from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream, frozendict
 
 from cem.perceptron.mlp import MLP
@@ -22,7 +22,7 @@ from cem.phasor.message import phasor_from_distribution
 from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.problem import DataSource, Problem
-from cem.structure.solver import Solver, float_field, int_field
+from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
 
 from .problem import (
     SupervisedProblem,
@@ -194,10 +194,14 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     learning_rate: float = float_field(
         default=0.01, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
     )
-    hidden_size: int = int_field(default=64, domain=IntDistribution(4, 128), optimize=True)
+    hidden_size: int = int_field(
+        default=64,
+        domain=CategoricalDistribution(hardware_friendly_ints(4, 128)),
+        optimize=True,
+    )
     n_frequencies: int = int_field(
         default=10,
-        domain=IntDistribution(2, 16),
+        domain=CategoricalDistribution(hardware_friendly_ints(2, 16)),
         optimize=True,
         condition=lambda solver: solver.link_kind == LinkKind.phasor,  # ty: ignore
     )

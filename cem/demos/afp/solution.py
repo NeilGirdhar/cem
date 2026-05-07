@@ -9,7 +9,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from efax import Flattener, UnitVarianceNormalNP
 from jax.lax import stop_gradient
-from optuna.distributions import FloatDistribution, IntDistribution
+from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
 from tjax import JaxArray, JaxRealArray, RngStream, frozendict, negate_cotangent
 
 from cem.phasor.frequency import geometric_frequencies
@@ -19,7 +19,7 @@ from cem.phasor.message import phasor_from_distribution
 from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration
 from cem.structure.problem import DataSource, Problem
-from cem.structure.solver import Solver, float_field, int_field
+from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
 from cem.transforms import AffineWithDropout
 
 from .problem import IVObservation, IVProblem, NonlinearityKind, build_iv_problem
@@ -229,9 +229,21 @@ class AFPSolver(Solver[IVProblem]):
     nonlinearity: NonlinearityKind = eqx.field(static=True, default=NonlinearityKind.none)
     coefficient_seed: int = int_field(default=0, domain=IntDistribution(0, 1 << 16))
     coefficient_scale: float = float_field(default=1.0, domain=FloatDistribution(0.1, 4.0))
-    endo_latent: int = int_field(default=8, domain=IntDistribution(1, 16), optimize=True)
-    exo_latent: int = int_field(default=8, domain=IntDistribution(1, 16), optimize=True)
-    n_frequencies: int = int_field(default=10, domain=IntDistribution(2, 16), optimize=True)
+    endo_latent: int = int_field(
+        default=8,
+        domain=CategoricalDistribution(hardware_friendly_ints(1, 16)),
+        optimize=True,
+    )
+    exo_latent: int = int_field(
+        default=8,
+        domain=CategoricalDistribution(hardware_friendly_ints(1, 16)),
+        optimize=True,
+    )
+    n_frequencies: int = int_field(
+        default=10,
+        domain=CategoricalDistribution(hardware_friendly_ints(2, 16)),
+        optimize=True,
+    )
 
     @override
     def problem(self) -> IVProblem:

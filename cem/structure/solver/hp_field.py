@@ -10,6 +10,44 @@ from tjax.dataclasses import field
 if TYPE_CHECKING:
     from cem.structure.solver.solver import Solver
 
+type IntHyperparameterDistribution = IntDistribution | CategoricalDistribution
+
+
+def hardware_friendly_ints(
+    lower_bound: int,
+    upper_bound: int,
+    *,
+    values_per_octave: int = 3,
+) -> tuple[int, ...]:
+    """Return a geometric basis of integer shape values.
+
+    The default mantissas produce choices such as ``4, 5, 6, 8, ...``: close enough
+    to search meaningful capacity changes without compiling every adjacent shape.
+    """
+    if lower_bound < 1:
+        msg = f"lower_bound must be >= 1, got {lower_bound}"
+        raise ValueError(msg)
+    if upper_bound < lower_bound:
+        msg = f"upper_bound must be >= lower_bound, got {upper_bound} < {lower_bound}"
+        raise ValueError(msg)
+    if values_per_octave < 1:
+        msg = f"values_per_octave must be >= 1, got {values_per_octave}"
+        raise ValueError(msg)
+
+    if values_per_octave == 1:
+        mantissas = (1.0,)
+    else:
+        mantissas = tuple(1.0 + 0.5 * i / (values_per_octave - 1) for i in range(values_per_octave))
+    values: set[int] = set()
+    octave = 1
+    while octave <= upper_bound:
+        for mantissa in mantissas:
+            value = int(mantissa * octave + 0.5)
+            if lower_bound <= value <= upper_bound:
+                values.add(value)
+        octave *= 2
+    return tuple(sorted(values))
+
 
 def bool_field(
     *,
@@ -39,7 +77,7 @@ def int_field(
     *,
     default: int,
     static: bool = False,
-    domain: IntDistribution,
+    domain: IntHyperparameterDistribution,
     optimize: bool = False,
     condition: Callable[[Solver], bool] | None = None,
 ) -> int:

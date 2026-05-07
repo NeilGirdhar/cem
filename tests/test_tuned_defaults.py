@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 
 import pytest
+from optuna.distributions import CategoricalDistribution
 
 from cem import tuned_defaults
+from cem.demos.afp.demo import afp_synthetic_iv_demo
 from cem.demos.supervised.demo import supervised_bike_sharing_demand_demo
 
 _TUNED_HIDDEN_SIZE = 42
@@ -94,3 +96,30 @@ def test_demo_default_hyperparameters_overlay_tuned_defaults(
     assert defaults["hidden_size"] == _TUNED_HIDDEN_SIZE
     assert defaults["phasor.n_frequencies"] == _TUNED_N_FREQUENCIES
     assert defaults["perceptron.learning_rate"] == _DEFAULT_LEARNING_RATE
+
+
+def test_supervised_shape_hyperparameters_use_hardware_friendly_choices() -> None:
+    hyperparameters = supervised_bike_sharing_demand_demo.create_hyperparameters()
+
+    hidden_size = hyperparameters["hidden_size"]
+    n_frequencies = hyperparameters["phasor.n_frequencies"]
+
+    assert isinstance(hidden_size, CategoricalDistribution)
+    assert hidden_size.choices == (4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128)
+    assert isinstance(n_frequencies, CategoricalDistribution)
+    assert n_frequencies.choices == (2, 3, 4, 5, 6, 8, 10, 12, 16)
+
+
+def test_afp_shape_hyperparameters_use_hardware_friendly_choices() -> None:
+    hyperparameters = afp_synthetic_iv_demo.create_hyperparameters()
+
+    endo_latent = hyperparameters["endo_latent"]
+    exo_latent = hyperparameters["exo_latent"]
+    n_frequencies = hyperparameters["n_frequencies"]
+
+    assert isinstance(endo_latent, CategoricalDistribution)
+    assert endo_latent.choices == (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)
+    assert isinstance(exo_latent, CategoricalDistribution)
+    assert exo_latent.choices == (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)
+    assert isinstance(n_frequencies, CategoricalDistribution)
+    assert n_frequencies.choices == (2, 3, 4, 5, 6, 8, 10, 12, 16)
