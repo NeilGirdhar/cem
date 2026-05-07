@@ -20,9 +20,7 @@ from .solution import (
     SupervisedSolver,
 )
 
-_PLATEAU_WEIGHT = 10.0
 _COMPUTE_WEIGHT = 0.1
-_LOSS_EPSILON = 1e-12
 
 
 class SupervisedVariant(Variant):
@@ -74,22 +72,15 @@ class SupervisedDemo(Demo):
     ) -> float:
         telemetry = LossTelemetry(selected_node="target")
         final_losses: list[jnp.ndarray] = []
-        plateau_gaps: list[jnp.ndarray] = []
         for _variant, training_results, _inference_results in variant_results:
             losses = training_results.telemetries[telemetry]
-            plateau_gap, final_mean = _plateau_gap_and_final_mean(losses)
-            final_losses.append(final_mean)
-            plateau_gaps.append(plateau_gap)
+            final_losses.append(_final_quarter_mean(losses))
         default_solver = self._default_solver()
         solver = default_solver.populate_from_hyperparameters(hyperparameters)
         compute_penalty = _COMPUTE_WEIGHT * (
             solver.compute_proxy() / default_solver.compute_proxy()
         )
-        return float(
-            jnp.max(jnp.asarray(final_losses))
-            + _PLATEAU_WEIGHT * jnp.max(jnp.asarray(plateau_gaps))
-            + compute_penalty
-        )
+        return float(jnp.max(jnp.asarray(final_losses)) + compute_penalty)
 
     def _default_solver(self) -> SupervisedSolver:
         solver = self.variants[0].create_solver()
@@ -97,19 +88,15 @@ class SupervisedDemo(Demo):
         return solver
 
 
-# TODO: Move this to a shared demo-loss utility once another demo needs plateau scoring.
 SUPERVISED_MIN_TRAINING_EXAMPLES = 4
 
 
-def _plateau_gap_and_final_mean(losses: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+def _final_quarter_mean(losses: jnp.ndarray) -> jnp.ndarray:
     if losses.shape[0] < SUPERVISED_MIN_TRAINING_EXAMPLES:
-        msg = "supervised demo plateau scoring requires at least 4 training examples"
+        msg = "supervised demo scoring requires at least 4 training examples"
         raise ValueError(msg)
     quarter = max(1, losses.shape[0] // 4)
-    final_mean = jnp.mean(losses[-quarter:])
-    second_last_mean = jnp.mean(losses[-2 * quarter : -quarter])
-    plateau_gap = jnp.abs(final_mean - second_last_mean) / (second_last_mean + _LOSS_EPSILON)
-    return plateau_gap, final_mean
+    return jnp.mean(losses[-quarter:])
 
 
 supervised_iris_demo = SupervisedDemo(

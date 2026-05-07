@@ -7,11 +7,11 @@
     "training_examples": 608
   },
   "supervised-cpu-activity": {
-    "hidden_size": 115,
-    "perceptron.learning_rate": 0.011905256599780617,
-    "phasor.learning_rate": 0.014367592290048834,
-    "phasor.n_frequencies": 14,
-    "training_examples": 483
+    "hidden_size": 21,
+    "perceptron.learning_rate": 0.11063350849364147,
+    "phasor.learning_rate": 0.06863179773192332,
+    "phasor.n_frequencies": 13,
+    "training_examples": 196
   },
   "supervised-elevators": {
     "hidden_size": 41,

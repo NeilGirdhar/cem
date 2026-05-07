@@ -281,28 +281,44 @@ def _inference_results() -> InferenceResults:
     return InferenceResults(count=0, telemetries={})
 
 
-def test_supervised_demo_loss_penalizes_unsettled_training() -> None:
+def test_supervised_demo_loss_uses_final_quarter_mean() -> None:
     variants = supervised_bike_sharing_demand_demo.variants
-    settled = jnp.array([4.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
-    unsettled = jnp.array([8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0])
+    high_early_loss = jnp.array([100.0, 100.0, 100.0, 100.0, 4.0, 3.0, 2.0, 1.0])
+    high_late_loss = jnp.array([4.0, 3.0, 2.0, 1.0, 100.0, 100.0, 100.0, 100.0])
     hyperparameters = {"training_examples": 8, "training_batch_size": 4, "hidden_size": 8}
 
-    settled_loss = supervised_bike_sharing_demand_demo.demo_loss(
+    low_final_loss = supervised_bike_sharing_demand_demo.demo_loss(
         [
-            (variants[0], _training_results_with_target_losses(settled), _inference_results()),
-            (variants[1], _training_results_with_target_losses(settled), _inference_results()),
+            (
+                variants[0],
+                _training_results_with_target_losses(high_early_loss),
+                _inference_results(),
+            ),
+            (
+                variants[1],
+                _training_results_with_target_losses(high_early_loss),
+                _inference_results(),
+            ),
         ],
         hyperparameters,
     )
-    unsettled_loss = supervised_bike_sharing_demand_demo.demo_loss(
+    high_final_loss = supervised_bike_sharing_demand_demo.demo_loss(
         [
-            (variants[0], _training_results_with_target_losses(unsettled), _inference_results()),
-            (variants[1], _training_results_with_target_losses(settled), _inference_results()),
+            (
+                variants[0],
+                _training_results_with_target_losses(high_late_loss),
+                _inference_results(),
+            ),
+            (
+                variants[1],
+                _training_results_with_target_losses(high_early_loss),
+                _inference_results(),
+            ),
         ],
         hyperparameters,
     )
 
-    assert unsettled_loss > settled_loss
+    assert high_final_loss > low_final_loss
 
 
 def test_supervised_demo_loss_rejects_fewer_than_four_training_examples() -> None:
