@@ -5,8 +5,39 @@ import jax.random as jr
 
 from cem.demos.afp.plotter import AFPTelemetry
 from cem.demos.afp.problem import NonlinearityKind
+from cem.demos.afp.readout import gamma_readout, gamma_recovery_error
 from cem.demos.afp.solution import AFPModel, AFPSolver
 from cem.structure.solution import ExecutionPacket, Telemetries
+
+
+def _trained_solver_and_results(solver: AFPSolver) -> tuple[AFPSolver, object]:
+    telemetry = AFPTelemetry(selected_node="afp")
+    packet = ExecutionPacket(telemetries=Telemetries((telemetry,)))
+    training_results, _ = solver.training_and_inference_result(packet=packet)
+    return solver, training_results
+
+
+def test_gamma_readout_shape_matches_true_gamma() -> None:
+    solver = AFPSolver(n_instruments=4, n_confounders=3, n_treatments=3, n_outcomes=1)
+    solution = solver.solution()
+    learnable = solution.solution_state.dis_learnable_parameters.assembled()
+    model = solution.inference.assemble_model(learnable)
+    assert isinstance(model, AFPModel)
+    gamma_hat = gamma_readout(model, solver.problem(), key=jr.key(0), n_probes=8)
+    assert gamma_hat.shape == solver.problem().gamma.shape
+
+
+def test_gamma_readout_finite_on_untrained_model() -> None:
+    solver = AFPSolver(n_instruments=2, n_confounders=2, n_treatments=2, n_outcomes=2)
+    solution = solver.solution()
+    learnable = solution.solution_state.dis_learnable_parameters.assembled()
+    model = solution.inference.assemble_model(learnable)
+    assert isinstance(model, AFPModel)
+    gamma_hat = gamma_readout(model, solver.problem(), key=jr.key(1), n_probes=4)
+    assert jnp.all(jnp.isfinite(gamma_hat))
+    error = gamma_recovery_error(gamma_hat, solver.problem().gamma)
+    assert jnp.isfinite(error)
+
 
 _DEFAULT_FREQUENCIES = 10
 

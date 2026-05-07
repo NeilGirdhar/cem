@@ -12,15 +12,14 @@ from cem.structure.plotter import Demo, Plotter, Variant
 from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
 from cem.structure.solver import Solver
 
-from .plotter import AFPLossPlotter, AFPTelemetry
+from .plotter import AFPGammaRecoveryPlotter, AFPLossPlotter, AFPTelemetry
 from .solution import AFPSolver
 
 
 class AFPVariant(Variant):
     """Variant for adversarial factor purification on the parameterized IV problem."""
 
-    @override
-    def create_solver(self) -> Solver[IVProblem]:
+    def _create_afp_solver(self) -> AFPSolver:
         return AFPSolver(
             n_instruments=4,
             n_confounders=3,
@@ -29,8 +28,12 @@ class AFPVariant(Variant):
         )
 
     @override
+    def create_solver(self) -> Solver[IVProblem]:
+        return self._create_afp_solver()
+
+    @override
     def plotters(self) -> Sequence[Plotter]:
-        return [AFPLossPlotter()]
+        return [AFPLossPlotter(), AFPGammaRecoveryPlotter(solver=self._create_afp_solver())]
 
     @override
     def extra_telemetries(self) -> Telemetries:

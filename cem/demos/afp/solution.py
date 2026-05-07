@@ -123,6 +123,58 @@ class AFPModel(Model):
             _frequencies=FixedParameter(freqs),
         )
 
+    def predict_endo_phasor(
+        self,
+        observation: IVObservation,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> JaxArray:
+        """Run only the endogenous channel and return ``z_endo_hat``.
+
+        Encodes ``observation.x`` as input phasors, passes them through the
+        endogenous purifier and predictor.  Used by ``gamma_readout`` to isolate
+        the confounder pathway for diagnostics.
+        """
+        z_input = encode_phasor(observation.x, self._x_flattener.value, self._frequencies.value)
+        z_endo_pure = self.endo_purifier.infer(z_input, streams=streams, inference=inference)
+        return self.endo_predictor.infer(z_endo_pure, streams=streams, inference=inference)
+
+    def predict_exo_phasor(
+        self,
+        observation: IVObservation,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> JaxArray:
+        """Run only the exogenous channel and return ``z_exo_hat``.
+
+        Encodes ``observation.x`` as input phasors, passes them through the
+        exogenous purifier and predictor.  This is the structural prediction path:
+        the channel constrained to be independent of the residual score, so its
+        Jacobian w.r.t. T should isolate the causal effect γ.
+        """
+        z_input = encode_phasor(observation.x, self._x_flattener.value, self._frequencies.value)
+        z_exo_pure = self.exo_purifier.infer(z_input, streams=streams, inference=inference)
+        return self.exo_predictor.infer(z_exo_pure, streams=streams, inference=inference)
+
+    def predict_phasor(
+        self,
+        observation: IVObservation,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> JaxArray:
+        """Return the full predicted output phasor ``z_endo_hat + z_exo_hat``.
+
+        This is the conditional-mean prediction of Y given the observed factors.
+        Differentiating it w.r.t. T gives the *correlational* response, not γ;
+        for causal-effect readout use :meth:`predict_exo_phasor` instead.
+        """
+        return self.predict_endo_phasor(
+            observation, streams=streams, inference=inference
+        ) + self.predict_exo_phasor(observation, streams=streams, inference=inference)
+
     def _adversarial_loss(
         self,
         critic: GatedProjection,
