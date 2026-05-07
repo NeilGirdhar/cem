@@ -2,38 +2,29 @@ from __future__ import annotations
 
 import logging
 from functools import partial
-from operator import itemgetter
 from typing import Any
 
 import jax.numpy as jnp
-import jax.random as jr
-from jax import lax, tree
+from jax import lax
 from tjax import JaxArray, KeyArray, jit
 
 from cem.structure.graph.model import Model
 from cem.structure.problem.data_source import DataSource
 from cem.structure.problem.problem import Problem
-from cem.structure.solution.inference import Inference, InferenceResult, SolutionState
+from cem.structure.solution.inference import Inference, SolutionState
 
-from .execution_context import ExecutionContext, ExecutionPacket
+from .execution_loop import (
+    collect_snapshots,
+    fold_episode_keys,
+    log_jit_once,
+    run_execution_chunks,
+)
+from .execution_packet import ExecutionPacket
 from .results import InferenceResults
 from .telemetry import Telemetry
 
 log = logging.getLogger(__name__)
 _logged_inference_jit_signatures: set[tuple[int, int, tuple[str, ...]]] = set()
-
-
-def inference_snapshots(
-    inference: Inference,
-    telemetries: tuple[Telemetry, ...],
-    result: InferenceResult,
-) -> dict[Telemetry, Any]:
-    snapshots: dict[Telemetry, Any] = {}
-    for telemetry in telemetries:
-        snapshot = telemetry.inference_snapshot(inference, result, snapshots)
-        if snapshot is not None:
-            snapshots[telemetry] = snapshot
-    return snapshots
 
 
 @partial(jit, static_argnames=("batch_size", "max_chunk_size"))
@@ -50,8 +41,9 @@ def infer_episode_chunk(  # noqa: PLR0917
     telemetries: tuple[Telemetry, ...],
 ) -> dict[Telemetry, Any]:
     def step(episode_index: JaxArray, _: None) -> tuple[JaxArray, dict[Telemetry, Any]]:
-        example_key = jr.fold_in(example_key_base, episode_index)
-        inference_key = jr.fold_in(inference_key_base, episode_index)
+        example_key, inference_key = fold_episode_keys(
+            example_key_base, inference_key_base, episode_index
+        )
         result = inference.infer_one_episode(
             batch_size,
             example_key,
@@ -60,31 +52,13 @@ def infer_episode_chunk(  # noqa: PLR0917
             learnable_parameters,
             problem,
         )
-        return episode_index + 1, inference_snapshots(inference, telemetries, result)
+        return episode_index + 1, collect_snapshots(
+            telemetries,
+            lambda telemetry, snapshots: telemetry.inference_snapshot(inference, result, snapshots),
+        )
 
     _, snapshots = lax.scan(step, jnp.asarray(chunk_start), None, length=max_chunk_size)
     return snapshots
-
-
-def _slice_chunk(snapshots: dict[Telemetry, Any], count: int) -> dict[Telemetry, Any]:
-    return tree.map(itemgetter(slice(count)), snapshots)
-
-
-def _log_inference_jit_once(
-    batch_size: int,
-    max_chunk_size: int,
-    telemetries: tuple[Telemetry, ...],
-) -> None:
-    signature = (batch_size, max_chunk_size, tuple(repr(t) for t in telemetries))
-    if signature in _logged_inference_jit_signatures:
-        return
-    _logged_inference_jit_signatures.add(signature)
-    log.info(
-        "JIT compiling inference chunk: batch_size=%d max_chunk_size=%d telemetries=%s",
-        batch_size,
-        max_chunk_size,
-        tuple(type(t).__name__ for t in telemetries),
-    )
 
 
 def infer_episodes(
@@ -114,36 +88,45 @@ def infer_episodes(
         raise ValueError(msg)
     if episodes == 0:
         return InferenceResults(count=0, telemetries={})
-    if packet.scan_chunk_size <= 0:
-        msg = f"scan_chunk_size must be > 0, got {packet.scan_chunk_size}"
-        raise ValueError(msg)
     data_source = problem.create_data_source()
-    with ExecutionContext.create(
+
+    def handle_chunk(
+        example_key_base: KeyArray,
+        inference_key_base: KeyArray,
+        chunk_start: int,
+        chunk_size: int,
+        episodes_done: int,
+    ) -> tuple[dict[Telemetry, Any], int, bool]:
+        del episodes_done
+        learnable_parameters = solution_state.dis_learnable_parameters.assembled()
+        log_jit_once(
+            _logged_inference_jit_signatures,
+            log,
+            "inference",
+            batch_size,
+            packet.scan_chunk_size,
+            packet.telemetries.telemetries,
+        )
+        snapshots = infer_episode_chunk(
+            inference,
+            batch_size,
+            example_key_base,
+            inference_key_base,
+            chunk_start,
+            packet.scan_chunk_size,
+            data_source,
+            learnable_parameters,
+            problem,
+            packet.telemetries.telemetries,
+        )
+        return snapshots, chunk_size, True
+
+    execution_context = run_execution_chunks(
         solver_name=solver_name,
         episodes=episodes,
         packet=packet,
+        key=key,
         job_type="inference",
-        use_wandb=True,
-    ) as execution_context:
-        example_key_base, inference_key_base = jr.split(key)
-        for chunk_start in range(0, episodes, packet.scan_chunk_size):
-            chunk_stop = min(chunk_start + packet.scan_chunk_size, episodes)
-            chunk_size = chunk_stop - chunk_start
-            learnable_parameters = solution_state.dis_learnable_parameters.assembled()
-            _log_inference_jit_once(
-                batch_size, packet.scan_chunk_size, packet.telemetries.telemetries
-            )
-            snapshots = infer_episode_chunk(
-                inference,
-                batch_size,
-                example_key_base,
-                inference_key_base,
-                chunk_start,
-                packet.scan_chunk_size,
-                data_source,
-                learnable_parameters,
-                problem,
-                packet.telemetries.telemetries,
-            )
-            execution_context.append_chunk(_slice_chunk(snapshots, chunk_size), chunk_size)
+        handle_chunk=handle_chunk,
+    )
     return InferenceResults(execution_context.episodes_done(), execution_context.telemetries())
