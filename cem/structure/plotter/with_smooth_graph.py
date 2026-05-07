@@ -94,4 +94,3 @@ def absolute_percentile(data: NumpyArray, percentile: float) -> float:
 class PlotterWithSmoothGraph(Plotter):
     _: KW_ONLY
     smoothing: float = 0.15
-    clip_outlier_percentile: float = 100.0
