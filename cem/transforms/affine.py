@@ -5,12 +5,12 @@ from typing import Self
 
 import equinox as eqx
 import jax.numpy as jnp
-import jax.random as jr
 import numpy as np
 from jax.nn.initializers import variance_scaling
 from tjax import JaxArray, JaxRealArray, RngStream
 
 from cem.structure.graph import FixedParameter, LearnableParameter
+from cem.transforms.dropout import apply_dropout_if_training
 
 _real_lecun = variance_scaling(1.0, "fan_in", "truncated_normal")
 
@@ -128,8 +128,6 @@ class AffineWithDropout(Affine):
             Output, shape (..., out_features).
         """
         result = super().infer(x)
-        if inference:
-            return result
-        key = streams["inference"].key()
-        mask = jr.bernoulli(key, 1.0 - self.dropout_rate.value, shape=result.shape)
-        return jnp.where(mask, result / (1.0 - self.dropout_rate.value), jnp.zeros_like(result))
+        return apply_dropout_if_training(
+            result, streams=streams, inference=inference, dropout_rate=self.dropout_rate.value
+        )

@@ -17,7 +17,6 @@ from cem.phasor.loss import (
 from cem.phasor.message import (
     encode_scalar_phasors,
     phasor_concordance,
-    phasor_dropout,
     phasor_from_distribution,
     phasor_to_conjugate_prior,
     phasor_to_distribution,
@@ -43,7 +42,6 @@ __all__ = [
     "interpolate",
     "make_frequency_grid",
     "phasor_concordance",
-    "phasor_dropout",
     "phasor_from_distribution",
     "phasor_gate",
     "phasor_to_conjugate_prior",

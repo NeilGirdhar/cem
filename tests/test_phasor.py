@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 import jax
 import jax.numpy as jnp
 from efax import Flattener, NormalNP, UnitVarianceNormalNP
-from tjax import RngStream
 
 from cem.phasor.frequency import geometric_frequencies, make_frequency_grid
 from cem.phasor.message import (
     encode_scalar_phasors,
     phasor_concordance,
-    phasor_dropout,
     phasor_from_distribution,
     phasor_to_conjugate_prior,
     phasor_to_distribution,
@@ -110,21 +106,6 @@ def test_concordance_orthogonal_is_zero_antiphase_is_negative() -> None:
     c = phasor_concordance(a, b)
     assert jnp.allclose(c[0], 0.0, atol=1e-7)
     assert c[1] < 0
-
-
-# ── dropout ───────────────────────────────────────────────────────────────────
-
-
-def test_dropout_zero_rate_is_identity(streams: Mapping[str, RngStream]) -> None:
-    p = jnp.array([1 + 1j, 2 - 1j, 0.5 + 0.5j])
-    assert jnp.allclose(phasor_dropout(p, streams["inference"].key(), 0.0), p)
-
-
-def test_dropout_preserves_expected_value(streams: Mapping[str, RngStream]) -> None:
-    p = jnp.array([1 + 0j, 0 + 2j, -1 + 1j])
-    stream = streams["inference"]
-    samples = jnp.stack([phasor_dropout(p, stream.key(), 0.3) for _ in range(2000)])
-    assert jnp.allclose(jnp.mean(samples, axis=0), p, atol=0.1)
 
 
 # ── to_real ───────────────────────────────────────────────────────────────────

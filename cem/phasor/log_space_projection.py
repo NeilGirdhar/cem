@@ -8,8 +8,8 @@ import jax.numpy as jnp
 from jax.nn.initializers import variance_scaling
 from tjax import JaxArray, JaxRealArray, RngStream
 
-from cem.phasor.message import phasor_dropout
 from cem.structure.graph import FixedParameter, LearnableParameter
+from cem.transforms.dropout import apply_dropout_if_training
 
 # Each real/imaginary component uses Lecun variance (0.5 * 1/fan_in), giving correct
 # complex Lecun initialization when the two components are combined.
@@ -120,6 +120,6 @@ class LogSpaceProjectionWithDropout(LogSpaceProjection):
             Output phasors, shape (..., out_features).
         """
         result = super().infer(z)
-        if inference:
-            return result
-        return phasor_dropout(result, streams["inference"].key(), self.dropout_rate.value)
+        return apply_dropout_if_training(
+            result, streams=streams, inference=inference, dropout_rate=self.dropout_rate.value
+        )

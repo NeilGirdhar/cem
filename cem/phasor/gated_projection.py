@@ -9,8 +9,9 @@ from tjax import JaxRealArray, RngStream
 
 from cem.phasor.gate import phasor_gate
 from cem.phasor.log_space_projection import LogSpaceProjection
-from cem.phasor.message import JaxComplexArray, phasor_dropout
+from cem.phasor.message import JaxComplexArray
 from cem.structure.graph import FixedParameter
+from cem.transforms.dropout import apply_dropout_if_training
 
 
 class GatedProjection(eqx.Module):
@@ -67,6 +68,6 @@ class GatedProjection(eqx.Module):
         """
         gated = phasor_gate(self.f1.infer(z), self.f2.infer(z))
         result = self.f3.infer(gated)
-        if inference:
-            return result
-        return phasor_dropout(result, streams["inference"].key(), self.dropout_rate.value)
+        return apply_dropout_if_training(
+            result, streams=streams, inference=inference, dropout_rate=self.dropout_rate.value
+        )

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-import jax.random as jr
 from efax import (
     Distribution,
     ExpectationParametrization,
@@ -108,17 +107,6 @@ def encode_scalar_phasors(
 def phasor_concordance(left: JaxComplexArray, right: JaxComplexArray) -> JaxRealArray:
     """Elementwise agreement Re(left * conj(right))."""
     return jnp.real(left * jnp.conj(right))
-
-
-def phasor_dropout(
-    z: JaxComplexArray,
-    key: JaxArray,
-    rate: float | JaxRealArray,
-) -> JaxComplexArray:
-    """Apply dropout by zeroing phasors and scaling retained values by 1 / (1 - rate)."""
-    mask = jr.bernoulli(key, 1.0 - rate, shape=z.shape)
-    scaled = z / (1.0 - rate)
-    return jnp.where(mask, scaled, jnp.zeros_like(z))
 
 
 def phasor_to_real(z: JaxComplexArray) -> JaxArray:
