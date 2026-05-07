@@ -158,7 +158,7 @@ class PhasorSupervisedModel(Model):
     ) -> ModelResult:
         assert isinstance(observation, SupervisedProblemState)
         # observation.x: (n_features,), flat UnitVarianceNormalNP encodings.
-        x_dist = self._x_flattener.value.unflatten(observation.x, return_vector=True)
+        x_dist = self._x_flattener.value.unflatten(observation.x, raveled=True)
         # x_phasor: (n_features * n_frequencies,), raveled input phasors.
         x_phasor = phasor_from_distribution(x_dist, self._frequencies.value, raveled=True)
         # z_hat: (n_targets * n_frequencies,), concatenated target phasors.

@@ -165,8 +165,8 @@ class AFPModel(Model):
 
         # Match the supervised phasor demo: unflatten UnitVarianceNormalNP encodings and
         # evaluate their characteristic phasors on the configured frequency basis.
-        x_dist = self._x_flattener.value.unflatten(observation.x, return_vector=True)
-        y_dist = self._y_flattener.value.unflatten(observation.y, return_vector=True)
+        x_dist = self._x_flattener.value.unflatten(observation.x, raveled=True)
+        y_dist = self._y_flattener.value.unflatten(observation.y, raveled=True)
         z_input = phasor_from_distribution(x_dist, self._frequencies.value, raveled=True)
         z_obs = phasor_from_distribution(y_dist, self._frequencies.value, raveled=True)
 
