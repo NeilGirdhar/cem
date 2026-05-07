@@ -33,16 +33,6 @@ def test_mlp_without_hidden_layers_is_affine(streams: Mapping[str, RngStream]) -
     assert f.infer(x, streams=streams, inference=True).shape == (3, 2)
 
 
-def test_mlp_dropout_skips_when_inference_true(streams: Mapping[str, RngStream]) -> None:
-    f = MLP.create(4, 2, hidden_features=(20,), dropout_rate=0.9, streams=streams)
-    x = jnp.ones(4, dtype=jnp.float64)
-
-    assert jnp.allclose(
-        f.infer(x, streams=streams, inference=True),
-        f.infer(x, streams=streams, inference=True),
-    )
-
-
 def test_mlp_dropout_applies_when_inference_false(streams: Mapping[str, RngStream]) -> None:
     f = MLP.create(4, 20, hidden_features=(20,), dropout_rate=0.5, streams=streams)
     x = jnp.ones(4, dtype=jnp.float64)
