@@ -21,10 +21,18 @@ class LearnableParameter[A](Parameter[A]):
     """
 
 
-class MetaParameter[A](Parameter[A]):
-    """A parameter updated by a meta-learning objective, typically at a lower learning rate.
+class TrackingParameter[A](Parameter[A]):
+    """A parameter that tracks a target signal via SGD on a tracking aux loss.
 
-    E.g., frequency weights learned to equalize gradient contributions.
+    Reserved for trackers — EMAs, Polyak target nets, Lagrange multipliers —
+    whose prescribed dynamics would be warped by Adam's adaptive rescaling.
+
+    Examples:
+    - **EMA** of ``L``: aux ``½(v − sg(L))²`` ⇒ ``v ← (1 − η)·v + η·L``.
+    - **Polyak target net**: aux ``½‖v − sg(main)‖²`` ⇒ ``v`` drags toward ``main``.
+    - **Lagrange multiplier**: aux ``−λ·sg(g)`` ⇒ ``λ ← λ + η·g``.
+
+    Parameters wanting non-tracking dynamics get their own :class:`Parameter` subclass.
     """
 
 

@@ -8,7 +8,7 @@ import equinox as eqx
 import jax.random as jr
 from optuna.distributions import BaseDistribution, FloatDistribution, IntDistribution
 from tjax import RngStream, create_streams
-from tjax.gradient import Adam
+from tjax.gradient import SGD, Adam
 
 from cem.structure.graph import (
     DisGradientTransformation,
@@ -16,6 +16,7 @@ from cem.structure.graph import (
     LearnableParameter,
     Model,
     ParameterType,
+    TrackingParameter,
 )
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solution import (
@@ -53,6 +54,9 @@ class Solver[P: Problem](eqx.Module):
     parameters_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
     learning_rate: float = float_field(
         default=0.002, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
+    )
+    tracking_learning_rate: float = float_field(
+        default=0.01, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
     )
 
     def training_results(self, *, packet: ExecutionPacket) -> TrainingResults:
@@ -102,6 +106,7 @@ class Solver[P: Problem](eqx.Module):
             [
                 (ParameterType(FixedParameter), None),
                 (ParameterType(LearnableParameter), Adam[Model](self.learning_rate)),
+                (ParameterType(TrackingParameter), SGD[Model](self.tracking_learning_rate)),
             ]
         )
 

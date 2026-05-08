@@ -17,6 +17,7 @@ from cem.phasor.gated_projection import GatedProjection
 from cem.phasor.loss import decorrelation_loss, spectral_reconstruction_loss_and_score
 from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration
+from cem.structure.loss_balancer import LossBalancer
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
 from cem.transforms import AffineWithDropout, encode_phasor
@@ -76,6 +77,7 @@ class AFPModel(Model):
     exo_predictor: AffineWithDropout
     exo_critic: GatedProjection
     endo_critic: GatedProjection
+    balancer: LossBalancer
     _x_flattener: FixedParameter[Flattener[Any]]
     _y_flattener: FixedParameter[Flattener[Any]]
     _frequencies: FixedParameter[JaxRealArray]
@@ -118,6 +120,7 @@ class AFPModel(Model):
             ),
             exo_critic=GatedProjection.create(encoded_obs_features, exo_latent, streams=streams),
             endo_critic=GatedProjection.create(exo_latent, endo_latent, streams=streams),
+            balancer=LossBalancer.create(3),
             _x_flattener=FixedParameter(x_flattener),
             _y_flattener=FixedParameter(y_flattener),
             _frequencies=FixedParameter(freqs),
@@ -188,7 +191,8 @@ class AFPModel(Model):
         endo_loss = self._adversarial_loss(
             self.endo_critic, z_exo_pure, z_endo_pure, streams=streams, inference=inference
         )
-        total_loss = jnp.sum(recon_loss) + exo_loss + endo_loss
+        per_component = jnp.stack([recon_loss, exo_loss, endo_loss])
+        total_loss = self.balancer.total_with_meta_aux(per_component)
 
         afp_config = AFPConfiguration(
             recon_loss=recon_loss,
