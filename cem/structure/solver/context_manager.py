@@ -26,7 +26,7 @@ def solver_context_manager(
     *,
     jax_cache_dir: str,
     thread_limit: int | None,
-    log_compilation: bool = True,
+    log_compilation: bool = False,
 ) -> Generator[None]:
     cc.set_cache_dir(jax_cache_dir)
     with (
