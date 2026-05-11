@@ -80,6 +80,9 @@ class AFPLossPlotter(PlotterWithSmoothGraph):
             times = np.arange(values.shape[0], dtype=np.float64)
             ax.plot(times, smooth_data(values, self.smoothing), label=label)
         ax.axhline(0.0, color="black", linewidth=0.8, alpha=0.3)
+        # symlog so we can see small recon values clearly while exo/endo can still
+        # cross zero (negative gain = critic worse than uniform).
+        ax.set_yscale("symlog", linthresh=1e-3)
         ax.set_title(split)
         ax.set_xlabel("Episode")
         ax.set_ylabel("Loss")
