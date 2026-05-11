@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import jax.scipy.special as jss
+from efax import ComplexVonMisesNP
 
 from cem.phasor.loss import (
     centering_loss,
@@ -116,5 +117,7 @@ def test_decorrelation_loss_is_real() -> None:
 def test_decorrelation_loss_formula() -> None:
     pred = jnp.array([1 + 2j, -1 + 1j])
     target = jnp.array([0 + 1j, 2 - 1j])
-    expected = jnp.real(jnp.sum(jnp.conj(pred) * target))
+    target_exp = ComplexVonMisesNP(target).to_exp()
+    predicted = ComplexVonMisesNP(pred)
+    expected = jnp.sum(jnp.log(2.0 * jnp.pi) - target_exp.cross_entropy(predicted), axis=-1)
     assert jnp.allclose(decorrelation_loss(pred, target), expected)

@@ -188,7 +188,7 @@ class AFPModel(Model):
         endo_loss = self._adversarial_loss(
             self.endo_critic, z_exo_pure, z_endo_pure, streams=streams, inference=inference
         )
-        total_loss = jnp.sum(recon_loss) + exo_loss + endo_loss
+        total_loss = recon_loss + exo_loss + endo_loss
 
         afp_config = AFPConfiguration(
             recon_loss=recon_loss,

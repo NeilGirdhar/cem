@@ -109,19 +109,35 @@ def strength_loss(z: JaxArray) -> JaxArray:
 
 
 def decorrelation_loss(prediction: JaxArray, target: JaxArray) -> JaxArray:
-    """Adversarial decorrelation concordance: Re(prediction^H target).
+    """Adversarial information-leak loss: negative cross-entropy of target under prediction.
 
-    L_crit = Re(Σᵢ conj(predictionᵢ) · targetᵢ)
+    Interprets ``prediction`` and ``target`` as natural parameters of independent
+    ``ComplexVonMises`` distributions on the final axis.  Returns
+    ``−Σ_features cross_entropy(VM(target_i), VM(prediction_i))``.
 
-    The critic h is trained to maximize this over its parameters by predicting target u from z,
-    while the producer of z minimizes it, removing from z any information about u that the
-    critic can detect.
+    Producer minimizing this maximizes the cross-entropy — i.e. makes samples from
+    ``VM(target)`` hard for the critic's predicted distribution ``VM(prediction)`` to
+    explain.  With ``negate_cotangent`` on ``prediction`` the critic sees the flipped
+    gradient and effectively minimizes the cross-entropy, sharpening its prediction.
+
+    Unlike the inner-product form ``Re(prediction^H · target)``, this loss
+    correctly returns ~0 (gain ≈ 0) whenever either distribution is uniform
+    (``|prediction|`` or ``|target|`` near zero), since neither side carries
+    information to leak.  Its gradient on ``target`` is bounded by the
+    Bessel-ratio geometry of the von Mises manifold.
 
     Args:
-        prediction: Critic output h(z), shape (..., features).
-        target: Target phasors u, shape (..., features).
+        prediction: Critic output, shape (..., features).
+        target: Target phasors, shape (..., features).
 
     Returns:
-        Concordance, shape (...) — a scalar per batch element.
+        Negative summed cross-entropy, shape (...) — scalar per batch element.
     """
-    return jnp.real(jnp.sum(jnp.conj(prediction) * target, axis=-1))
+    target_exp = ComplexVonMisesNP(target).to_exp()
+    predicted = ComplexVonMisesNP(prediction)
+    # Σ (log 2π − cross_entropy) = Σ critic's log-likelihood gain over uniform.
+    # The constant log(2π) shifts the loss so it reads 0 at the no-leak floor
+    # (uniform critic predicting uniform producer), positive when leak is present,
+    # and negative when the critic is doing worse than uniform — without changing
+    # gradients.
+    return jnp.sum(jnp.log(2.0 * jnp.pi) - target_exp.cross_entropy(predicted), axis=-1)
