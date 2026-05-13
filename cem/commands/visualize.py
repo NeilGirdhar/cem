@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import logging
 
-import networkx as nx
 import typer
 from optuna.study import load_study
-from tjax import GenericString, register_graph_as_jax_pytree
+from tjax import GenericString
 
 from cem.structure import (
     ExecutionPacket,
@@ -32,7 +31,6 @@ def visualize(
     log: bool = True,
 ) -> None:
     demo = demo_registry[name]
-    register_graph_as_jax_pytree(nx.DiGraph)
     if log:
         set_up_logging()
     else:

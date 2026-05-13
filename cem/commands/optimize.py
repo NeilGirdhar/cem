@@ -6,7 +6,6 @@ from dataclasses import replace
 from enum import StrEnum
 from typing import Annotated, Any
 
-import networkx as nx
 import rich.progress as rp
 import typer
 from optuna.distributions import (
@@ -18,7 +17,7 @@ from optuna.distributions import (
 from optuna.storages import JournalStorage
 from optuna.study import Study, create_study, delete_study, load_study
 from optuna.trial import FrozenTrial, Trial, TrialState
-from tjax import GenericString, register_graph_as_jax_pytree
+from tjax import GenericString
 from typer import Argument, BadParameter, Option
 
 from cem.structure import (
@@ -211,7 +210,6 @@ def optimize(  # noqa: C901
     restart: bool = False,
 ) -> None:
     demo = demo_registry[name]
-    register_graph_as_jax_pytree(nx.DiGraph)
     if log:
         set_up_logging()
     else:
