@@ -21,10 +21,22 @@ readme = "README.rst"
 requires-python = ">=3.14, <3.15"
 authors = [{name = "Neil Girdhar", email = "mistersheik@gmail.com"}]
 maintainers = [{name = "Neil Girdhar", email = "mistersheik@gmail.com"}]
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE"]
+keywords = [
+  "adversarial-learning",
+  "causal-discovery",
+  "causal-inference",
+  "instrumental-variables",
+  "instrument-discovery",
+  "jax",
+  "machine-learning",
+  "phasors"
+]
 classifiers = [
   "Development Status :: 1 - Planning",
   "Intended Audience :: Developers",
-  "License :: Other/Proprietary License",
+  "Intended Audience :: Science/Research",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.14",
@@ -56,10 +68,13 @@ optimize = "cem.commands.optimize:app"
 visualize = "cem.commands.visualize:app"
 
 [project.urls]
-source = "https://github.com/NeilGirdhar/cem"
+Documentation = "https://github.com/NeilGirdhar/cem#readme"
+Issues = "https://github.com/NeilGirdhar/cem/issues"
+Source = "https://github.com/NeilGirdhar/cem"
 
 [tool.pytest]
 addopts = ["--disable-warnings"]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
