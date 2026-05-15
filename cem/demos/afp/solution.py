@@ -133,8 +133,8 @@ class AFPModel(Model):
         """Run only the endogenous channel and return ``z_endo_hat``.
 
         Encodes ``observation.x`` as input phasors, passes them through the
-        endogenous purifier and predictor.  Used by ``gamma_readout`` to isolate
-        the confounder pathway for diagnostics.
+        endogenous purifier and predictor.  Decoded value tracks the confounded
+        (U-driven) contribution to Y.
         """
         z_input = encode_phasor(observation.x, self._x_flattener.value, self._frequencies.value)
         z_endo_pure = self.endo_purifier.infer(z_input, streams=streams, inference=inference)
@@ -150,9 +150,8 @@ class AFPModel(Model):
         """Run only the exogenous channel and return ``z_exo_hat``.
 
         Encodes ``observation.x`` as input phasors, passes them through the
-        exogenous purifier and predictor.  This is the structural prediction path:
-        the channel constrained to be independent of the residual score, so its
-        Jacobian w.r.t. T should isolate the causal effect γ.
+        exogenous purifier and predictor.  Decoded value tracks the causal-pathway
+        contribution ``γα·Z`` — what the structural causal effect contributes to Y.
         """
         z_input = encode_phasor(observation.x, self._x_flattener.value, self._frequencies.value)
         z_exo_pure = self.exo_purifier.infer(z_input, streams=streams, inference=inference)
@@ -165,15 +164,47 @@ class AFPModel(Model):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxArray:
-        """Return the full predicted output phasor ``z_endo_hat + z_exo_hat``.
-
-        This is the conditional-mean prediction of Y given the observed factors.
-        Differentiating it w.r.t. T gives the *correlational* response, not γ;
-        for causal-effect readout use :meth:`predict_exo_phasor` instead.
-        """
+        """Return the full predicted output phasor ``z_endo_hat + z_exo_hat``."""
         return self.predict_endo_phasor(
             observation, streams=streams, inference=inference
         ) + self.predict_exo_phasor(observation, streams=streams, inference=inference)
+
+    def _decode_phasor_to_y(self, z_hat: JaxArray) -> JaxRealArray:
+        """OLS recovery of the von Mises mean from a raveled output phasor.
+
+        For each outcome ``k`` and frequency ``ω_j``, a true phasor satisfies
+        ``z[k, j] = exp(i·ω_j·y_k − ω_j²/2)``, so ``arg z[k, j] = ω_j·y_k`` (modulo
+        ``2π``).  A least-squares fit over frequencies gives
+        ``y_k = Σ_j ω_j arg z[k, j] / Σ_j ω_j²``.
+        """
+        freqs = self._frequencies.value
+        z_grid = z_hat.reshape(-1, freqs.shape[0])  # (n_outcomes, n_frequencies)
+        return jnp.sum(jnp.angle(z_grid) * freqs[None, :], axis=-1) / jnp.sum(freqs**2)
+
+    def predict_y_exo(
+        self,
+        observation: IVObservation,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> JaxRealArray:
+        """Decoded ŷ from the exogenous channel — the AFP estimate of ``γα·Z``."""
+        z_hat = self.predict_exo_phasor(observation, streams=streams, inference=inference)
+        return self._decode_phasor_to_y(z_hat)
+
+    def predict_y_endo(
+        self,
+        observation: IVObservation,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> JaxRealArray:
+        """Decoded ŷ from the endogenous channel.
+
+        The AFP estimate of the confounded residual ``Y − γα·Z``.
+        """
+        z_hat = self.predict_endo_phasor(observation, streams=streams, inference=inference)
+        return self._decode_phasor_to_y(z_hat)
 
     def _adversarial_loss(
         self,
@@ -257,7 +288,7 @@ class AFPModel(Model):
 class AFPSolver(Solver[IVProblem]):
     """Solver for the AFP IV demo on a parameterized synthetic IV problem.
 
-    Structural fields (``n_instruments``, ``n_confounders``, ``n_treatments``,
+    Structural fields (``n_instruments``, ``n_confounders``, ``n_candidate_confounders``,
     ``n_outcomes``, ``n_environments``, ``nonlinearity``) configure the DGP.  The
     coefficient matrices are sampled deterministically from ``coefficient_seed``
     with i.i.d. ``N(0, coefficient_scale**2)`` entries.
@@ -272,7 +303,7 @@ class AFPSolver(Solver[IVProblem]):
     inference_examples: int = int_field(default=0, domain=IntDistribution(0, 1 << 12))
     n_instruments: int = int_field(default=2, domain=IntDistribution(1, 8))
     n_confounders: int = int_field(default=1, domain=IntDistribution(1, 4))
-    n_treatments: int = int_field(default=1, domain=IntDistribution(1, 4))
+    n_candidate_confounders: int = int_field(default=1, domain=IntDistribution(1, 4))
     n_outcomes: int = int_field(default=1, domain=IntDistribution(1, 4))
     n_environments: int = int_field(default=1, domain=IntDistribution(1, 4))
     nonlinearity: NonlinearityKind = eqx.field(static=True, default=NonlinearityKind.none)
@@ -299,7 +330,7 @@ class AFPSolver(Solver[IVProblem]):
         return build_iv_problem(
             n_instruments=self.n_instruments,
             n_confounders=self.n_confounders,
-            n_treatments=self.n_treatments,
+            n_candidate_confounders=self.n_candidate_confounders,
             n_outcomes=self.n_outcomes,
             n_environments=self.n_environments,
             nonlinearity=self.nonlinearity,

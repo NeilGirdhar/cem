@@ -1,4 +1,10 @@
 {
+  "afp-synthetic-iv": {
+    "endo_latent": 10,
+    "exo_latent": 8,
+    "learning_rate": 0.041598722610794676,
+    "n_frequencies": 16
+  },
   "supervised-bike-sharing-demand": {
     "hidden_size": 32,
     "perceptron.learning_rate": 0.044637945540524644,

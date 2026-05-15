@@ -12,7 +12,13 @@ from cem.structure.plotter import Demo, Plotter, Variant
 from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
 from cem.structure.solver import Solver
 
-from .plotter import AFPGammaRecoveryPlotter, AFPLossPlotter, AFPTelemetry
+from .plotter import (
+    AFPCausalExoPlotter,
+    AFPConfoundedEndoPlotter,
+    AFPCrossEnvPlotter,
+    AFPLossPlotter,
+    AFPTelemetry,
+)
 from .solution import AFPSolver
 
 
@@ -23,8 +29,9 @@ class AFPVariant(Variant):
         return AFPSolver(
             n_instruments=4,
             n_confounders=3,
-            n_treatments=3,
+            n_candidate_confounders=3,
             n_outcomes=1,
+            n_environments=2,
         )
 
     @override
@@ -33,7 +40,12 @@ class AFPVariant(Variant):
 
     @override
     def plotters(self) -> Sequence[Plotter]:
-        return [AFPLossPlotter(), AFPGammaRecoveryPlotter(solver=self._create_afp_solver())]
+        return [
+            AFPLossPlotter(),
+            AFPCausalExoPlotter(solver=self._create_afp_solver()),
+            AFPConfoundedEndoPlotter(solver=self._create_afp_solver()),
+            AFPCrossEnvPlotter(solver=self._create_afp_solver()),
+        ]
 
     @override
     def extra_telemetries(self) -> Telemetries:
@@ -41,23 +53,34 @@ class AFPVariant(Variant):
 
 
 class AFPDemo(Demo):
-    """AFP demo scored from the full set of variant results."""
+    """AFP demo scored on a leak-rectified mean of the three training losses."""
 
     def demo_loss(
         self,
         variant_results: Sequence[tuple[Variant, TrainingResults, InferenceResults]],
         hyperparameters: dict[str, Any],
     ) -> float:
+        """Mean over training of ``recon + relu(exo) + relu(endo)``.
+
+        ``recon`` is non-negative by construction.  The adversarial terms
+        (``exo``, ``endo``) are signed gains over the uniform-predictor baseline:
+        positive means the critic extracted information (a leak we want to
+        penalize), negative means the producer pushed past the critic (which
+        does not by itself help causal identification).  ReLU-clipping the
+        adversarial terms keeps the meta-objective monotone with respect to
+        information leak while closing the "drive adversarial loss strongly
+        negative" loophole that a plain sum allowed.
+        """
         del hyperparameters
-        _variant, training_results, inference_results = variant_results[0]
-        del inference_results
+        _variant, training_results, _ = variant_results[0]
         telemetry = AFPTelemetry(selected_node="afp")
         config = training_results.telemetries[telemetry]
-        # Shapes after telemetry stacking:
-        # recon_loss, exo_loss, endo_loss: (training_examples, training_batch_size)
-        # Each term is already a summed per-example objective.
-        per_example_objective = config.recon_loss + config.exo_loss + config.endo_loss
-        return float(jnp.mean(per_example_objective))
+        per_step = (
+            config.recon_loss
+            + jnp.maximum(0.0, config.exo_loss)
+            + jnp.maximum(0.0, config.endo_loss)
+        )
+        return float(jnp.mean(per_step))
 
 
 afp_synthetic_iv_demo = AFPDemo(name="afp-synthetic-iv", variants=[AFPVariant()])
