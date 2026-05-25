@@ -70,8 +70,10 @@ def wandb_init(settings: WAndBInitSettings) -> Generator[Run]:
         settings=settings.settings,
     )
     assert isinstance(run, Run)
-    yield run
-    run.finish()
+    try:
+        yield run
+    finally:
+        run.finish()
 
 
 type _WandBLeaves = str | int | float | bool | JaxArray | Figure | Image | None
