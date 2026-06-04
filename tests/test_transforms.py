@@ -138,13 +138,13 @@ def test_accumulator_batched_shape() -> None:
 
 def test_linear_output_shape(streams: Mapping[str, RngStream]) -> None:
     f = LogSpaceProjection.create(3, 5, streams=streams)
-    assert f.infer(jnp.ones(3, dtype=jnp.complex128)).shape == (5,)
+    assert f.project(jnp.ones(3, dtype=jnp.complex128)).shape == (5,)
 
 
 def test_linear_output_dtype(streams: Mapping[str, RngStream]) -> None:
     assert (
         LogSpaceProjection.create(3, 5, streams=streams)
-        .infer(jnp.ones(3, dtype=jnp.complex128))
+        .project(jnp.ones(3, dtype=jnp.complex128))
         .dtype
         == jnp.complex128
     )
@@ -152,12 +152,12 @@ def test_linear_output_dtype(streams: Mapping[str, RngStream]) -> None:
 
 def test_linear_batched_shape(streams: Mapping[str, RngStream]) -> None:
     f = LogSpaceProjection.create(3, 5, streams=streams)
-    assert f.infer(jnp.ones((4, 3), dtype=jnp.complex128)).shape == (4, 5)
+    assert f.project(jnp.ones((4, 3), dtype=jnp.complex128)).shape == (4, 5)
 
 
 def test_linear_zero_input_is_finite_and_bounded(streams: Mapping[str, RngStream]) -> None:
     f = LogSpaceProjection.create(3, 5, streams=streams)
-    out = f.infer(jnp.zeros(3, dtype=jnp.complex128))
+    out = f.project(jnp.zeros(3, dtype=jnp.complex128))
     assert jnp.all(jnp.isfinite(out))
     assert jnp.all(jnp.abs(out) <= 1.0)
 
@@ -169,7 +169,7 @@ def test_linear_phase_scales_log_domain_phase() -> None:
     )
     theta = jnp.array([0.2, -0.4], dtype=jnp.float64)
     z = jnp.exp(1j * theta)
-    assert jnp.allclose(f.infer(z), jnp.exp(1j * jnp.array([0.4, -0.2])), atol=1e-7)
+    assert jnp.allclose(f.project(z), jnp.exp(1j * jnp.array([0.4, -0.2])), atol=1e-7)
 
 
 def test_linear_weight_shape(streams: Mapping[str, RngStream]) -> None:
@@ -192,7 +192,7 @@ def test_linear_with_dropout_zero_rate_matches_linear_inference(
     f = LogSpaceProjectionWithDropout.create(3, 5, dropout_rate=0.0, streams=streams)
     assert jnp.allclose(
         f.infer(jnp.zeros(3, dtype=jnp.complex128), streams=streams, inference=False),
-        LogSpaceProjection.infer(f, jnp.zeros(3, dtype=jnp.complex128)),
+        LogSpaceProjection.project(f, jnp.zeros(3, dtype=jnp.complex128)),
     )
 
 
@@ -202,7 +202,9 @@ def test_linear_with_dropout_skips_dropout_when_inference_true(
     # inference=True: output matches the raw affine transform (no dropout applied).
     f = LogSpaceProjectionWithDropout.create(3, 5, dropout_rate=0.9, streams=streams)
     z = jnp.ones(3, dtype=jnp.complex128)
-    assert jnp.allclose(f.infer(z, streams=streams, inference=True), LogSpaceProjection.infer(f, z))
+    assert jnp.allclose(
+        f.infer(z, streams=streams, inference=True), LogSpaceProjection.project(f, z)
+    )
 
 
 def test_linear_with_dropout_applies_dropout_when_inference_false(

@@ -84,7 +84,7 @@ class RLInference(Inference):
             self._rl_inference_cond_fun,
             rl_body_function,
             inference_state,
-            max_steps=problem.max_episode_steps(),  # ty: ignore
+            max_steps=problem.max_episode_steps(),  # type: ignore
             kind="lax",
         )
         _, configurations = body_function(inference_state)
@@ -102,7 +102,7 @@ class RLInference(Inference):
             self._rl_training_cond_fun,
             body_function,
             training_state,
-            max_steps=problem.max_episode_steps(),  # ty: ignore
+            max_steps=problem.max_episode_steps(),  # type: ignore
             kind="lax",
         )
 

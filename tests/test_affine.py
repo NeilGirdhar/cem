@@ -26,11 +26,11 @@ def test_affine_complex_initialization(streams: Mapping[str, RngStream]) -> None
     assert f.bias.value.dtype == jnp.complex128
 
 
-def test_affine_complex_infer_shape(streams: Mapping[str, RngStream]) -> None:
+def test_affine_complex_project_shape(streams: Mapping[str, RngStream]) -> None:
     f = Affine.create(3, 5, complex_matrix=True, streams=streams)
     x = jnp.ones((7, 3), dtype=jnp.complex128)
 
-    assert f.infer(x).shape == (7, 5)
+    assert f.project(x).shape == (7, 5)
 
 
 def test_affine_with_dropout_zero_rate_matches_affine(
@@ -41,5 +41,5 @@ def test_affine_with_dropout_zero_rate_matches_affine(
 
     assert jnp.allclose(
         f.infer(x, streams=streams, inference=False),
-        Affine.infer(f, x),
+        Affine.project(f, x),
     )

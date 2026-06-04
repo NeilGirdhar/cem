@@ -4,7 +4,7 @@ from typing import Any
 
 import jax.numpy as jnp
 from efax import Flattener, NaturalParametrization
-from tjax import JaxArray, JaxRealArray, RealNumeric
+from tjax import JaxArray, JaxRealArray
 
 
 def make_frequency_grid[NP: NaturalParametrization[Any, Any]](
@@ -35,7 +35,7 @@ def make_frequency_grid[NP: NaturalParametrization[Any, Any]](
     return flattener.unflatten(t_flat)
 
 
-def geometric_frequencies(num_features: int, base: RealNumeric = 1.0) -> JaxArray:
+def geometric_frequencies(num_features: int, base: float | JaxArray = 1.0) -> JaxArray:
     """Generate geometrically spaced angular frequencies f_j = base · 2^j (rad/unit).
 
     **Discriminatory power.**  The phasor encoding of Normal(μ, σ²) at angular frequency f has

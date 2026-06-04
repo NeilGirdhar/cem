@@ -66,8 +66,8 @@ class GatedProjection(eqx.Module):
         Returns:
             Output phasors, shape (..., out_features).
         """
-        gated = phasor_gate(self.f1.infer(z), self.f2.infer(z))
-        result = self.f3.infer(gated)
+        gated = phasor_gate(self.f1.project(z), self.f2.project(z))
+        result = self.f3.project(gated)
         return apply_dropout_if_training(
             result, streams=streams, inference=inference, dropout_rate=self.dropout_rate.value
         )

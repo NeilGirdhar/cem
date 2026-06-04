@@ -22,7 +22,7 @@ from cem.demos.supervised.demo import (
     supervised_iris_demo,
 )
 from cem.demos.supervised.problem import SupervisedProblem
-from cem.demos.supervised.solution import DatasetKind, PhasorSupervisedModel
+from cem.demos.supervised.solution import DatasetKind, PhasorSupervisedModel, SupervisedSolver
 from cem.phasor import PhasorTargetConfiguration
 from cem.phasor.frequency import frequency_base_for_domain_width
 from cem.phasor.telemetry import SpectralLossTelemetry
@@ -193,8 +193,10 @@ def test_hf_supervised_solver_short_training_is_finite(
             for variant in supervised_bike_sharing_demand_demo.variants
             if variant.label == link_kind
         )
+        variant_solver = variant.create_solver()
+        assert isinstance(variant_solver, SupervisedSolver)
         solver = replace(
-            variant.create_solver(),
+            variant_solver,
             dataset_kind=dataset_kind,
             training_examples=2,
             training_batch_size=4,
@@ -220,8 +222,10 @@ def test_supervised_training_and_inference_support_non_divisible_scan_chunks(
         telemetries=Telemetries((telemetry,)),
         scan_chunk_size=2,
     )
+    variant_solver = supervised_bike_sharing_demand_demo.variants[0].create_solver()
+    assert isinstance(variant_solver, SupervisedSolver)
     solver = replace(
-        supervised_bike_sharing_demand_demo.variants[0].create_solver(),
+        variant_solver,
         training_examples=examples,
         inference_examples=examples,
         training_batch_size=4,
@@ -254,8 +258,10 @@ def test_phasor_supervised_scan_chunks_stack_spectral_telemetry(
         telemetries=variant.all_telemetries(),
         scan_chunk_size=2,
     )
+    variant_solver = variant.create_solver()
+    assert isinstance(variant_solver, SupervisedSolver)
     solver = replace(
-        variant.create_solver(),
+        variant_solver,
         training_examples=examples,
         training_batch_size=4,
         hidden_size=8,

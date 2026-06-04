@@ -73,7 +73,7 @@ def test_to_distribution_recovers_normal_mean() -> None:
     t = _normal_t(m, base=1.0)
     z = phasor_from_distribution(dist, geometric_frequencies(m, base=1.0))
     ep = phasor_to_distribution(z, t)
-    assert jnp.allclose(ep.mean, jnp.array(mu), atol=1e-4)  # ty: ignore
+    assert jnp.allclose(ep.mean, jnp.array(mu), atol=1e-4)  # type: ignore
 
 
 def test_to_conjugate_prior_recovers_mean_and_presence() -> None:

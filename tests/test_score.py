@@ -4,7 +4,14 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest
-from efax import ComplexVonMisesNP, Flattener, NormalEP, NormalNP, UnitVarianceNormalNP
+from efax import (
+    ComplexVonMisesNP,
+    Flattener,
+    NormalEP,
+    NormalNP,
+    UnitVarianceNormalEP,
+    UnitVarianceNormalNP,
+)
 from jax import tree
 from tjax import frozendict
 
@@ -203,7 +210,9 @@ def test_phasor_target_node_predicted_distribution_recovers_mean(
     dist = UnitVarianceNormalNP(jnp.array(mu))
     z_hat = phasor_from_distribution(dist, freqs)
     out = infer_target_node(target_node, {"obs": dist}, {"obs": z_hat})
-    assert jnp.allclose(out.predicted_distributions["obs"].mean, jnp.array(mu), atol=1e-4)  # ty: ignore[unresolved-attribute]
+    pred = out.predicted_distributions["obs"]
+    assert isinstance(pred, UnitVarianceNormalEP)
+    assert jnp.allclose(pred.mean, jnp.array(mu), atol=1e-4)  # type: ignore[unresolved-attribute]
 
 
 def test_phasor_target_node_total_loss_is_sum_of_field_losses(

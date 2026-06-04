@@ -5,7 +5,7 @@ from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
 from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
-from typing import Any, Self, override
+from typing import Any, Self
 
 import jax.numpy as jnp
 import rich.progress as rp
@@ -52,7 +52,6 @@ def _snapshots_to_wandb_dict(x: DataclassInstance | dict[Any, Any], /) -> WandBD
 
 
 class ExecutionContext[T: Telemetry]:
-    @override
     def __init__(
         self,
         *,

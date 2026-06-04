@@ -61,10 +61,10 @@ class MLP(eqx.Module):
         """
         result = x
         for layer in self.layers[:-1]:
-            result = jax.nn.gelu(layer.infer(result))
+            result = jax.nn.gelu(layer.project(result))
             if not inference:
                 key = streams["inference"].key()
                 keep_prob = 1.0 - self.dropout_rate.value
                 mask = jr.bernoulli(key, keep_prob, shape=result.shape)
                 result = jnp.where(mask, result / keep_prob, jnp.zeros_like(result))
-        return self.layers[-1].infer(result)
+        return self.layers[-1].project(result)

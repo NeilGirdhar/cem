@@ -6,10 +6,11 @@ build-backend = "uv_build"
 dev = [
   "jupyter>=1.1.1",
   "lefthook>=2",
+  "pyrefly>=1.0",
   "pytest>=8.3.4",
   "ruff>=0.15",
   "toml-sort>=0.24",
-  "ty>=0.0.34",
+  "ty>=0.0.43",
   "vulture>=2.14"
 ]
 
@@ -71,6 +72,12 @@ visualize = "cem.commands.visualize:app"
 Documentation = "https://github.com/NeilGirdhar/cem#readme"
 Issues = "https://github.com/NeilGirdhar/cem/issues"
 Source = "https://github.com/NeilGirdhar/cem"
+
+[tool.pyrefly]
+project-includes = [
+  "**/*.py*",
+  "**/*.ipynb"
+]
 
 [tool.pytest]
 addopts = ["--disable-warnings"]

@@ -201,7 +201,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         default=10,
         domain=CategoricalDistribution(hardware_friendly_ints(2, 16)),
         optimize=True,
-        condition=lambda solver: solver.link_kind == LinkKind.phasor,  # ty: ignore
+        condition=lambda solver: solver.link_kind == LinkKind.phasor,  # type: ignore
     )
 
     def compute_proxy(self) -> JaxRealArray:

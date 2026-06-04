@@ -69,7 +69,7 @@ class Affine(eqx.Module):
             ),
         )
 
-    def infer(self, x: JaxArray) -> JaxArray:
+    def project(self, x: JaxArray) -> JaxArray:
         """Apply affine transform.
 
         Args:
@@ -114,9 +114,7 @@ class AffineWithDropout(Affine):
             dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
         )
 
-    def infer(  # ty: ignore[invalid-method-override]
-        self, x: JaxArray, *, streams: Mapping[str, RngStream], inference: bool
-    ) -> JaxArray:
+    def infer(self, x: JaxArray, *, streams: Mapping[str, RngStream], inference: bool) -> JaxArray:
         """Apply affine transform followed by dropout.
 
         Args:
@@ -127,7 +125,7 @@ class AffineWithDropout(Affine):
         Returns:
             Output, shape (..., out_features).
         """
-        result = super().infer(x)
+        result = self.project(x)
         return apply_dropout_if_training(
             result, streams=streams, inference=inference, dropout_rate=self.dropout_rate.value
         )

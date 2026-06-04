@@ -54,9 +54,9 @@ class LogSpaceProjection(eqx.Module):
             phase_scales=LearnableParameter(jnp.ones(out_features, dtype=jnp.float64)),
         )
 
-    def infer(
+    def project(
         self,
-        z: JaxArray,
+        x: JaxArray,
         *,
         eps: float = 1e-6,
         min_log_amp: float = -8.0,
@@ -64,15 +64,15 @@ class LogSpaceProjection(eqx.Module):
         """Apply log-domain linear mix then phase scaling.
 
         Args:
-            z: Input phasors, shape (..., in_features).
+            x: Input phasors, shape (..., in_features).
             eps: Added to amplitude before log to avoid log(0).
             min_log_amp: Floor on log-amplitude, applied to both input and output.
 
         Returns:
             Output phasors, shape (..., out_features).
         """
-        log_amp = jnp.maximum(jnp.log(jnp.abs(z) + eps), min_log_amp)
-        eta = log_amp + 1j * jnp.angle(z)
+        log_amp = jnp.maximum(jnp.log(jnp.abs(x) + eps), min_log_amp)
+        eta = log_amp + 1j * jnp.angle(x)
         u = eta @ self.weight.value.T
         out_amp = jnp.exp(jnp.clip(u.real, min_log_amp, 0.0))
         phase_scales = jnp.reshape(self.phase_scales.value, (1,) * (u.ndim - 1) + (-1,))
@@ -108,18 +108,28 @@ class LogSpaceProjectionWithDropout(LogSpaceProjection):
             dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),
         )
 
-    def infer(self, z: JaxArray, *, streams: Mapping[str, RngStream], inference: bool) -> JaxArray:  # ty: ignore[invalid-method-override]
+    def infer(
+        self,
+        x: JaxArray,
+        *,
+        eps: float = 1e-6,
+        min_log_amp: float = -8.0,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> JaxArray:
         """Apply log-domain linear mix, phase scaling, then phasor dropout.
 
         Args:
-            z: Input phasors, shape (..., in_features).
+            x: Input phasors, shape (..., in_features).
+            eps: Added to amplitude before log to avoid log(0).
+            min_log_amp: Floor on log-amplitude, applied to both input and output.
             streams: RNG streams; the ``"inference"`` stream is used for dropout.
             inference: When ``True``, dropout is skipped.
 
         Returns:
             Output phasors, shape (..., out_features).
         """
-        result = super().infer(z)
+        result = self.project(x, eps=eps, min_log_amp=min_log_amp)
         return apply_dropout_if_training(
             result, streams=streams, inference=inference, dropout_rate=self.dropout_rate.value
         )
