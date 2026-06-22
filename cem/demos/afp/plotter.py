@@ -14,7 +14,7 @@ from jax import enable_x64
 from tjax import create_streams
 from tjax.dataclasses import field
 
-from cem.structure.plotter.plotter import PlottedSeries, Plotter
+from cem.structure.plotter.plotter import LinePlotTitles, PlottedSeries, Plotter
 from cem.structure.plotter.with_smooth_graph import PlotterWithSmoothGraph, smooth_data
 from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
 from cem.structure.solution.inference import Inference, InferenceResult, TrainingResult
@@ -65,6 +65,15 @@ class AFPLossPlotter(PlotterWithSmoothGraph):
 
     def telemetries(self) -> Telemetries:
         return Telemetries((AFPTelemetry(selected_node=self.selected_node),))
+
+    @override
+    def line_plot_titles(self, label: str) -> LinePlotTitles:
+        del label
+        return {
+            "reconstruction_loss": "Reconstruction Loss",
+            "exogeneity_loss": "Exogeneity Loss",
+            "endogenous_separation_loss": "Endogenous Separation Loss",
+        }
 
     def _mean_over_non_time_axes(self, values: object) -> np.ndarray:
         np_values = np.asarray(values, dtype=np.float64)

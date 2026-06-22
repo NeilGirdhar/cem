@@ -7,6 +7,7 @@ import equinox as eqx
 from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
 
 type PlottedSeries = dict[str, list[float]]
+type LinePlotTitles = dict[str, str]
 
 
 class Plotter(eqx.Module):
@@ -26,6 +27,10 @@ class Plotter(eqx.Module):
         label: str,
     ) -> PlottedSeries:
         raise NotImplementedError
+
+    def line_plot_titles(self, label: str) -> LinePlotTitles:
+        del label
+        return {}
 
     def telemetries(self) -> Telemetries:
         return Telemetries()

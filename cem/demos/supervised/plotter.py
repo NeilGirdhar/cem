@@ -9,7 +9,7 @@ import numpy as np
 from tjax.dataclasses import field
 
 from cem.phasor.telemetry import SpectralLossTelemetry
-from cem.structure.plotter.plotter import PlottedSeries
+from cem.structure.plotter.plotter import LinePlotTitles, PlottedSeries
 from cem.structure.plotter.with_smooth_graph import PlotterWithSmoothGraph, smooth_data
 from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
 from cem.structure.solution.loss_telemetry import LossTelemetry
@@ -42,6 +42,18 @@ class SupervisedTrainingLossPlotter(_SupervisedLossPlotter):
     _: KW_ONLY
     name: str = field(static=True, default="supervised-training-loss")
     title: str = field(static=True, default="Supervised Training Loss")
+
+    @override
+    def line_plot_titles(self, label: str) -> LinePlotTitles:
+        prefix = {
+            "perceptron": "Perceptron",
+            "phasor": "Phasor",
+        }.get(label, label.title())
+        prefix = f"{prefix} " if prefix else ""
+        return {
+            "distributional_loss": f"{prefix}Distributional Loss",
+            "spectral_loss": f"{prefix}Spectral Loss",
+        }
 
     @override
     def plotted_series(

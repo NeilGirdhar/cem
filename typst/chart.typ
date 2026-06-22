@@ -42,15 +42,8 @@
   let theme = if palette == none { default-palette } else { palette }
   let colors = chart-colors(theme)
   let xs = plot-data.at("iteration")
-  let series = plot-data
-    .keys()
-    .filter(key => {
-      if key == "iteration" {
-        return false
-      }
-      let values = plot-data.at(key)
-      type(values) == array and values.len() == xs.len()
-    })
+  let line-plots = plot-data.at("line plots")
+  let series = line-plots.keys()
 
   layout(size => {
     let chart-width = if type(width) == ratio {
@@ -61,20 +54,20 @@
     {
       set text(fill: theme.text)
       show lq.selector(lq.tick-label): set text(fill: theme.subtext0)
-      show: lq.set-spine(stroke: 0.5pt + theme.overlay0)
-      show: lq.set-tick(stroke: 0.45pt + theme.overlay0)
+      show: lq.set-spine(stroke: none)
+      show: lq.set-tick(stroke: 0.45pt + theme.overlay0.transparentize(100%))
       show: lq.set-grid(stroke: 0.35pt + theme.surface1)
       show: lq.set-legend(
-        fill: theme.surface0,
+        fill: theme.base,
         stroke: 0.4pt + theme.surface1,
       )
 
       lq.diagram(
         width: chart-width,
         height: chart-width / aspect-ratio,
-        title: plot-title,
-        xlabel: "Iteration",
-        ylabel: "Value",
+        margin: 0%,
+        xaxis: (subticks: none, tick-args: (density: 60%)),
+        yaxis: (subticks: none, tick-args: (density: 60%)),
         legend: (position: top + right),
         grid: (:),
         fill: theme.base,
@@ -83,7 +76,7 @@
           lq.plot(
             xs,
             plot-data.at(key),
-            label: key,
+            label: line-plots.at(key),
             color: colors.at(calc.rem(i, colors.len())),
             mark: none,
           )

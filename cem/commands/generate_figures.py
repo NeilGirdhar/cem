@@ -5,6 +5,7 @@ import shutil
 import subprocess  # noqa: S404
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from cem.structure import Demo
 from cem.structure.solution import InferenceResults, TrainingResults
@@ -19,15 +20,20 @@ def generate_figures(
     *,
     display: bool,
 ) -> None:
-    result: dict[str, dict[str, list[float]]] = {}
+    result: dict[str, dict[str, Any]] = {}
     for plotter in demo.plotters():
         plot_key = plotter.name
-        plot_data: dict[str, list[float]] = {}
+        plot_data: dict[str, Any] = {}
+        line_plots: dict[str, str] = {}
         for label, results in labeled_results:
             variant_data = plotter.plotted_series(results[0], results[1], label)
+            line_plot_titles = plotter.line_plot_titles(label)
             for key, values in variant_data.items():
                 output_key = key if key == "iteration" or not label else f"{label}.{key}"
                 plot_data[output_key] = values
+                if key in line_plot_titles:
+                    line_plots[output_key] = line_plot_titles[key]
+        plot_data["line plots"] = line_plots
         result[plot_key] = plot_data
 
     json_path = _TYPST_DIR / f"{demo.name}.json"
