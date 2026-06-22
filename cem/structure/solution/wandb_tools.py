@@ -5,7 +5,6 @@ from os import PathLike
 from typing import Any, Literal
 
 import wandb
-from matplotlib.figure import Figure
 from tjax import JaxArray
 from wandb import Image
 from wandb.sdk.wandb_run import Run
@@ -76,6 +75,6 @@ def wandb_init(settings: WAndBInitSettings) -> Generator[Run]:
         run.finish()
 
 
-type _WandBLeaves = str | int | float | bool | JaxArray | Figure | Image | None
+type _WandBLeaves = str | int | float | bool | JaxArray | Image | None
 type _WandBNodes = _WandBLeaves | tuple[_WandBNodes, ...] | list[_WandBNodes] | "WandBDict"
 type WandBDict = dict[str, _WandBNodes]

@@ -2,8 +2,8 @@
 *.pyc
 
 # Generated figures
-*.pdf
-*.jpeg
+typst/*.pdf
+typst/*.json
 
 # SLURM
 *.log

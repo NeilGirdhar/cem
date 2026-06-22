@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import KW_ONLY
 
 import equinox as eqx
-from matplotlib.figure import Figure
 
 from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
+
+type PlottedSeries = dict[str, list[float]]
 
 
 class Plotter(eqx.Module):
@@ -18,13 +19,12 @@ class Plotter(eqx.Module):
             msg = f"Plotter.name must use hyphens, not underscores: {self.name!r}"
             raise ValueError(msg)
 
-    def plot(
+    def plotted_series(
         self,
-        figure: Figure,
         training_results: TrainingResults,
         inference_results: InferenceResults,
         label: str,
-    ) -> None:
+    ) -> PlottedSeries:
         raise NotImplementedError
 
     def telemetries(self) -> Telemetries:

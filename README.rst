@@ -27,17 +27,38 @@ Running
 
 - Visualize:
 
-  - Just save the graphs:
+  - Save plotted data under ``typst/`` and compile a PDF with Typst/Lilaq:
 
   .. code:: bash
 
-     uv run visualize afp_iv
+     uv run visualize afp-synthetic-iv
 
-  - Show the graphs in a window:
+  - Re-render saved JSON data directly with Typst and Lilaq:
 
   .. code:: bash
 
-     uv run visualize afp_iv --display
+     typst compile --input source=afp-synthetic-iv.json typst/render.typ typst/afp-synthetic-iv.pdf
+
+  - Import one chart into another Typst document:
+
+  .. code:: typst
+
+     #import "typst/chart.typ": chart-from-json
+
+     #figure(
+       chart-from-json(
+         "afp-synthetic-iv.json",
+         "afp-losses",
+         width: 85%,
+       ),
+       caption: [AFP loss diagnostics],
+     )
+
+  - Open the compiled PDF in Zathura:
+
+  .. code:: bash
+
+     uv run visualize afp-synthetic-iv --display
 
 - Optimize:
 
@@ -45,13 +66,13 @@ Running
 
   .. code:: bash
 
-     uv run optimize afp_iv single --trials 30
+     uv run optimize afp-synthetic-iv single --trials 30
 
   - Using 8 threads:
 
   .. code:: bash
 
-     uv run optimize afp_iv multi --trials 30 --jobs 8
+     uv run optimize afp-synthetic-iv multi --trials 30 --jobs 8
 
 Architecture
 ============

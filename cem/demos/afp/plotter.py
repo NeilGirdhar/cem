@@ -11,12 +11,10 @@ import jax
 import jax.random as jr
 import numpy as np
 from jax import enable_x64
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 from tjax import create_streams
 from tjax.dataclasses import field
 
-from cem.structure.plotter.plotter import Plotter
+from cem.structure.plotter.plotter import PlottedSeries, Plotter
 from cem.structure.plotter.with_smooth_graph import PlotterWithSmoothGraph, smooth_data
 from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
 from cem.structure.solution.inference import Inference, InferenceResult, TrainingResult
@@ -77,36 +75,28 @@ class AFPLossPlotter(PlotterWithSmoothGraph):
         axes = tuple(range(1, np_values.ndim))
         return np.mean(np_values, axis=axes)
 
-    def _plot_axis(self, ax: Axes, losses: AFPConfiguration, *, split: str) -> None:
-        series = (
-            ("Reconstruction", self._mean_over_non_time_axes(losses.recon_loss)),
-            ("Exogeneity", self._mean_over_non_time_axes(losses.exo_loss)),
-            ("Endogenous Separation", self._mean_over_non_time_axes(losses.endo_loss)),
-        )
-        for label, values in series:
-            times = np.arange(values.shape[0], dtype=np.float64)
-            ax.plot(times, smooth_data(values, self.smoothing), label=label)
-        ax.axhline(0.0, color="black", linewidth=0.8, alpha=0.3)
-        # symlog so we can see small recon values clearly while exo/endo can still
-        # cross zero (negative gain = critic worse than uniform).
-        ax.set_yscale("symlog", linthresh=1e-3)
-        ax.set_title(split)
-        ax.set_xlabel("Episode")
-        ax.set_ylabel("Loss")
-        ax.legend()
+    def _series(self, losses: AFPConfiguration) -> dict[str, np.ndarray]:
+        recon = self._mean_over_non_time_axes(losses.recon_loss)
+        exo = self._mean_over_non_time_axes(losses.exo_loss)
+        endo = self._mean_over_non_time_axes(losses.endo_loss)
+        return {
+            "iteration": np.arange(recon.shape[0], dtype=np.float64),
+            "reconstruction_loss": smooth_data(recon, self.smoothing),
+            "exogeneity_loss": smooth_data(exo, self.smoothing),
+            "endogenous_separation_loss": smooth_data(endo, self.smoothing),
+        }
 
-    def plot(
+    @override
+    def plotted_series(
         self,
-        figure: Figure,
         training_results: TrainingResults,
         inference_results: InferenceResults,
         label: str,
-    ) -> None:
+    ) -> PlottedSeries:
         del inference_results, label
         telemetry = AFPTelemetry(selected_node=self.selected_node)
         training_losses = training_results.telemetries[telemetry]
-        ax = figure.subplots(1, 1)
-        self._plot_axis(ax, training_losses, split="Training")
+        return {key: values.tolist() for key, values in self._series(training_losses).items()}
 
 
 def _populated_solver(template: AFPSolver, training_results: TrainingResults) -> AFPSolver:
@@ -186,34 +176,6 @@ def _decode_via_channel(
     return np.asarray(y_hats), np.asarray(zs), np.asarray(es)
 
 
-def _scatter_with_yx_line(
-    ax: Axes,
-    xs: np.ndarray,
-    ys: np.ndarray,
-    *,
-    xlabel: str,
-    ylabel: str,
-) -> tuple[float, float]:
-    """Scatter (xs, ys), overlay y=x, return (slope_through_origin, R²)."""
-    xs_flat = xs.reshape(-1)
-    ys_flat = ys.reshape(-1)
-    denom = float(np.dot(xs_flat, xs_flat))
-    slope = float(np.dot(xs_flat, ys_flat) / denom) if denom > 0 else float("nan")
-    r2 = (
-        float(np.corrcoef(xs_flat, ys_flat)[0, 1] ** 2)
-        if xs_flat.size > 1 and xs_flat.std() > 0 and ys_flat.std() > 0
-        else float("nan")
-    )
-    ax.scatter(xs_flat, ys_flat, alpha=0.4, s=8)
-    lo = float(min(xs_flat.min(), ys_flat.min()))
-    hi = float(max(xs_flat.max(), ys_flat.max()))
-    pad = 0.05 * (hi - lo + 1e-12)
-    ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], color="black", linewidth=0.8, alpha=0.4)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    return slope, r2
-
-
 class AFPCausalExoPlotter(Plotter):
     """Compare AFP's exogenous prediction to the structural causal contribution.
 
@@ -232,13 +194,12 @@ class AFPCausalExoPlotter(Plotter):
     inference_seed: int = field(static=True, default=0)
 
     @override
-    def plot(
+    def plotted_series(
         self,
-        figure: Figure,
         training_results: TrainingResults,
         inference_results: InferenceResults,
         label: str,
-    ) -> None:
+    ) -> PlottedSeries:
         del inference_results, label
         with enable_x64():
             problem = self.solver.problem()
@@ -251,18 +212,15 @@ class AFPCausalExoPlotter(Plotter):
                 eval_seed=self.eval_seed,
                 inference_seed=self.inference_seed,
             )
-            gamma_alpha = np.asarray(problem.exo_causal_weight)  # (n_outcomes, n_instruments)
-            structural = zs @ gamma_alpha.T  # (n_eval, n_outcomes)
-
-        ax = figure.gca() if figure.axes else figure.subplots(1, 1)
-        slope, r2 = _scatter_with_yx_line(
-            ax,
-            structural,
-            y_hats,
-            xlabel="gamma @ alpha @ Z (structural causal contribution)",
-            ylabel="y_hat_exo (AFP exogenous prediction)",
-        )
-        ax.set_title(f"y_hat_exo vs gamma*alpha*Z   slope={slope:.3f}, R2={r2:.3f}")
+            gamma_alpha = np.asarray(problem.exo_causal_weight)
+            structural = zs @ gamma_alpha.T
+        y_hat_flat = y_hats.reshape(-1)
+        structural_flat = structural.reshape(-1)
+        return {
+            "iteration": np.arange(structural_flat.shape[0], dtype=np.float64).tolist(),
+            "structural_causal_contribution": structural_flat.tolist(),
+            "y_hat_exo": y_hat_flat.tolist(),
+        }
 
 
 class AFPConfoundedEndoPlotter(Plotter):
@@ -283,13 +241,12 @@ class AFPConfoundedEndoPlotter(Plotter):
     inference_seed: int = field(static=True, default=0)
 
     @override
-    def plot(
+    def plotted_series(
         self,
-        figure: Figure,
         training_results: TrainingResults,
         inference_results: InferenceResults,
         label: str,
-    ) -> None:
+    ) -> PlottedSeries:
         del inference_results, label
         with enable_x64():
             problem = self.solver.problem()
@@ -304,17 +261,14 @@ class AFPConfoundedEndoPlotter(Plotter):
             )
             _, ys, _ = _sample_eval_states(problem, n_eval=self.n_eval, eval_seed=self.eval_seed)
             gamma_alpha = np.asarray(problem.exo_causal_weight)
-            residual = ys - zs @ gamma_alpha.T  # (n_eval, n_outcomes)
-
-        ax = figure.gca() if figure.axes else figure.subplots(1, 1)
-        slope, r2 = _scatter_with_yx_line(
-            ax,
-            residual,
-            y_hats,
-            xlabel="Y - gamma*alpha*Z (confounded residual)",
-            ylabel="y_hat_endo (AFP endogenous prediction)",
-        )
-        ax.set_title(f"y_hat_endo vs Y-gamma*alpha*Z   slope={slope:.3f}, R2={r2:.3f}")
+            residual = ys - zs @ gamma_alpha.T
+        y_hat_flat = y_hats.reshape(-1)
+        residual_flat = residual.reshape(-1)
+        return {
+            "iteration": np.arange(residual_flat.shape[0], dtype=np.float64).tolist(),
+            "confounded_residual": residual_flat.tolist(),
+            "y_hat_endo": y_hat_flat.tolist(),
+        }
 
 
 class AFPCrossEnvPlotter(Plotter):
@@ -336,13 +290,12 @@ class AFPCrossEnvPlotter(Plotter):
     inference_seed: int = field(static=True, default=0)
 
     @override
-    def plot(
+    def plotted_series(
         self,
-        figure: Figure,
         training_results: TrainingResults,
         inference_results: InferenceResults,
         label: str,
-    ) -> None:
+    ) -> PlottedSeries:
         del inference_results, label
         with enable_x64():
             problem = self.solver.problem()
@@ -356,38 +309,13 @@ class AFPCrossEnvPlotter(Plotter):
                 inference_seed=self.inference_seed,
             )
             gamma_alpha = np.asarray(problem.exo_causal_weight)
-            structural = zs @ gamma_alpha.T  # (n_eval, n_outcomes)
-
-        n_envs = int(problem.n_environments)
-        ax = figure.gca() if figure.axes else figure.subplots(1, 1)
-        env_indices = np.asarray(es).reshape(-1)
-        # Flatten across outcomes by repeating env index per outcome.
-        struct_flat = structural.reshape(-1)
+            structural = zs @ gamma_alpha.T
+        structural_flat = structural.reshape(-1)
         y_hat_flat = y_hats.reshape(-1)
-        env_repeated = np.repeat(env_indices, structural.shape[1])
-        # Use matplotlib's default colour cycle.
-        slopes: list[tuple[int, float, float]] = []
-        for env in range(n_envs):
-            mask = env_repeated == env
-            if not mask.any():
-                continue
-            x_env = struct_flat[mask]
-            y_env = y_hat_flat[mask]
-            ax.scatter(x_env, y_env, alpha=0.4, s=8, label=f"env={env}")
-            denom = float(np.dot(x_env, x_env))
-            slope = float(np.dot(x_env, y_env) / denom) if denom > 0 else float("nan")
-            r2 = (
-                float(np.corrcoef(x_env, y_env)[0, 1] ** 2)
-                if x_env.size > 1 and x_env.std() > 0 and y_env.std() > 0
-                else float("nan")
-            )
-            slopes.append((env, slope, r2))
-        lo = float(min(struct_flat.min(), y_hat_flat.min()))
-        hi = float(max(struct_flat.max(), y_hat_flat.max()))
-        pad = 0.05 * (hi - lo + 1e-12)
-        ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], color="black", linewidth=0.8, alpha=0.4)
-        ax.set_xlabel("gamma @ alpha @ Z")
-        ax.set_ylabel("y_hat_exo")
-        slopes_str = ", ".join(f"env{env}: slope={s:.2f}" for env, s, _r2 in slopes)
-        ax.set_title(f"y_hat_exo vs gamma*alpha*Z by environment    {slopes_str}")
-        ax.legend()
+        env_repeated = np.repeat(np.asarray(es).reshape(-1), structural.shape[1])
+        return {
+            "iteration": np.arange(structural_flat.shape[0], dtype=np.float64).tolist(),
+            "structural_causal_contribution": structural_flat.tolist(),
+            "y_hat_exo": y_hat_flat.tolist(),
+            "environment": env_repeated.astype(np.float64).tolist(),
+        }

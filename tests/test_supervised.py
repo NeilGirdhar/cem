@@ -6,7 +6,6 @@ from typing import cast
 
 import jax.numpy as jnp
 import jax.random as jr
-import matplotlib as mpl
 import numpy as np
 import pandas as pd
 import pytest
@@ -35,9 +34,6 @@ from cem.structure.solution import (
     Telemetries,
     TrainingResults,
 )
-
-mpl.use("Agg")
-
 
 _EXPECTED_HF_TEST_FEATURES = 2
 _EXPECTED_HF_TEST_ROWS = 5
