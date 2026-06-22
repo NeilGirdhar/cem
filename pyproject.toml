@@ -51,7 +51,6 @@ dependencies = [
   "efax>=2.4.0",
   "equinox>=0.13.7",
   "jax[cuda]>=0.9",
-  "jaxkd>=0.1.0",
   "matplotlib>=3.10.0",
   "more-itertools>=10.6.0",
   "optuna>=4.2.0",
