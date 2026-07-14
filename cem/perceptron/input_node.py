@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from tjax import JaxRealArray, frozendict
 
 from cem.structure.graph.node import NodeConfiguration

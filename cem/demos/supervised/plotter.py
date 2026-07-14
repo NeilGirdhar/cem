@@ -1,7 +1,5 @@
 """Supervised learning plotter: training loss curves."""
 
-from __future__ import annotations
-
 from dataclasses import KW_ONLY
 from typing import override
 

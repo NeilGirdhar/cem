@@ -1,7 +1,5 @@
 """Supervised learning solver: perceptron and phasor variants."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from dataclasses import KW_ONLY
 from enum import Enum

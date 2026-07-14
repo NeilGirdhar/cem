@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import equinox as eqx
 
 from .data_source import DataSource, ProblemObservation, ProblemState

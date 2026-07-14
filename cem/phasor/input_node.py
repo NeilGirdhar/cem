@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from tjax import frozendict
 
 from cem.phasor.message import JaxComplexArray

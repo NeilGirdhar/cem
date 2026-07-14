@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import _MISSING_TYPE, MISSING
 from typing import TYPE_CHECKING

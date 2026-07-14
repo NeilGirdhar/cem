@@ -1,7 +1,5 @@
 """AFP IV plotter: telemetry, loss curves, and causal-pathway diagnostics."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from dataclasses import KW_ONLY
 from typing import Any, override

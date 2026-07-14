@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from cem.structure.solver import hardware_friendly_ints

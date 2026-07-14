@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import equinox as eqx
 import jax.numpy as jnp
 from tjax import JaxArray

@@ -1,7 +1,5 @@
 """Demo registry."""
 
-from __future__ import annotations
-
 from enum import Enum
 
 from cem.demos.afp.demo import afp_synthetic_iv_demo

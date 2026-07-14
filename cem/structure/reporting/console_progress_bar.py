@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import rich.progress as rp
 
 

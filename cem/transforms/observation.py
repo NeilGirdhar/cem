@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import numpy as np
 from efax import Flattener, NaturalParametrization, UnitVarianceNormalNP
 from tjax import JaxArray, JaxRealArray

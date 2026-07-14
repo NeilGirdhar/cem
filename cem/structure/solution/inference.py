@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
@@ -26,13 +24,6 @@ class InferenceResult(eqx.Module):
     model_configuration: frozendict[str, NodeConfiguration]
 
 
-class TrainingResult(eqx.Module):
-    """Result of running one training episode for one batch."""
-
-    solution_state: SolutionState
-    inference_result: InferenceResult
-
-
 class SolutionState(eqx.Module):
     """Iterand for the SolutionTrainer during training."""
 
@@ -47,6 +38,13 @@ class SolutionState(eqx.Module):
     ) -> Self:
         gradient_states = gradient_transformations.init(dis_learnable_parameters)
         return cls(dis_learnable_parameters, gradient_states)
+
+
+class TrainingResult(eqx.Module):
+    """Result of running one training episode for one batch."""
+
+    solution_state: SolutionState
+    inference_result: InferenceResult
 
 
 class _InferenceState(eqx.Module):

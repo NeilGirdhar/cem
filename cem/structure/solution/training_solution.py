@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import equinox as eqx
 
 from cem.structure.graph import (

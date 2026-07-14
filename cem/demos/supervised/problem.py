@@ -1,7 +1,5 @@
 """Supervised learning problem: data sources and problem state."""
 
-from __future__ import annotations
-
 from functools import cache
 from typing import Any, cast
 

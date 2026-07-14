@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import itertools as it
 from collections.abc import Mapping
 from typing import Self

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Mapping
 from dataclasses import KW_ONLY, fields, is_dataclass, replace
 from typing import Any, Self, cast

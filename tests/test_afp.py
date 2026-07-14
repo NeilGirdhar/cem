@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import jax.numpy as jnp
 import jax.scipy.special as jss
 from efax import ComplexVonMisesNP

@@ -23,8 +23,6 @@ Z is sampled as ``N(z_env_mean[e], I)`` and U as ``N(0, diag(u_env_std[e]**2))``
 For ``n_environments == 1`` the env channel is absent from the observation.
 """
 
-from __future__ import annotations
-
 from enum import Enum
 from typing import override
 

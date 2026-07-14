@@ -1,7 +1,5 @@
 """AFP IV solver: adversarial factor purification model and solver."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from typing import Any, Self, override
 
