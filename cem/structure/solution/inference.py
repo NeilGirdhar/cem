@@ -168,7 +168,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         observation: object,
         state: object,
         learnable_parameters: Model,
-        inference: bool,  # noqa: FBT001
+        inference: bool,  # ruff:ignore[boolean-type-hint-positional-argument]
     ) -> tuple[JaxArray, Any, frozendict[str, NodeConfiguration]]:
         streams = create_streams({"inference": inference_key})
         model = self.assemble_model(learnable_parameters)

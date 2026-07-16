@@ -1,6 +1,6 @@
 import json
 import shutil
-import subprocess  # noqa: S404
+import subprocess  # ruff:ignore[suspicious-subprocess-import]
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -45,7 +45,7 @@ def generate_figures(
     if typst is None:
         msg = "Could not find 'typst' on PATH."
         raise SystemExit(msg)
-    subprocess.run(  # noqa: S603
+    subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
         [
             typst,
             "compile",
@@ -62,7 +62,7 @@ def generate_figures(
         if zathura is None:
             msg = "Could not find 'zathura' on PATH."
             raise SystemExit(msg)
-        subprocess.Popen(  # noqa: S603
+        subprocess.Popen(  # ruff:ignore[subprocess-without-shell-equals-true]
             [zathura, str(pdf_path)],
             start_new_session=True,
         )

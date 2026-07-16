@@ -26,7 +26,7 @@ _logged_inference_jit_signatures: set[tuple[int, int, tuple[str, ...]]] = set()
 
 
 @partial(jit, static_argnames=("batch_size", "max_chunk_size"))
-def infer_episode_chunk(  # noqa: PLR0917
+def infer_episode_chunk(  # ruff:ignore[too-many-positional-arguments]
     inference: Inference,
     batch_size: int,
     example_key_base: KeyArray,

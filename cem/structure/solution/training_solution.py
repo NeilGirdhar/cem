@@ -35,7 +35,7 @@ class TrainingSolution(eqx.Module):
         verify_model_has_no_free_parameters(model)
         learnable_parameters, fixed_parameters = eqx.partition(
             model,
-            lambda x: gradient_transformations.is_learnable(x),  # noqa: PLW0108
+            lambda x: gradient_transformations.is_learnable(x),  # ruff:ignore[unnecessary-lambda]
             is_leaf=is_parameter,
         )
         dissassembled = DisModel.create(

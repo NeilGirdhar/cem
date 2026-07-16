@@ -26,7 +26,7 @@ def smooth_data(
     """
     assert values.ndim == 1
     np_values = np.astype(values, np.float64)
-    if smoothing <= 0.0 or values.shape[-1] < 3:  # noqa: PLR2004
+    if smoothing <= 0.0 or values.shape[-1] < 3:  # ruff:ignore[magic-value-comparison]
         return np_values
     if log_space:
         if not np.all(np_values > 0.0):

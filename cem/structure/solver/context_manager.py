@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 
-import jax._src.xla_bridge as xb  # noqa: PLC2701
+import jax._src.xla_bridge as xb  # ruff:ignore[import-private-name]
 import numpy as np
 from jax import (
     enable_custom_prng,
@@ -18,7 +18,7 @@ tc = ThreadpoolController()
 
 
 def jax_is_initialized() -> bool:
-    return bool(xb._backends)  # noqa: SLF001
+    return bool(xb._backends)  # ruff:ignore[private-member-access]
 
 
 @contextmanager

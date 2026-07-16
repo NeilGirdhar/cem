@@ -167,9 +167,9 @@ def _decode_via_channel(
     keys = jr.split(jr.key(eval_seed), n_eval)
 
     if channel == "exo":
-        predict_y = lambda obs: model.predict_y_exo(obs, streams=streams, inference=True)  # noqa: E731
+        predict_y = lambda obs: model.predict_y_exo(obs, streams=streams, inference=True)  # ruff:ignore[lambda-assignment]
     elif channel == "endo":
-        predict_y = lambda obs: model.predict_y_endo(obs, streams=streams, inference=True)  # noqa: E731
+        predict_y = lambda obs: model.predict_y_endo(obs, streams=streams, inference=True)  # ruff:ignore[lambda-assignment]
     else:
         msg = f"Unknown channel {channel!r}"
         raise ValueError(msg)

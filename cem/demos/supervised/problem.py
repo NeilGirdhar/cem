@@ -99,7 +99,7 @@ def _encode_dataset(
     y_jax = jnp.asarray(y)
 
     # Vectorise over samples.
-    from jax import vmap  # noqa: PLC0415
+    from jax import vmap  # ruff:ignore[import-outside-top-level]
 
     x_flat = vmap(encode_flat)(x_jax)  # (n_samples, n_features)
     y_flat = vmap(encode_flat)(y_jax)  # (n_samples, n_targets)

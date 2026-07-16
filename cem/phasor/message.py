@@ -46,7 +46,7 @@ def phasor_from_distribution(
     flattener, _ = Flattener.flatten(dist, mapped_to_plane=False)
     t = make_frequency_grid(flattener, frequencies)
 
-    cf_fn = lambda d: d.characteristic_function(t)  # noqa: E731
+    cf_fn = lambda d: d.characteristic_function(t)  # ruff:ignore[lambda-assignment]
     for _ in dist.shape:
         cf_fn = jax.vmap(cf_fn)
     cf = cf_fn(dist)

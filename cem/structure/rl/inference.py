@@ -58,7 +58,7 @@ class RLInference(Inference):
                 inference_state.observation,
                 z,
                 z,
-                jnp.asarray(False),  # noqa: FBT003
+                jnp.asarray(False),  # ruff:ignore[boolean-positional-value-in-call]
                 problem_state,
             ),
             problem_state,
