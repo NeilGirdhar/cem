@@ -36,7 +36,7 @@ def is_all_finite_tree(x: PyTree, /) -> JaxArray:
 
 
 @partial(jit, static_argnames=("batch_size", "max_chunk_size"))
-def train_episode_chunk(  # ruff:ignore[too-many-positional-arguments]
+def train_episode_chunk(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]
     solution: TrainingSolution,
     batch_size: int,
     example_key_base: KeyArray,

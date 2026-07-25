@@ -195,7 +195,7 @@ def _sync_best_defaults(study: Study, demo_name: str) -> int | None:
 
 
 @app.command()
-def optimize(  # ruff:ignore[complex-structure]
+def optimize(  # ruff:ignore[complex-structure, too-many-arguments]
     name: DemoEnum,
     *,
     mode: Annotated[OptimizationMode, Argument()] = OptimizationMode.single_task,
