@@ -82,7 +82,7 @@ class RLInference(Inference):
             self._rl_inference_cond_fun,
             rl_body_function,
             inference_state,
-            max_steps=problem.max_episode_steps(),  # type: ignore
+            max_steps=problem.max_episode_steps(),
             kind="lax",
         )
         _, configurations = body_function(inference_state)
@@ -100,7 +100,7 @@ class RLInference(Inference):
             self._rl_training_cond_fun,
             body_function,
             training_state,
-            max_steps=problem.max_episode_steps(),  # type: ignore
+            max_steps=problem.max_episode_steps(),
             kind="lax",
         )
 
@@ -122,7 +122,7 @@ class RLInference(Inference):
         new_state, configurations = body_function(inference_state)
         model = self.assemble_model(learnable_parameters)
         assert isinstance(model, RLModel)
-        action_fields = model.get_action(configurations)  # ty: ignore[invalid-argument-type]
+        action_fields = model.get_action(configurations)
         action = problem.produce_action(action_fields, inference_state.example_key)
         action = stop_gradient(action)
         new_problem_state, reward, new_done = problem.iterate_state(
