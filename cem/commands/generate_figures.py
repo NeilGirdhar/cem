@@ -62,7 +62,5 @@ def generate_figures(
         if zathura is None:
             msg = "Could not find 'zathura' on PATH."
             raise SystemExit(msg)
-        subprocess.Popen(  # ruff:ignore[subprocess-without-shell-equals-true]
-            [zathura, str(pdf_path)],
-            start_new_session=True,
-        )
+        # ruff:ignore[subprocess-without-shell-equals-true]
+        subprocess.Popen([zathura, str(pdf_path)], start_new_session=True)
