@@ -19,7 +19,7 @@ enforces this at model-creation time.
 
 - Run all project commands with `uv run`; add dependencies with `uv add <package>` rather than
   hand-editing `pyproject.toml`.
-- Primary references: `~/src/typst/thesis.typ`, `~/src/typst/architecture_figures.typ`.
+- Primary references: `~/src/typst/thesis.typ`, `~/src/typst/architecture-figures.typ`.
 - Prior implementation: `~/backup/cem`.
 - Shared test fixtures (`streams`, `np_rng`, `log`) live in `tests/conftest.py`.
 
