@@ -2,6 +2,7 @@
 
 from cem.phasor.accumulator import Accumulator
 from cem.phasor.attention import interpolate, select
+from cem.phasor.evidence_pooling import EvidencePooling, EvidencePoolingWithDropout
 from cem.phasor.frequency import geometric_frequencies, make_frequency_grid
 from cem.phasor.gate import phasor_gate, rotate_by_location
 from cem.phasor.gated_projection import GatedProjection
@@ -27,6 +28,8 @@ from cem.phasor.telemetry import SpectralLossTelemetry
 
 __all__ = [
     "Accumulator",
+    "EvidencePooling",
+    "EvidencePoolingWithDropout",
     "GatedProjection",
     "LogSpaceProjection",
     "LogSpaceProjectionWithDropout",

@@ -10,6 +10,7 @@ from jax.lax import stop_gradient
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
 from tjax import JaxArray, JaxRealArray, RngStream, frozendict, negate_cotangent
 
+from cem.phasor.evidence_pooling import EvidencePoolingWithDropout
 from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.gated_projection import GatedProjection
 from cem.phasor.loss import decorrelation_loss, spectral_reconstruction_loss_and_score
@@ -17,7 +18,7 @@ from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
-from cem.transforms import AffineWithDropout, encode_phasor
+from cem.transforms import encode_phasor
 
 from .problem import IVObservation, IVProblem, NonlinearityKind, build_iv_problem
 
@@ -70,8 +71,8 @@ class AFPModel(Model):
     obs_features: int = eqx.field(static=True)
     endo_purifier: GatedProjection
     exo_purifier: GatedProjection
-    endo_predictor: AffineWithDropout
-    exo_predictor: AffineWithDropout
+    endo_predictor: EvidencePoolingWithDropout
+    exo_predictor: EvidencePoolingWithDropout
     exo_critic: GatedProjection
     endo_critic: GatedProjection
     _x_flattener: FixedParameter[Flattener[Any]]
@@ -108,10 +109,10 @@ class AFPModel(Model):
                 encoded_endo_features, endo_latent, streams=streams
             ),
             exo_purifier=GatedProjection.create(encoded_exo_features, exo_latent, streams=streams),
-            endo_predictor=AffineWithDropout.create(
+            endo_predictor=EvidencePoolingWithDropout.create(
                 endo_latent, encoded_obs_features, streams=streams
             ),
-            exo_predictor=AffineWithDropout.create(
+            exo_predictor=EvidencePoolingWithDropout.create(
                 exo_latent, encoded_obs_features, streams=streams
             ),
             exo_critic=GatedProjection.create(encoded_obs_features, exo_latent, streams=streams),

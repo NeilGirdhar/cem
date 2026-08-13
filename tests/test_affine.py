@@ -3,7 +3,7 @@ from collections.abc import Mapping
 import jax.numpy as jnp
 from tjax import RngStream
 
-from cem.transforms import Affine, AffineWithDropout
+from cem.transforms import Affine
 
 
 def test_affine_real_initialization(streams: Mapping[str, RngStream]) -> None:
@@ -29,15 +29,3 @@ def test_affine_complex_project_shape(streams: Mapping[str, RngStream]) -> None:
     x = jnp.ones((7, 3), dtype=jnp.complex128)
 
     assert f.project(x).shape == (7, 5)
-
-
-def test_affine_with_dropout_zero_rate_matches_affine(
-    streams: Mapping[str, RngStream],
-) -> None:
-    f = AffineWithDropout.create(3, 5, dropout_rate=0.0, streams=streams)
-    x = jnp.ones(3, dtype=jnp.float64)
-
-    assert jnp.allclose(
-        f.infer(x, streams=streams, inference=False),
-        Affine.project(f, x),
-    )
