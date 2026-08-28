@@ -9,7 +9,7 @@ from jax import enable_x64
 from tjax import RngStream, create_streams
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True)  # ruff: ignore[pytest-fixture-autouse]
 def _jax_fixture() -> Generator[None]:
     # jax.debug_key_reuse(True) is too slow.
     with jax.numpy_rank_promotion("raise"), enable_x64():
