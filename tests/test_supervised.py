@@ -368,11 +368,19 @@ def test_supervised_demo_loss_penalizes_compute_proxy() -> None:
 
     small = supervised_bike_sharing_demand_demo.demo_loss(
         variant_results,
-        {"training_examples": 4, "training_batch_size": 4, "hidden_size": 8},
+        {
+            "training_examples": 4,
+            "training_batch_size": 4,
+            "perceptron.hidden_size": 8,
+        },
     )
     large = supervised_bike_sharing_demand_demo.demo_loss(
         variant_results,
-        {"training_examples": 400, "training_batch_size": 32, "hidden_size": 128},
+        {
+            "training_examples": 400,
+            "training_batch_size": 32,
+            "perceptron.hidden_size": 128,
+        },
     )
 
     assert large > small

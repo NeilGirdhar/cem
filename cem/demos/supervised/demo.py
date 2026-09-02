@@ -68,23 +68,32 @@ class SupervisedDemo(Demo):
         hyperparameters: dict[str, Any],
     ) -> float:
         telemetry = LossTelemetry(selected_node="target")
-        inference_losses: list[jnp.ndarray] = []
-        for _variant, _training_results, inference_results in variant_results:
+        penalized_losses: list[jnp.ndarray] = []
+        for variant, _training_results, inference_results in variant_results:
             if inference_results.count < 1:
                 msg = "supervised demo scoring requires inference results"
                 raise ValueError(msg)
-            inference_losses.append(jnp.mean(inference_results.telemetries[telemetry]))
-        default_solver = self._default_solver()
-        solver = default_solver.populate_from_hyperparameters(hyperparameters)
-        compute_penalty = _COMPUTE_WEIGHT * (
-            solver.compute_proxy() / default_solver.compute_proxy()
-        )
-        return float(jnp.max(jnp.asarray(inference_losses)) + compute_penalty)
-
-    def _default_solver(self) -> SupervisedSolver:
-        solver = self.variants[0].create_solver()
-        assert isinstance(solver, SupervisedSolver)
-        return solver
+            prefix = f"{variant.label}."
+            shared = variant.shared_hyperparameter_names()
+            variant_hyperparameters = {
+                key: value for key, value in hyperparameters.items() if key in shared
+            }
+            variant_hyperparameters.update(
+                {
+                    key[len(prefix) :]: value
+                    for key, value in hyperparameters.items()
+                    if key.startswith(prefix)
+                }
+            )
+            default_solver = variant.create_solver()
+            assert isinstance(default_solver, SupervisedSolver)
+            solver = default_solver.populate_from_hyperparameters(variant_hyperparameters)
+            compute_penalty = _COMPUTE_WEIGHT * (
+                solver.compute_proxy() / default_solver.compute_proxy()
+            )
+            inference_loss = jnp.mean(inference_results.telemetries[telemetry])
+            penalized_losses.append(inference_loss + compute_penalty)
+        return float(jnp.max(jnp.asarray(penalized_losses)))
 
 
 supervised_iris_demo = SupervisedDemo(
