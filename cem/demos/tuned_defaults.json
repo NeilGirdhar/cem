@@ -5,23 +5,39 @@
     "learning_rate": 0.041598722610794676
   },
   "supervised-bike-sharing-demand": {
-    "perceptron.learning_rate": 0.044637945540524644,
-    "perceptron.hidden_size": 98,
-    "training_examples": 608
+    "perceptron.hidden_size": 12,
+    "perceptron.learning_rate": 0.14290864011272736,
+    "phase_activated.hidden_size": 16,
+    "phase_activated.learning_rate": 0.12502408245645713,
+    "phasor.hidden_size": 96,
+    "phasor.learning_rate": 0.4690339298857091,
+    "training_examples": 353
   },
   "supervised-cpu-activity": {
-    "perceptron.learning_rate": 0.22647324883255363,
-    "perceptron.hidden_size": 20,
-    "training_examples": 441
+    "perceptron.hidden_size": 16,
+    "perceptron.learning_rate": 0.0008960712413307847,
+    "phase_activated.hidden_size": 139,
+    "phase_activated.learning_rate": 0.0009992638764265388,
+    "phasor.hidden_size": 12,
+    "phasor.learning_rate": 0.0037880652861091036,
+    "training_examples": 352
   },
   "supervised-elevators": {
-    "perceptron.learning_rate": 0.0932401659405324,
-    "perceptron.hidden_size": 85,
-    "training_examples": 307
+    "perceptron.hidden_size": 6,
+    "perceptron.learning_rate": 0.13819340141792819,
+    "phase_activated.hidden_size": 98,
+    "phase_activated.learning_rate": 0.007686488586430041,
+    "phasor.hidden_size": 160,
+    "phasor.learning_rate": 0.0030088739220097624,
+    "training_examples": 247
   },
   "supervised-iris": {
-    "perceptron.learning_rate": 0.04145024111951306,
-    "perceptron.hidden_size": 220,
-    "training_examples": 584
+    "perceptron.hidden_size": 4,
+    "perceptron.learning_rate": 0.02678569698015672,
+    "phase_activated.hidden_size": 27,
+    "phase_activated.learning_rate": 0.03233991873979622,
+    "phasor.hidden_size": 192,
+    "phasor.learning_rate": 0.0883234033815859,
+    "training_examples": 435
   }
 }
