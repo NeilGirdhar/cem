@@ -60,7 +60,7 @@ class SupervisedVariant(Variant):
 
 
 class SupervisedDemo(Demo):
-    """Supervised demo scored jointly across perceptron and phasor variants."""
+    """Supervised demo scored across its model variants."""
 
     def demo_loss(
         self,
@@ -100,7 +100,6 @@ supervised_iris_demo = SupervisedDemo(
     name="supervised-iris",
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.perceptron),
-        SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.phasor),
     ],
 )
 
@@ -111,10 +110,6 @@ supervised_bike_sharing_demand_demo = SupervisedDemo(
             dataset_kind=DatasetKind.bike_sharing_demand,
             link_kind=LinkKind.perceptron,
         ),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.bike_sharing_demand,
-            link_kind=LinkKind.phasor,
-        ),
     ],
 )
 
@@ -122,7 +117,6 @@ supervised_elevators_demo = SupervisedDemo(
     name="supervised-elevators",
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.perceptron),
-        SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.phasor),
     ],
 )
 
@@ -130,6 +124,5 @@ supervised_cpu_activity_demo = SupervisedDemo(
     name="supervised-cpu-activity",
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.cpu_activity, link_kind=LinkKind.perceptron),
-        SupervisedVariant(dataset_kind=DatasetKind.cpu_activity, link_kind=LinkKind.phasor),
     ],
 )

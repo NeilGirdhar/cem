@@ -7,8 +7,6 @@ from cem.demos.afp.problem import NonlinearityKind
 from cem.demos.afp.solution import AFPModel, AFPSolver
 from cem.structure.solution import ExecutionPacket, Telemetries
 
-_DEFAULT_FREQUENCIES = 10
-
 
 def test_iv_problem_default_shapes() -> None:
     solver = AFPSolver()
@@ -54,7 +52,7 @@ def test_afp_purifiers_size_to_problem() -> None:
     solution = solver.solution()
     model = solution.assemble_model(fixed_parameters=True, learnable_parameters=True)
     assert isinstance(model, AFPModel)
-    expected = (4 + 3) * solver.n_frequencies
+    expected = 4 + 3
     assert model.exo_purifier.input_rotation.displacements.value.shape == (expected,)
     assert model.endo_purifier.input_rotation.displacements.value.shape == (expected,)
     assert model.exo_purifier.value.weights.value.shape == (8, expected)

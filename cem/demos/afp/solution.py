@@ -1,24 +1,21 @@
 """AFP IV solver: adversarial factor purification model and solver."""
 
 from collections.abc import Mapping
-from typing import Any, Self, override
+from typing import Self, override
 
 import equinox as eqx
 import jax.numpy as jnp
-from efax import Flattener, UnitVarianceNormalNP
 from jax.lax import stop_gradient
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
 from tjax import JaxArray, JaxRealArray, RngStream, frozendict, negate_cotangent
 
 from cem.phasor.evidence_pooling import EvidencePoolingWithDropout
-from cem.phasor.frequency import geometric_frequencies
 from cem.phasor.gated_projection import GatedProjection
-from cem.phasor.loss import decorrelation_loss, spectral_reconstruction_loss_and_score
-from cem.structure.graph import FixedParameter, Model, ModelResult
+from cem.phasor.loss import decorrelation_loss, phasor_reconstruction_loss_and_score
+from cem.structure.graph import Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
-from cem.transforms import encode_phasor
 
 from .problem import IVObservation, IVProblem, NonlinearityKind, build_iv_problem
 
@@ -75,9 +72,6 @@ class AFPModel(Model):
     exo_predictor: EvidencePoolingWithDropout
     exo_critic: GatedProjection
     endo_critic: GatedProjection
-    _x_flattener: FixedParameter[Flattener[Any]]
-    _y_flattener: FixedParameter[Flattener[Any]]
-    _frequencies: FixedParameter[JaxRealArray]
 
     @classmethod
     def create(
@@ -86,40 +80,24 @@ class AFPModel(Model):
         endo_features: int,
         exo_features: int,
         obs_features: int,
-        n_frequencies: int,
         endo_latent: int,
         exo_latent: int,
         streams: Mapping[str, RngStream],
     ) -> Self:
-        freqs = geometric_frequencies(n_frequencies, base=1)
-        x_flattener, _ = Flattener.flatten(
-            UnitVarianceNormalNP(jnp.zeros(endo_features)), mapped_to_plane=True
-        )
-        y_flattener, _ = Flattener.flatten(
-            UnitVarianceNormalNP(jnp.zeros(obs_features)), mapped_to_plane=True
-        )
-        encoded_endo_features = endo_features * n_frequencies
-        encoded_exo_features = exo_features * n_frequencies
-        encoded_obs_features = obs_features * n_frequencies
         return cls(
             endo_latent=endo_latent,
             exo_latent=exo_latent,
-            obs_features=encoded_obs_features,
-            endo_purifier=GatedProjection.create(
-                encoded_endo_features, endo_latent, streams=streams
-            ),
-            exo_purifier=GatedProjection.create(encoded_exo_features, exo_latent, streams=streams),
+            obs_features=obs_features,
+            endo_purifier=GatedProjection.create(endo_features, endo_latent, streams=streams),
+            exo_purifier=GatedProjection.create(exo_features, exo_latent, streams=streams),
             endo_predictor=EvidencePoolingWithDropout.create(
-                endo_latent, encoded_obs_features, streams=streams
+                endo_latent, obs_features, streams=streams
             ),
             exo_predictor=EvidencePoolingWithDropout.create(
-                exo_latent, encoded_obs_features, streams=streams
+                exo_latent, obs_features, streams=streams
             ),
-            exo_critic=GatedProjection.create(encoded_obs_features, exo_latent, streams=streams),
+            exo_critic=GatedProjection.create(obs_features, exo_latent, streams=streams),
             endo_critic=GatedProjection.create(exo_latent, endo_latent, streams=streams),
-            _x_flattener=FixedParameter(x_flattener),
-            _y_flattener=FixedParameter(y_flattener),
-            _frequencies=FixedParameter(freqs),
         )
 
     def predict_endo_phasor(
@@ -135,7 +113,7 @@ class AFPModel(Model):
         endogenous purifier and predictor.  Decoded value tracks the confounded
         (U-driven) contribution to Y.
         """
-        z_input = encode_phasor(observation.x, self._x_flattener.value, self._frequencies.value)
+        z_input = jnp.exp(1j * observation.x)
         z_endo_pure = self.endo_purifier.infer(z_input, streams=streams, inference=inference)
         return self.endo_predictor.infer(z_endo_pure, streams=streams, inference=inference)
 
@@ -152,7 +130,7 @@ class AFPModel(Model):
         exogenous purifier and predictor.  Decoded value tracks the causal-pathway
         contribution ``γα·Z`` — what the structural causal effect contributes to Y.
         """
-        z_input = encode_phasor(observation.x, self._x_flattener.value, self._frequencies.value)
+        z_input = jnp.exp(1j * observation.x)
         z_exo_pure = self.exo_purifier.infer(z_input, streams=streams, inference=inference)
         return self.exo_predictor.infer(z_exo_pure, streams=streams, inference=inference)
 
@@ -169,16 +147,8 @@ class AFPModel(Model):
         ) + self.predict_exo_phasor(observation, streams=streams, inference=inference)
 
     def _decode_phasor_to_y(self, z_hat: JaxArray) -> JaxRealArray:
-        """OLS recovery of the von Mises mean from a raveled output phasor.
-
-        For each outcome ``k`` and frequency ``ω_j``, a true phasor satisfies
-        ``z[k, j] = exp(i·ω_j·y_k − ω_j²/2)``, so ``arg z[k, j] = ω_j·y_k`` (modulo
-        ``2π``).  A least-squares fit over frequencies gives
-        ``y_k = Σ_j ω_j arg z[k, j] / Σ_j ω_j²``.
-        """
-        freqs = self._frequencies.value
-        z_grid = z_hat.reshape(-1, freqs.shape[0])  # (n_outcomes, n_frequencies)
-        return jnp.sum(jnp.angle(z_grid) * freqs[None, :], axis=-1) / jnp.sum(freqs**2)
+        """Decode the temporary one-phase representation."""
+        return jnp.angle(z_hat)
 
     def predict_y_exo(
         self,
@@ -244,10 +214,10 @@ class AFPModel(Model):
     ) -> ModelResult:
         assert isinstance(observation, IVObservation)
 
-        # Match the supervised phasor demo: unflatten UnitVarianceNormalNP encodings and
-        # evaluate their characteristic phasors on the configured frequency basis.
-        z_input = encode_phasor(observation.x, self._x_flattener.value, self._frequencies.value)
-        z_obs = encode_phasor(observation.y, self._y_flattener.value, self._frequencies.value)
+        # This temporary one-phase encoding keeps AFP runnable while the observation
+        # phase map is implemented.
+        z_input = jnp.exp(1j * observation.x)
+        z_obs = jnp.exp(1j * observation.y)
 
         # Purify: map inputs to latent representations.
         z_endo_pure = self.endo_purifier.infer(z_input, streams=streams, inference=inference)
@@ -259,7 +229,7 @@ class AFPModel(Model):
         z_hat = z_endo_hat + z_exo_hat
 
         # Reconstruction loss and score (∂loss/∂ẑ).
-        loss_and_score = spectral_reconstruction_loss_and_score(z_obs, z_hat)
+        loss_and_score = phasor_reconstruction_loss_and_score(z_obs, z_hat)
         recon_loss = loss_and_score.loss
         score = loss_and_score.score
 
@@ -295,7 +265,6 @@ class AFPSolver(Solver[IVProblem]):
     Attributes:
         endo_latent: Dimension of the purified endogenous latent space.
         exo_latent: Dimension of the purified exogenous latent space.
-        n_frequencies: Number of phasor frequencies in the encoded representation.
     """
 
     training_examples: int = int_field(default=3000, domain=IntDistribution(1, 1 << 17, log=True))
@@ -316,11 +285,6 @@ class AFPSolver(Solver[IVProblem]):
     exo_latent: int = int_field(
         default=8,
         domain=CategoricalDistribution(hardware_friendly_ints(1, 16)),
-        optimize=True,
-    )
-    n_frequencies: int = int_field(
-        default=10,
-        domain=CategoricalDistribution(hardware_friendly_ints(2, 16)),
         optimize=True,
     )
 
@@ -351,7 +315,6 @@ class AFPSolver(Solver[IVProblem]):
             endo_features=problem.obs_x_features,
             exo_features=problem.obs_x_features,
             obs_features=problem.obs_y_features,
-            n_frequencies=self.n_frequencies,
             endo_latent=self.endo_latent,
             exo_latent=self.exo_latent,
             streams=streams,

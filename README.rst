@@ -139,12 +139,9 @@ axes and per-node objective terms are additive evidence or additive penalties
 for the same example.  ``ModelResult.loss`` should therefore be a per-example
 scalar formed by summing those semantic contributions.
 
-Use ``jnp.mean`` for representation axes whose size is a modeling resolution
-choice, such as phasor-frequency axes in the spectral reconstruction objective.
-Changing ``n_frequencies`` should not directly rescale the objective or its
-cotangents.  Also use ``jnp.mean`` for empirical averages over independent
-examples, samples, or reporting windows.  The training infrastructure already
-averages a batch of per-example ``ModelResult.loss`` values in ``Inference._v_infer``.
+Use ``jnp.mean`` for empirical averages over independent examples, samples, or
+reporting windows.  The training infrastructure already averages a batch of
+per-example ``ModelResult.loss`` values in ``Inference._v_infer``.
 
 Telemetry may store normalized values for readability, but names and docstrings
 must say so.  If a demo score should report the objective, first sum all
@@ -164,8 +161,8 @@ of two types defined in ``cem/structure/graph/parameters.py``:
 
 ``FixedParameter[A]``
     Carries a JAX array that is part of the model pytree but is *never*
-    differentiated or updated (dropout rates, frequency grids, flatteners
-    containing distribution constants, …).
+    differentiated or updated (dropout rates, flatteners containing
+    distribution constants, …).
 
 Both wrap their payload in a ``.value`` attribute.  The framework enforces
 completeness at model-creation time via ``verify_model_has_no_free_parameters``,

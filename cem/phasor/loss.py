@@ -8,7 +8,7 @@ from cem.phasor.message import JaxComplexArray
 
 
 class LossAndScore(eqx.Module):
-    """Spectral reconstruction loss and its phasor-space gradient, computed jointly via autodiff.
+    """Phasor reconstruction loss and its phasor-space gradient, computed jointly via autodiff.
 
     Attributes:
         loss: Mean von Mises KL divergence over the final phasor-feature axis.
@@ -19,14 +19,14 @@ class LossAndScore(eqx.Module):
     score: JaxComplexArray
 
     def total_loss(self) -> JaxArray:
-        """Return the scalar spectral reconstruction objective."""
+        """Return the scalar phasor reconstruction objective."""
         return jnp.sum(self.loss)
 
 
-def spectral_reconstruction_loss_and_score(
+def phasor_reconstruction_loss_and_score(
     observed: JaxComplexArray, z_hat: JaxComplexArray
 ) -> LossAndScore:
-    """Compute spectral reconstruction loss and score jointly.
+    """Compute phasor reconstruction loss and score jointly.
 
     Treats observed and predicted phasors as von Mises natural parameters and computes their
     KL divergence directly in phasor space.  The final axis is the phasor-feature axis and is
@@ -39,12 +39,12 @@ def spectral_reconstruction_loss_and_score(
     Returns:
         ``LossAndScore`` with:
 
-        - ``loss``: mean spectral objective over phasor features, shape ``(...)``.
+        - ``loss``: mean reconstruction objective over phasor features, shape ``(...)``.
         - ``score``: gradient of ``jnp.sum(loss)`` w.r.t. ``z_hat``, shape ``(..., features)``.
     """
 
     def loss_fn(z: JaxComplexArray) -> tuple[JaxArray, JaxArray]:
-        elementwise_loss = _elementwise_spectral_reconstruction_loss(observed, z)
+        elementwise_loss = _elementwise_phasor_reconstruction_loss(observed, z)
         loss = jnp.mean(elementwise_loss, axis=-1)
         return jnp.sum(loss), loss
 
@@ -52,7 +52,7 @@ def spectral_reconstruction_loss_and_score(
     return LossAndScore(loss=loss, score=score)
 
 
-def _elementwise_spectral_reconstruction_loss(z: JaxArray, z_hat: JaxArray) -> JaxArray:
+def _elementwise_phasor_reconstruction_loss(z: JaxArray, z_hat: JaxArray) -> JaxArray:
     """Elementwise von Mises KL divergence from observed to predicted phasors.
 
     L(z, ẑ) = KL(ComplexVonMises(z) || ComplexVonMises(ẑ)).

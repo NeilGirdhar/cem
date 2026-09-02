@@ -4,8 +4,6 @@ from cem.transforms.affine import Affine
 from cem.transforms.dropout import apply_dropout_if_training, dropout
 from cem.transforms.observation import (
     encode_flat,
-    encode_phasor,
-    encode_semicircle_phasors,
     standardize_columns,
 )
 
@@ -14,7 +12,5 @@ __all__ = [
     "apply_dropout_if_training",
     "dropout",
     "encode_flat",
-    "encode_phasor",
-    "encode_semicircle_phasors",
     "standardize_columns",
 ]

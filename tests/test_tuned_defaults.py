@@ -9,7 +9,6 @@ from cem.demos.afp.demo import afp_synthetic_iv_demo
 from cem.demos.supervised.demo import supervised_bike_sharing_demand_demo
 
 _TUNED_HIDDEN_SIZE = 42
-_TUNED_N_FREQUENCIES = 3
 _DEFAULT_LEARNING_RATE = 0.01
 
 
@@ -23,7 +22,7 @@ def test_tuned_defaults_for_demo_loads_committed_json(
             {
                 "demo-a": {
                     "hidden_size": 12,
-                    "phasor.learning_rate": 0.25,
+                    "learning_rate": 0.25,
                 }
             }
         )
@@ -32,7 +31,7 @@ def test_tuned_defaults_for_demo_loads_committed_json(
 
     assert tuned_defaults.tuned_defaults_for_demo("demo-a") == {
         "hidden_size": 12,
-        "phasor.learning_rate": 0.25,
+        "learning_rate": 0.25,
     }
     assert tuned_defaults.tuned_defaults_for_demo("demo-b") == {}
 
@@ -56,8 +55,8 @@ def test_update_tuned_defaults_rewrites_one_demo(
     tuned_defaults.update_tuned_defaults(
         "demo-b",
         {
-            "phasor.n_frequencies": 2,
-            "phasor.learning_rate": 0.125,
+            "hidden_size": 24,
+            "learning_rate": 0.125,
         },
     )
 
@@ -66,8 +65,8 @@ def test_update_tuned_defaults_rewrites_one_demo(
             "hidden_size": 12,
         },
         "demo-b": {
-            "phasor.learning_rate": 0.125,
-            "phasor.n_frequencies": 2,
+            "hidden_size": 24,
+            "learning_rate": 0.125,
         },
     }
 
@@ -82,7 +81,6 @@ def test_demo_default_hyperparameters_overlay_tuned_defaults(
             {
                 supervised_bike_sharing_demand_demo.name: {
                     "hidden_size": _TUNED_HIDDEN_SIZE,
-                    "phasor.n_frequencies": _TUNED_N_FREQUENCIES,
                 }
             }
         )
@@ -92,16 +90,13 @@ def test_demo_default_hyperparameters_overlay_tuned_defaults(
     defaults = supervised_bike_sharing_demand_demo.default_hyperparameters()
 
     assert defaults["hidden_size"] == _TUNED_HIDDEN_SIZE
-    assert defaults["phasor.n_frequencies"] == _TUNED_N_FREQUENCIES
-    assert defaults["perceptron.learning_rate"] == _DEFAULT_LEARNING_RATE
+    assert defaults["learning_rate"] == _DEFAULT_LEARNING_RATE
 
 
 def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
     hyperparameters = supervised_bike_sharing_demand_demo.create_hyperparameters()
 
-    perceptron_hidden_size = hyperparameters["perceptron.hidden_size"]
-    phasor_hidden_size = hyperparameters["phasor.hidden_size"]
-    n_frequencies = hyperparameters["phasor.n_frequencies"]
+    perceptron_hidden_size = hyperparameters["hidden_size"]
 
     assert isinstance(perceptron_hidden_size, CategoricalDistribution)
     assert perceptron_hidden_size.choices == (
@@ -131,10 +126,6 @@ def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
         220,
         256,
     )
-    assert isinstance(phasor_hidden_size, CategoricalDistribution)
-    assert phasor_hidden_size.choices == perceptron_hidden_size.choices
-    assert isinstance(n_frequencies, CategoricalDistribution)
-    assert n_frequencies.choices == (2, 3, 4, 5, 6, 8, 10, 12, 16)
 
 
 def test_afp_shape_hyperparameters_use_hardware_friendly_choices() -> None:
@@ -142,11 +133,8 @@ def test_afp_shape_hyperparameters_use_hardware_friendly_choices() -> None:
 
     endo_latent = hyperparameters["endo_latent"]
     exo_latent = hyperparameters["exo_latent"]
-    n_frequencies = hyperparameters["n_frequencies"]
 
     assert isinstance(endo_latent, CategoricalDistribution)
     assert endo_latent.choices == (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)
     assert isinstance(exo_latent, CategoricalDistribution)
     assert exo_latent.choices == (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)
-    assert isinstance(n_frequencies, CategoricalDistribution)
-    assert n_frequencies.choices == (2, 3, 4, 5, 6, 8, 10, 12, 16)

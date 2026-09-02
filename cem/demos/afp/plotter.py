@@ -110,18 +110,17 @@ def _populated_solver(template: AFPSolver, training_results: TrainingResults) ->
     """Recover the actual solver used during training from the trained model's shapes.
 
     ``template`` has problem-shape fields (n_instruments, n_candidate_confounders, …) but
-    its tunable architecture fields (``endo_latent``, ``exo_latent``, ``n_frequencies``)
+    its tunable architecture fields (``endo_latent`` and ``exo_latent``)
     are at their defaults — not whatever value Optuna picked for this trial.  The
     *partial* model in ``training_results.final_state.dis_learnable_parameters`` still
     carries the trained static fields, so we copy them across into the template.
     """
     partial = training_results.final_state.dis_learnable_parameters.assembled()
     assert isinstance(partial, AFPModel)
-    derived_n_frequencies = int(partial.obs_features) // int(template.n_outcomes)
     return eqx.tree_at(
-        lambda s: (s.endo_latent, s.exo_latent, s.n_frequencies),
+        lambda s: (s.endo_latent, s.exo_latent),
         template,
-        (int(partial.endo_latent), int(partial.exo_latent), derived_n_frequencies),
+        (int(partial.endo_latent), int(partial.exo_latent)),
     )
 
 

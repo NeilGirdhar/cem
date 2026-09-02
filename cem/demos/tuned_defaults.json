@@ -2,43 +2,26 @@
   "afp-synthetic-iv": {
     "endo_latent": 10,
     "exo_latent": 8,
-    "learning_rate": 0.041598722610794676,
-    "n_frequencies": 16
+    "learning_rate": 0.041598722610794676
   },
   "supervised-bike-sharing-demand": {
-    "perceptron.learning_rate": 0.044637945540524644,
-    "perceptron.hidden_size": 98,
-    "phasor.hidden_size": 73,
-    "phasor.learning_rate": 0.031940802008758803,
-    "phasor.mobius_rank": 4,
-    "phasor.n_frequencies": 6,
+    "learning_rate": 0.044637945540524644,
+    "hidden_size": 98,
     "training_examples": 608
   },
   "supervised-cpu-activity": {
-    "perceptron.learning_rate": 0.22647324883255363,
-    "perceptron.hidden_size": 20,
-    "phasor.hidden_size": 27,
-    "phasor.learning_rate": 0.017990925832198763,
-    "phasor.mobius_rank": 4,
-    "phasor.n_frequencies": 4,
+    "learning_rate": 0.22647324883255363,
+    "hidden_size": 20,
     "training_examples": 441
   },
   "supervised-elevators": {
-    "perceptron.learning_rate": 0.0932401659405324,
-    "perceptron.hidden_size": 85,
-    "phasor.hidden_size": 139,
-    "phasor.learning_rate": 0.01861534488766684,
-    "phasor.mobius_rank": 4,
-    "phasor.n_frequencies": 8,
+    "learning_rate": 0.0932401659405324,
+    "hidden_size": 85,
     "training_examples": 307
   },
   "supervised-iris": {
-    "perceptron.learning_rate": 0.04145024111951306,
-    "perceptron.hidden_size": 220,
-    "phasor.hidden_size": 128,
-    "phasor.learning_rate": 0.010191366881379197,
-    "phasor.mobius_rank": 4,
-    "phasor.n_frequencies": 12,
+    "learning_rate": 0.04145024111951306,
+    "hidden_size": 220,
     "training_examples": 584
   }
 }

@@ -6,7 +6,6 @@ from typing import override
 import numpy as np
 from tjax.dataclasses import field
 
-from cem.phasor.telemetry import SpectralLossTelemetry
 from cem.structure.plotter.plotter import LinePlotTitles, PlottedSeries
 from cem.structure.plotter.with_smooth_graph import PlotterWithSmoothGraph, smooth_data
 from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
@@ -19,12 +18,7 @@ class _SupervisedLossPlotter(PlotterWithSmoothGraph):
 
     @override
     def telemetries(self) -> Telemetries:
-        return Telemetries(
-            (
-                LossTelemetry(selected_node=self.selected_node),
-                SpectralLossTelemetry(selected_node=self.selected_node),
-            )
-        )
+        return Telemetries((LossTelemetry(selected_node=self.selected_node),))
 
     def _loss_series(self, losses: object) -> tuple[np.ndarray, np.ndarray]:
         loss_values = np.asarray(losses, dtype=np.float64)
@@ -45,12 +39,10 @@ class SupervisedTrainingLossPlotter(_SupervisedLossPlotter):
     def line_plot_titles(self, label: str) -> LinePlotTitles:
         prefix = {
             "perceptron": "Perceptron",
-            "phasor": "Phasor",
         }.get(label, label.title())
         prefix = f"{prefix} " if prefix else ""
         return {
             "distributional_loss": f"{prefix}Distributional Loss",
-            "spectral_loss": f"{prefix}Spectral Loss",
         }
 
     @override
@@ -67,8 +59,4 @@ class SupervisedTrainingLossPlotter(_SupervisedLossPlotter):
             "iteration": times.tolist(),
             "distributional_loss": losses.tolist(),
         }
-        spectral_telemetry = SpectralLossTelemetry(selected_node=self.selected_node)
-        if spectral_telemetry in training_results.telemetries:
-            _, spectral_losses = self._loss_series(training_results.telemetries[spectral_telemetry])
-            result["spectral_loss"] = spectral_losses.tolist()
         return result
