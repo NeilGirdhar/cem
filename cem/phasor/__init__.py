@@ -23,8 +23,18 @@ from cem.phasor.message import (
     phasor_to_distribution,
     phasor_to_real,
 )
+from cem.phasor.mobius_summation import MobiusSummation, mobius_sum
+from cem.phasor.particle import (
+    ObservationParticleState,
+    ParticleInference,
+    initialize_particles,
+    observation_cross_entropy,
+    refine_best_particle,
+    update_particles,
+)
 from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
 from cem.phasor.telemetry import SpectralLossTelemetry
+from cem.phasor.value_projection import ValueProjection
 
 __all__ = [
     "Accumulator",
@@ -34,24 +44,33 @@ __all__ = [
     "LogSpaceProjection",
     "LogSpaceProjectionWithDropout",
     "LossAndScore",
+    "MobiusSummation",
+    "ObservationParticleState",
+    "ParticleInference",
     "PhasorInputConfiguration",
     "PhasorTargetConfiguration",
     "PhasorTargetNode",
     "SpectralLossTelemetry",
+    "ValueProjection",
     "centering_loss",
     "decorrelation_loss",
     "encode_scalar_phasors",
     "geometric_frequencies",
+    "initialize_particles",
     "interpolate",
     "make_frequency_grid",
+    "mobius_sum",
+    "observation_cross_entropy",
     "phasor_concordance",
     "phasor_from_distribution",
     "phasor_gate",
     "phasor_to_conjugate_prior",
     "phasor_to_distribution",
     "phasor_to_real",
+    "refine_best_particle",
     "rotate_by_location",
     "select",
     "spectral_reconstruction_loss_and_score",
     "strength_loss",
+    "update_particles",
 ]

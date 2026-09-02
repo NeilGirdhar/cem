@@ -8,7 +8,10 @@ from cem.phasor import (
     GatedProjection,
     LogSpaceProjection,
     LogSpaceProjectionWithDropout,
+    MobiusSummation,
+    ValueProjection,
     interpolate,
+    mobius_sum,
     phasor_gate,
     rotate_by_location,
     select,
@@ -216,7 +219,75 @@ def test_linear_with_dropout_applies_dropout_when_inference_false(
     assert not jnp.allclose(out_train, out_eval)
 
 
+# ── MobiusSummation ───────────────────────────────────────────────────────────
+
+
+def test_mobius_summation_output_shape(streams: Mapping[str, RngStream]) -> None:
+    f = MobiusSummation.create(4, 6, streams=streams)
+    assert f.sum(jnp.ones((5, 4), dtype=jnp.complex128)).shape == (5, 6)
+
+
+def test_mobius_summation_full_participation_reduces_to_parallel_sum() -> None:
+    presence = jnp.array([0.5, 2.0])
+    phase = jnp.array([0.2, -0.4])
+    x = presence * jnp.exp(1j * phase)
+    result = mobius_sum(
+        x,
+        jnp.zeros((1, 2)),
+        jnp.ones((1, 2)),
+    )
+    expected_presence = 1 / jnp.sum(1 / presence)
+    expected = expected_presence * jnp.exp(1j * jnp.sum(phase))
+    assert jnp.allclose(result, expected)
+
+
+def test_mobius_summation_soft_single_input() -> None:
+    x = jnp.array([0.7j])
+    participation = 0.25
+    result = mobius_sum(
+        x,
+        jnp.zeros((1, 1)),
+        jnp.array([[participation]]),
+    )
+    expected = (
+        participation * jnp.abs(x[0]) * ((1 - participation) + participation * x[0] / jnp.abs(x[0]))
+    )
+    assert jnp.allclose(result, expected)
+
+
+def test_mobius_summation_zero_input_is_zero_and_finite() -> None:
+    result = mobius_sum(
+        jnp.zeros(3, dtype=jnp.complex128),
+        jnp.zeros((2, 3)),
+        jnp.full((2, 3), 0.5),
+    )
+    assert jnp.all(result == 0)
+    assert jnp.all(jnp.isfinite(result))
+
+
+def test_mobius_summation_is_continuous_across_phase_branch_cut() -> None:
+    epsilon = 1e-8
+    x = jnp.exp(1j * jnp.array([jnp.pi - epsilon, -jnp.pi + epsilon]))[:, jnp.newaxis]
+    result = mobius_sum(x, jnp.array([[0.5]]), jnp.ones((1, 1)))
+    assert jnp.allclose(result[0], result[1], atol=1e-7)
+
+
 # ── GatedProjection ───────────────────────────────────────────────────────────
+
+
+def test_value_projection_output_shape(streams: Mapping[str, RngStream]) -> None:
+    f = ValueProjection.create(4, streams=streams)
+    assert f.infer(
+        jnp.ones((5, 4), dtype=jnp.complex128), streams=streams, inference=True
+    ).shape == (5, 4)
+
+
+def test_value_projection_preserves_presence(streams: Mapping[str, RngStream]) -> None:
+    f = ValueProjection.create(4, streams=streams)
+    z = jnp.array([0.0 + 0.0j, 0.2 + 0.1j, -1.0 + 2.0j, 3.0 - 4.0j])
+    projected = f.infer(z, streams=streams, inference=True)
+    assert jnp.allclose(jnp.abs(projected), jnp.abs(z))
+    assert jnp.all(jnp.isfinite(projected))
 
 
 def test_gated_projection_output_shape(streams: Mapping[str, RngStream]) -> None:

@@ -145,16 +145,13 @@ def test_phasor_target_node_field_names(target_node: PhasorTargetNode) -> None:
     assert tuple(target_node.field_sizes) == ("obs",)
 
 
-def test_phasor_target_node_has_frequency_grid_per_field(target_node: PhasorTargetNode) -> None:
-    assert set(target_node.frequency_grids.value) == {"obs"}
+def test_phasor_target_node_has_particle_bounds_per_field(target_node: PhasorTargetNode) -> None:
+    assert set(target_node.particle_bounds.value) == {"obs"}
 
 
-def test_phasor_target_node_frequency_grid_shape(
-    target_node: PhasorTargetNode, freqs: jnp.ndarray
-) -> None:
-    # UnitVarianceNormalNP has d=1 sufficient statistic; m=8 frequencies → shape (m,) = (8,)
-    grid = target_node.frequency_grids.value["obs"]
-    assert grid.shape == (_M,)
+def test_phasor_target_node_particle_state_shape(target_node: PhasorTargetNode) -> None:
+    state = target_node.initial_particle_state()
+    assert state.positions["obs"].shape == (target_node.particle_inference.n_particles, 1)
 
 
 def test_phasor_target_node_multi_field(freqs: jnp.ndarray) -> None:
@@ -166,7 +163,7 @@ def test_phasor_target_node_multi_field(freqs: jnp.ndarray) -> None:
         freqs,
     )
     assert set(node.field_sizes) == {"x", "y"}
-    assert set(node.frequency_grids.value) == {"x", "y"}
+    assert set(node.particle_bounds.value) == {"x", "y"}
 
 
 def test_phasor_target_configuration_total_loss_is_zero(
@@ -181,6 +178,7 @@ def test_phasor_target_configuration_total_loss_is_zero(
         spectral_loss=frozendict({"obs": jnp.zeros(())}),
         loss=frozendict({"obs": jnp.zeros(())}),
         predicted_distributions=frozendict({"obs": dist.to_exp()}),
+        particle_state=target_node.initial_particle_state(),
     )
     assert jnp.allclose(config.total_loss(), 0.0)
 

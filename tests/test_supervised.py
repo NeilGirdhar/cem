@@ -87,6 +87,19 @@ def test_phasor_supervised_multi_target_infer_splits_target_fields(
     assert jnp.isfinite(result.loss)
 
 
+def test_phasor_supervised_model_enables_gated_projection_dropout(
+    streams: Mapping[str, RngStream],
+) -> None:
+    model = PhasorSupervisedModel.create(
+        _small_multi_target_problem(),
+        n_frequencies=4,
+        hidden_size=8,
+        streams=streams,
+    )
+
+    assert jnp.allclose(model.link.dropout_rate.value, 0.1)
+
+
 def test_frequency_base_for_domain_width_keeps_unit_base_for_small_domains() -> None:
     problem = _problem_with_targets(np.array([-1.0, 0.0, 1.0]))
     domain_width = jnp.max(problem.y_flat) - jnp.min(problem.y_flat)

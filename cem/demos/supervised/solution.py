@@ -16,6 +16,7 @@ from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
 from cem.phasor.frequency import frequency_base_for_domain_width, geometric_frequencies
 from cem.phasor.gated_projection import GatedProjection
+from cem.phasor.particle import ObservationParticleState
 from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.problem import DataSource, Problem
@@ -28,6 +29,8 @@ from .problem import (
     load_hf_tabular_regression,
     load_iris,
 )
+
+_PHASOR_DROPOUT_RATE = 0.1
 
 
 # This has to be a cached function to avoid initializing JAX before training.
@@ -49,6 +52,22 @@ def _y_flat_observed(observation_y: JaxRealArray) -> frozendict[str, JaxRealArra
     if n == 1:
         return frozendict({"y": observation_y})
     return frozendict({f"y_{i}": observation_y[i : i + 1] for i in range(n)})
+
+
+def _y_particle_bounds(y_flat: JaxRealArray) -> dict[str, tuple[JaxRealArray, JaxRealArray]]:
+    """Return padded scalar bounds for each standardized target field."""
+    lower = jnp.min(y_flat, axis=0)
+    upper = jnp.max(y_flat, axis=0)
+    width = upper - lower
+    padding = jnp.where(width > 0.0, 0.05 * width, jnp.ones_like(width))
+    names = ["y"] if y_flat.shape[1] == 1 else [f"y_{i}" for i in range(y_flat.shape[1])]
+    return {
+        field_name: (
+            (lower[i] - padding[i])[jnp.newaxis],
+            (upper[i] + padding[i])[jnp.newaxis],
+        )
+        for i, field_name in enumerate(names)
+    }
 
 
 class DatasetKind(Enum):
@@ -120,6 +139,11 @@ class PhasorSupervisedModel(Model):
     _x_flattener: FixedParameter[Flattener[Any]]
     _frequencies: FixedParameter[JaxRealArray]
 
+    @override
+    def initial_state(self) -> ObservationParticleState:
+        """Initialize persistent target-observation particles."""
+        return self.target.initial_particle_state()
+
     @classmethod
     def create(
         cls,
@@ -138,9 +162,17 @@ class PhasorSupervisedModel(Model):
         x_flattener, _ = Flattener.flatten(sup.x_prior, mapped_to_plane=True)
         return cls(
             link=GatedProjection.create(
-                in_size, out_size, mid_features=hidden_size, streams=streams
+                in_size,
+                out_size,
+                mid_features=hidden_size,
+                dropout_rate=_PHASOR_DROPOUT_RATE,
+                streams=streams,
             ),
-            target=PhasorTargetNode.create(_y_fields(sup.n_targets), freqs),
+            target=PhasorTargetNode.create(
+                _y_fields(sup.n_targets),
+                freqs,
+                particle_bounds=_y_particle_bounds(sup.y_flat),
+            ),
             _x_flattener=FixedParameter(x_flattener),
             _frequencies=FixedParameter(freqs),
         )
@@ -161,11 +193,16 @@ class PhasorSupervisedModel(Model):
         z_hat = self.link.infer(x_phasor, streams=streams, inference=inference)
         # observation.y: (n_targets,), split into scalar fields; z_hat stays concatenated so
         # PhasorTargetNode can split it by field_sizes along the last axis.
-        config = self.target.infer(_y_flat_observed(observation.y), z_hat)
+        particle_state = state if isinstance(state, ObservationParticleState) else None
+        config = self.target.infer(
+            _y_flat_observed(observation.y),
+            z_hat,
+            particle_state,
+        )
         return ModelResult(
             loss=config.total_loss(),
             configurations=frozendict({"target": config}),
-            state=state,
+            state=config.particle_state,
         )
 
 
