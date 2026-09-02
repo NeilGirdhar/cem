@@ -55,10 +55,10 @@ def test_afp_purifiers_size_to_problem() -> None:
     model = solution.assemble_model(fixed_parameters=True, learnable_parameters=True)
     assert isinstance(model, AFPModel)
     expected = (4 + 3) * solver.n_frequencies
-    assert model.exo_purifier.input.weight.value.shape[1] == expected
-    assert model.endo_purifier.input.weight.value.shape[1] == expected
-    assert model.exo_purifier.value.raw_stretches.value.shape == (8, 8)
-    assert model.endo_purifier.admission.participation_logits.value.shape == (8, 8)
+    assert model.exo_purifier.input_rotation.displacements.value.shape == (expected,)
+    assert model.endo_purifier.input_rotation.displacements.value.shape == (expected,)
+    assert model.exo_purifier.value.weights.value.shape == (8, expected)
+    assert model.endo_purifier.admission.weight.value.shape == (8, expected)
 
 
 def test_afp_short_training_records_finite_losses() -> None:

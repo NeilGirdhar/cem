@@ -1,22 +1,34 @@
 from collections.abc import Mapping
 
 import jax.numpy as jnp
+import pytest
 from tjax import RngStream
 
 from cem.phasor import (
     Accumulator,
+    ElementwiseRotation,
+    FrequencyAdaptedEvidencePooling,
+    FrequencyElementwiseRotation,
+    FrequencyGatedProjection,
+    FrequencyMobiusProjection,
+    FrequencyPhaseActivation,
     GatedProjection,
     LogSpaceProjection,
     LogSpaceProjectionWithDropout,
+    LowRankFrequencyAdaptedEvidencePooling,
+    LowRankMobiusSummation,
+    MobiusParameterization,
     MobiusSummation,
+    RecurrentPhaseFocusing,
     ValueProjection,
     interpolate,
     mobius_sum,
+    phase_warp,
     phasor_gate,
     rotate_by_location,
     select,
 )
-from cem.structure.graph import LearnableParameter
+from cem.structure.graph import FixedParameter, LearnableParameter
 from cem.transforms import dropout
 
 # ── dropout ───────────────────────────────────────────────────────────────────
@@ -233,7 +245,7 @@ def test_mobius_summation_full_participation_reduces_to_parallel_sum() -> None:
     x = presence * jnp.exp(1j * phase)
     result = mobius_sum(
         x,
-        jnp.zeros((1, 2)),
+        jnp.ones((1, 2)),
         jnp.ones((1, 2)),
     )
     expected_presence = 1 / jnp.sum(1 / presence)
@@ -246,7 +258,7 @@ def test_mobius_summation_soft_single_input() -> None:
     participation = 0.25
     result = mobius_sum(
         x,
-        jnp.zeros((1, 1)),
+        jnp.ones((1, 1)),
         jnp.array([[participation]]),
     )
     expected = (
@@ -258,7 +270,7 @@ def test_mobius_summation_soft_single_input() -> None:
 def test_mobius_summation_zero_input_is_zero_and_finite() -> None:
     result = mobius_sum(
         jnp.zeros(3, dtype=jnp.complex128),
-        jnp.zeros((2, 3)),
+        jnp.ones((2, 3)),
         jnp.full((2, 3), 0.5),
     )
     assert jnp.all(result == 0)
@@ -268,8 +280,162 @@ def test_mobius_summation_zero_input_is_zero_and_finite() -> None:
 def test_mobius_summation_is_continuous_across_phase_branch_cut() -> None:
     epsilon = 1e-8
     x = jnp.exp(1j * jnp.array([jnp.pi - epsilon, -jnp.pi + epsilon]))[:, jnp.newaxis]
-    result = mobius_sum(x, jnp.array([[0.5]]), jnp.ones((1, 1)))
+    result = mobius_sum(
+        x,
+        jnp.array([[0.5]]),
+        jnp.ones((1, 1)),
+    )
     assert jnp.allclose(result[0], result[1], atol=1e-7)
+
+
+def test_mobius_summation_multiplies_weights_under_composition() -> None:
+    x = jnp.exp(1j * jnp.array([0.7]))
+    weight = jnp.array([[0.3]])
+    other_weight = jnp.array([[-0.5]])
+    full_participation = jnp.ones((1, 1))
+    sequential = mobius_sum(
+        mobius_sum(x, other_weight, full_participation),
+        weight,
+        full_participation,
+    )
+    combined = mobius_sum(x, weight * other_weight, full_participation)
+    assert jnp.allclose(sequential, combined)
+
+
+def test_low_rank_mobius_summation_output_shape(streams: Mapping[str, RngStream]) -> None:
+    f = LowRankMobiusSummation.create(4, 6, 2, streams=streams)
+    assert f.sum(jnp.ones((5, 4), dtype=jnp.complex128)).shape == (5, 6)
+
+
+def test_mobius_summation_reversal_endpoints() -> None:
+    x = jnp.exp(1j * jnp.array([0.3, -0.8]))
+    weights = jnp.array([[0.2, 0.7]])
+    full_presence = jnp.ones((1, 2))
+    positive = mobius_sum(x, weights, full_presence)
+    negative = mobius_sum(x, -weights, full_presence)
+
+    assert jnp.allclose(negative, jnp.conj(positive))
+
+
+def test_phase_warp_zero_weight_is_finite_at_negative_one() -> None:
+    assert jnp.allclose(
+        phase_warp(jnp.array([-1.0 + 0.0j]), jnp.array([0.0])),
+        jnp.array([1.0 + 0.0j]),
+    )
+
+
+# ── FrequencyAdaptedEvidencePooling ──────────────────────────────────────────
+
+
+def test_frequency_adapted_pooling_output_shape(streams: Mapping[str, RngStream]) -> None:
+    frequencies = jnp.array([1.0, 0.5, 0.25])
+    f = FrequencyAdaptedEvidencePooling.create(4, 6, frequencies, streams=streams)
+    assert f.project(jnp.ones((5, 12), dtype=jnp.complex128)).shape == (5, 18)
+
+
+def test_frequency_adapted_pooling_scales_rotation_by_frequency() -> None:
+    frequencies = jnp.array([1.0, 0.5])
+    displacement = 0.8
+    f = FrequencyAdaptedEvidencePooling(
+        log_gains=LearnableParameter(jnp.zeros((1, 1))),
+        displacements=LearnableParameter(jnp.array([[displacement]])),
+        frequencies=FixedParameter(frequencies),
+    )
+    result = f.project(jnp.ones(2, dtype=jnp.complex128))
+    assert jnp.allclose(result, jnp.exp(1j * frequencies * displacement))
+
+
+def test_low_rank_frequency_adapted_pooling_output_shape(
+    streams: Mapping[str, RngStream],
+) -> None:
+    frequencies = jnp.array([1.0, 0.5, 0.25])
+    f = LowRankFrequencyAdaptedEvidencePooling.create(4, 6, 2, frequencies, streams=streams)
+    assert f.project(jnp.ones((5, 12), dtype=jnp.complex128)).shape == (5, 18)
+
+
+# ── FrequencyElementwiseRotation ─────────────────────────────────────────────
+
+
+def test_elementwise_rotation_starts_as_identity(streams: Mapping[str, RngStream]) -> None:
+    f = ElementwiseRotation.create(4, streams=streams)
+    x = jnp.arange(4, dtype=jnp.float64).astype(jnp.complex128)
+    assert jnp.allclose(f.rotate(x), x)
+
+
+def test_elementwise_rotation_preserves_presence() -> None:
+    f = ElementwiseRotation(displacements=LearnableParameter(jnp.array([0.8, -0.4, 0.2, 1.1])))
+    x = jnp.arange(1, 5, dtype=jnp.float64).astype(jnp.complex128)
+    assert jnp.allclose(jnp.abs(f.rotate(x)), jnp.abs(x))
+
+
+def test_frequency_elementwise_rotation_starts_as_identity(
+    streams: Mapping[str, RngStream],
+) -> None:
+    frequencies = jnp.array([1.0, 0.5, 0.25])
+    f = FrequencyElementwiseRotation.create(4, frequencies, streams=streams)
+    x = jnp.arange(12, dtype=jnp.float64).reshape(3, 4).T.reshape(-1).astype(jnp.complex128)
+    assert jnp.allclose(f.rotate(x), x)
+
+
+def test_frequency_elementwise_rotation_scales_phase_by_frequency() -> None:
+    frequencies = jnp.array([1.0, 0.5])
+    displacements = jnp.array([0.8, -0.4])
+    f = FrequencyElementwiseRotation(
+        displacements=LearnableParameter(displacements),
+        frequencies=FixedParameter(frequencies),
+    )
+    result = f.rotate(jnp.ones(4, dtype=jnp.complex128)).reshape(2, 2)
+    expected = jnp.exp(1j * displacements[:, jnp.newaxis] * frequencies[jnp.newaxis, :])
+    assert jnp.allclose(result, expected)
+
+
+def test_frequency_elementwise_rotation_preserves_presence(
+    streams: Mapping[str, RngStream],
+) -> None:
+    frequencies = jnp.array([1.0, 0.5, 0.25])
+    f = FrequencyElementwiseRotation.create(4, frequencies, streams=streams)
+    f = FrequencyElementwiseRotation(
+        displacements=LearnableParameter(jnp.array([0.8, -0.4, 0.2, 1.1])),
+        frequencies=f.frequencies,
+    )
+    x = jnp.arange(1, 13, dtype=jnp.float64).astype(jnp.complex128)
+    assert jnp.allclose(jnp.abs(f.rotate(x)), jnp.abs(x))
+
+
+def test_frequency_phase_activation_depends_only_on_phase() -> None:
+    frequencies = jnp.array([1.0])
+    activation = FrequencyPhaseActivation(
+        rotation=FrequencyElementwiseRotation(
+            displacements=LearnableParameter(jnp.zeros(1)),
+            frequencies=FixedParameter(frequencies),
+        ),
+        log_sharpnesses=LearnableParameter(jnp.log(jnp.array([2.0]))),
+    )
+    phase = 0.6
+    x = jnp.array([[jnp.exp(1j * phase)], [3 * jnp.exp(1j * phase)]])
+
+    result = activation.activate(x)
+    attenuation = jnp.abs(result) / jnp.abs(x)
+
+    assert jnp.allclose(attenuation[0], attenuation[1])
+    assert jnp.all(attenuation > 0)
+
+
+def test_frequency_phase_activation_uses_coherent_value_rotation() -> None:
+    frequencies = jnp.array([1.0, 0.5, 0.25])
+    value = 0.8
+    activation = FrequencyPhaseActivation(
+        rotation=FrequencyElementwiseRotation(
+            displacements=LearnableParameter(jnp.array([-value])),
+            frequencies=FixedParameter(frequencies),
+        ),
+        log_sharpnesses=LearnableParameter(jnp.zeros(1)),
+    )
+    x = jnp.exp(1j * frequencies * value)
+
+    result = activation.activate(x)
+
+    assert jnp.allclose(result, jnp.ones_like(result))
 
 
 # ── GatedProjection ───────────────────────────────────────────────────────────
@@ -292,6 +458,7 @@ def test_value_projection_preserves_presence(streams: Mapping[str, RngStream]) -
 
 def test_gated_projection_output_shape(streams: Mapping[str, RngStream]) -> None:
     f = GatedProjection.create(4, 6, streams=streams)
+    assert isinstance(f.value, MobiusSummation)
     assert f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams, inference=True).shape == (6,)
 
 
@@ -313,6 +480,98 @@ def test_gated_projection_batched_shape(streams: Mapping[str, RngStream]) -> Non
 def test_gated_projection_custom_mid_features(streams: Mapping[str, RngStream]) -> None:
     f = GatedProjection.create(4, 6, mid_features=8, streams=streams)
     assert f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams, inference=True).shape == (6,)
+
+
+def test_frequency_gated_projection_output_shape(streams: Mapping[str, RngStream]) -> None:
+    frequencies = jnp.array([1.0, 0.5, 0.25])
+    f = FrequencyGatedProjection.create(
+        4,
+        2,
+        frequencies,
+        hidden_features=6,
+        mobius_rank=2,
+        streams=streams,
+    )
+    assert isinstance(f.value, LowRankMobiusSummation)
+    result = f.infer(jnp.ones((5, 12), dtype=jnp.complex128), streams=streams, inference=True)
+    assert result.shape == (5, 6)
+
+
+# ── RecurrentPhaseFocusing ────────────────────────────────────────────────────
+
+
+def test_recurrent_phase_focusing_output_shape(streams: Mapping[str, RngStream]) -> None:
+    f = RecurrentPhaseFocusing.create(
+        4,
+        2,
+        hidden_features=6,
+        iterations=3,
+        streams=streams,
+    )
+    z = jnp.exp(1j * jnp.linspace(-1.0, 1.0, 20).reshape(5, 4))
+
+    assert f.infer(z, streams=streams, inference=True).shape == (5, 2)
+
+
+def test_recurrent_phase_focus_preserves_input_presence(
+    streams: Mapping[str, RngStream],
+) -> None:
+    f = RecurrentPhaseFocusing.create(3, 1, hidden_features=4, streams=streams)
+    z = jnp.array([0.2 + 0.1j, -1.0 + 2.0j, 3.0 - 4.0j])
+    focused = f.focus(
+        z,
+        rotations=jnp.array([0.1, -0.2, 0.3]),
+        weights=jnp.array([0.4, -0.5, 0.0]),
+    )
+
+    assert jnp.allclose(jnp.abs(focused), jnp.abs(z))
+
+
+def test_recurrent_phase_focusing_preserves_absence(
+    streams: Mapping[str, RngStream],
+) -> None:
+    f = RecurrentPhaseFocusing.create(3, 2, hidden_features=4, streams=streams)
+    z = jnp.zeros(3, dtype=jnp.complex128)
+
+    assert jnp.allclose(f.infer(z, streams=streams, inference=True), 0)
+
+
+@pytest.mark.parametrize("parameterization", list(MobiusParameterization))
+def test_frequency_mobius_projection_output_shape(
+    streams: Mapping[str, RngStream],
+    *,
+    parameterization: MobiusParameterization,
+) -> None:
+    frequencies = jnp.array([1.0, 0.5, 0.25])
+    f = FrequencyMobiusProjection.create(
+        4,
+        2,
+        frequencies,
+        hidden_features=6,
+        mobius_rank=2,
+        parameterization=parameterization,
+        streams=streams,
+    )
+    result = f.infer(jnp.ones((5, 12), dtype=jnp.complex128), streams=streams, inference=True)
+    assert result.shape == (5, 6)
+
+
+def test_frequency_mobius_projection_supports_phase_activation(
+    streams: Mapping[str, RngStream],
+) -> None:
+    frequencies = jnp.array([1.0, 0.5, 0.25])
+    f = FrequencyMobiusProjection.create(
+        4,
+        2,
+        frequencies,
+        hidden_features=6,
+        parameterization=MobiusParameterization.phase_activated_dense,
+        streams=streams,
+    )
+
+    assert isinstance(f.activation, FrequencyPhaseActivation)
+    result = f.infer(jnp.ones((5, 12), dtype=jnp.complex128), streams=streams, inference=True)
+    assert result.shape == (5, 6)
 
 
 # ── select ────────────────────────────────────────────────────────────────────

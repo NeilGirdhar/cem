@@ -11,29 +11,42 @@ from cem.phasor.message import JaxComplexArray
 from cem.structure.graph import LearnableParameter
 
 
+def phase_warp(u: JaxComplexArray, weights: JaxRealArray) -> JaxComplexArray:
+    """Multiply unit phasor values by real weights in the Cayley coordinate.
+
+    The exceptional pair ``u == -1`` and ``weight == 0`` is assigned the
+    collapsed value ``+1``. This makes zero weight a total, noninvertible map.
+    """
+    numerator = (1 + weights) * u + (1 - weights)
+    denominator = (1 - weights) * u + (1 + weights)
+    defined = denominator != 0
+    safe_denominator = jnp.where(defined, denominator, 1)
+    return jnp.where(defined, numerator / safe_denominator, jnp.ones_like(numerator))
+
+
 def mobius_sum(
     x: JaxComplexArray,
-    stretches: JaxRealArray,
+    weights: JaxRealArray,
     participations: JaxRealArray,
 ) -> JaxComplexArray:
-    """Construct phasor features by softly summing Möbius-warped input phases.
+    """Construct phasor features with signed value weights and soft participation.
 
     Args:
         x: Input phasors, shape (..., in_features).
-        stretches: Möbius stretches in (-1, 1), shape (out_features, in_features).
-        participations: Soft participations in [0, 1], shape (out_features, in_features).
+        weights: Signed Cayley-coordinate weights, shape
+            (out_features, in_features).
+        participations: Participation probabilities, same shape.
 
     Returns:
         Constructed phasors, shape (..., out_features).
     """
-    parameter_shape = (1,) * (x.ndim - 1) + stretches.shape
-    stretches = jnp.reshape(stretches, parameter_shape)
+    parameter_shape = (1,) * (x.ndim - 1) + weights.shape
+    weights = jnp.reshape(weights, parameter_shape)
     participations = jnp.reshape(participations, parameter_shape)
 
     presence = jnp.abs(x)[..., jnp.newaxis, :]
     unit = x[..., jnp.newaxis, :] / jnp.where(presence > 0, presence, 1)
-
-    warped = (unit + stretches) / (1 + stretches * unit)
+    warped = phase_warp(unit, weights)
     contribution = (1 - participations) + participations * warped
 
     total_participation = 1 - jnp.prod(1 - participations, axis=-1)
@@ -55,19 +68,26 @@ def mobius_sum(
     return base_presence * jnp.prod(contribution, axis=-1)
 
 
-class MobiusSummation(eqx.Module):
-    """Bank of softly participating Möbius phase summations.
+def _signed_unit_initialization(
+    shape: tuple[int, ...],
+    *,
+    stream: RngStream,
+) -> JaxRealArray:
+    signs = jnp.where(jr.bernoulli(stream.key(), shape=shape), 1.0, -1.0)
+    log_magnitudes = 0.05 * jr.normal(stream.key(), shape, dtype=jnp.float64)
+    return signs * jnp.exp(log_magnitudes)
 
-    Each output feature has one real stretch and one soft participation per input.
-    Unconstrained learned stretches are mapped into (-1, 1); learned participation
-    logits are mapped into (0, 1).
+
+class MobiusSummation(eqx.Module):
+    """Bank of signed phase warps with softly participating inputs.
 
     Attributes:
-        raw_stretches: Unconstrained real stretches, shape (out_features, in_features).
+        weights: Signed Cayley-coordinate weights, shape
+            (out_features, in_features).
         participation_logits: Unconstrained participation logits, same shape.
     """
 
-    raw_stretches: LearnableParameter[JaxRealArray]
+    weights: LearnableParameter[JaxRealArray]
     participation_logits: LearnableParameter[JaxRealArray]
 
     @classmethod
@@ -83,9 +103,7 @@ class MobiusSummation(eqx.Module):
         scale = 1 / jnp.sqrt(in_features)
         initial_logit = -jnp.log(in_features)
         return cls(
-            raw_stretches=LearnableParameter(
-                scale * jr.normal(stream.key(), shape, dtype=jnp.float64)
-            ),
+            weights=LearnableParameter(_signed_unit_initialization(shape, stream=stream)),
             participation_logits=LearnableParameter(
                 initial_logit + scale * jr.normal(stream.key(), shape, dtype=jnp.float64)
             ),
@@ -93,7 +111,67 @@ class MobiusSummation(eqx.Module):
 
     def sum(self, x: JaxComplexArray) -> JaxComplexArray:
         """Apply the learned Möbius summation bank."""
-        raw_stretches = self.raw_stretches.value
-        stretches = raw_stretches / jnp.sqrt(1 + raw_stretches**2)
-        participations = sigmoid(self.participation_logits.value)
-        return mobius_sum(x, stretches, participations)
+        return mobius_sum(
+            x,
+            self.weights.value,
+            sigmoid(self.participation_logits.value),
+        )
+
+
+class LowRankMobiusSummation(eqx.Module):
+    """Möbius summation bank with low-rank weight and participation matrices."""
+
+    weight_output: LearnableParameter[JaxRealArray]
+    weight_input: LearnableParameter[JaxRealArray]
+    participation_output: LearnableParameter[JaxRealArray]
+    participation_input: LearnableParameter[JaxRealArray]
+
+    @classmethod
+    def create(
+        cls,
+        in_features: int,
+        out_features: int,
+        rank: int,
+        *,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        if rank < 1 or rank > min(in_features, out_features):
+            msg = f"rank must lie in [1, {min(in_features, out_features)}], got {rank}"
+            raise ValueError(msg)
+        stream = streams["parameters"]
+        factor_noise = 0.05
+        weight_output = factor_noise * jr.normal(
+            stream.key(), (out_features, rank), dtype=jnp.float64
+        )
+        weight_input = factor_noise * jr.normal(
+            stream.key(), (rank, in_features), dtype=jnp.float64
+        )
+        weight_output = weight_output.at[:, 0].add(
+            _signed_unit_initialization((out_features,), stream=stream)
+        )
+        weight_input = weight_input.at[0, :].add(
+            _signed_unit_initialization((in_features,), stream=stream)
+        )
+
+        participation_output = factor_noise * jr.normal(
+            stream.key(), (out_features, rank), dtype=jnp.float64
+        )
+        participation_input = factor_noise * jr.normal(
+            stream.key(), (rank, in_features), dtype=jnp.float64
+        )
+        participation_output = participation_output.at[:, 0].add(1)
+        participation_input = participation_input.at[0, :].add(-jnp.log(in_features))
+        return cls(
+            weight_output=LearnableParameter(weight_output),
+            weight_input=LearnableParameter(weight_input),
+            participation_output=LearnableParameter(participation_output),
+            participation_input=LearnableParameter(participation_input),
+        )
+
+    def sum(self, x: JaxComplexArray) -> JaxComplexArray:
+        """Apply the generated dense Möbius summation bank."""
+        return mobius_sum(
+            x,
+            self.weight_output.value @ self.weight_input.value,
+            sigmoid(self.participation_output.value @ self.participation_input.value),
+        )

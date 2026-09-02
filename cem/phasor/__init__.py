@@ -2,8 +2,19 @@
 
 from cem.phasor.accumulator import Accumulator
 from cem.phasor.attention import interpolate, select
-from cem.phasor.evidence_pooling import EvidencePooling, EvidencePoolingWithDropout
+from cem.phasor.elementwise_rotation import ElementwiseRotation, FrequencyElementwiseRotation
+from cem.phasor.evidence_pooling import (
+    EvidencePooling,
+    EvidencePoolingWithDropout,
+    FrequencyAdaptedEvidencePooling,
+    LowRankFrequencyAdaptedEvidencePooling,
+)
 from cem.phasor.frequency import geometric_frequencies, make_frequency_grid
+from cem.phasor.frequency_gated_projection import FrequencyGatedProjection
+from cem.phasor.frequency_mobius_projection import (
+    FrequencyMobiusProjection,
+    MobiusParameterization,
+)
 from cem.phasor.gate import phasor_gate, rotate_by_location
 from cem.phasor.gated_projection import GatedProjection
 from cem.phasor.input_node import PhasorInputConfiguration
@@ -23,7 +34,12 @@ from cem.phasor.message import (
     phasor_to_distribution,
     phasor_to_real,
 )
-from cem.phasor.mobius_summation import MobiusSummation, mobius_sum
+from cem.phasor.mobius_summation import (
+    LowRankMobiusSummation,
+    MobiusSummation,
+    mobius_sum,
+    phase_warp,
+)
 from cem.phasor.particle import (
     ObservationParticleState,
     ParticleInference,
@@ -32,24 +48,36 @@ from cem.phasor.particle import (
     refine_best_particle,
     update_particles,
 )
+from cem.phasor.phase_activation import FrequencyPhaseActivation
+from cem.phasor.recurrent_phase_focusing import RecurrentPhaseFocusing
 from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
 from cem.phasor.telemetry import SpectralLossTelemetry
 from cem.phasor.value_projection import ValueProjection
 
 __all__ = [
     "Accumulator",
+    "ElementwiseRotation",
     "EvidencePooling",
     "EvidencePoolingWithDropout",
+    "FrequencyAdaptedEvidencePooling",
+    "FrequencyElementwiseRotation",
+    "FrequencyGatedProjection",
+    "FrequencyMobiusProjection",
+    "FrequencyPhaseActivation",
     "GatedProjection",
     "LogSpaceProjection",
     "LogSpaceProjectionWithDropout",
     "LossAndScore",
+    "LowRankFrequencyAdaptedEvidencePooling",
+    "LowRankMobiusSummation",
+    "MobiusParameterization",
     "MobiusSummation",
     "ObservationParticleState",
     "ParticleInference",
     "PhasorInputConfiguration",
     "PhasorTargetConfiguration",
     "PhasorTargetNode",
+    "RecurrentPhaseFocusing",
     "SpectralLossTelemetry",
     "ValueProjection",
     "centering_loss",
@@ -61,6 +89,7 @@ __all__ = [
     "make_frequency_grid",
     "mobius_sum",
     "observation_cross_entropy",
+    "phase_warp",
     "phasor_concordance",
     "phasor_from_distribution",
     "phasor_gate",
