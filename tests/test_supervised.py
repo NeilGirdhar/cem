@@ -7,6 +7,7 @@ import jax.random as jr
 import numpy as np
 import pandas as pd
 import pytest
+from jax import tree
 from tjax import RngStream
 
 import cem.demos.supervised.problem as supervised_problem
@@ -19,10 +20,24 @@ from cem.demos.supervised.demo import (
     supervised_iris_demo,
 )
 from cem.demos.supervised.problem import SupervisedProblem
-from cem.demos.supervised.solution import DatasetKind, PhasorSupervisedModel, SupervisedSolver
-from cem.phasor import PhasorTargetConfiguration
+from cem.demos.supervised.solution import (
+    DatasetKind,
+    PerceptronSupervisedModel,
+    PhasorProjectionKind,
+    PhasorSupervisedModel,
+    SupervisedSolver,
+)
+from cem.phasor import (
+    FrequencyGatedProjection,
+    FrequencyMobiusProjection,
+    FrequencyPhaseActivation,
+    MobiusSummation,
+    PhasorTargetConfiguration,
+    RecurrentPhaseFocusing,
+)
 from cem.phasor.frequency import frequency_base_for_domain_width
 from cem.phasor.telemetry import SpectralLossTelemetry
+from cem.structure.graph import LearnableParameter
 from cem.structure.plotter import Demo
 from cem.structure.solution import (
     ExecutionPacket,
@@ -35,6 +50,7 @@ from cem.structure.solution import (
 
 _EXPECTED_HF_TEST_FEATURES = 2
 _EXPECTED_HF_TEST_ROWS = 5
+_PARAMETER_COUNT_RELATIVE_TOLERANCE = 0.02
 
 
 def _small_supervised_problem() -> SupervisedProblem:
@@ -66,6 +82,31 @@ def _problem_with_targets(targets: np.ndarray) -> SupervisedProblem:
     return supervised_problem.problem_from_numeric_dataframe(df, max_rows=None, seed=0)
 
 
+def _problem_with_feature_count(n_features: int) -> SupervisedProblem:
+    rng = np.random.default_rng(n_features)
+    x = rng.normal(size=(32, n_features))
+    df = pd.DataFrame(
+        {
+            **{f"x_{i}": x[:, i] for i in range(n_features)},
+            "target": rng.normal(size=x.shape[0]),
+        }
+    )
+    return supervised_problem.problem_from_numeric_dataframe(df, max_rows=None, seed=0)
+
+
+def _real_parameter_count(model: object) -> int:
+    parameters = [
+        leaf
+        for leaf in tree.leaves(model, is_leaf=lambda x: isinstance(x, LearnableParameter))
+        if isinstance(leaf, LearnableParameter)
+    ]
+    return sum(
+        parameter.value.size
+        * (2 if jnp.issubdtype(parameter.value.dtype, jnp.complexfloating) else 1)
+        for parameter in parameters
+    )
+
+
 def test_phasor_supervised_multi_target_infer_splits_target_fields(
     streams: Mapping[str, RngStream],
 ) -> None:
@@ -87,7 +128,7 @@ def test_phasor_supervised_multi_target_infer_splits_target_fields(
     assert jnp.isfinite(result.loss)
 
 
-def test_phasor_supervised_model_enables_gated_projection_dropout(
+def test_phasor_supervised_model_enables_mobius_projection_dropout(
     streams: Mapping[str, RngStream],
 ) -> None:
     model = PhasorSupervisedModel.create(
@@ -98,6 +139,135 @@ def test_phasor_supervised_model_enables_gated_projection_dropout(
     )
 
     assert jnp.allclose(model.link.dropout_rate.value, 0.1)
+
+
+def test_phasor_supervised_model_supports_dense_mobius_candidates(
+    streams: Mapping[str, RngStream],
+) -> None:
+    model = PhasorSupervisedModel.create(
+        _small_multi_target_problem(),
+        n_frequencies=4,
+        hidden_size=8,
+        projection_kind=PhasorProjectionKind.dense,
+        streams=streams,
+    )
+
+    assert isinstance(model.link, FrequencyMobiusProjection)
+    assert isinstance(model.link.value, MobiusSummation)
+
+
+def test_phasor_supervised_model_supports_dense_signed_weights(
+    streams: Mapping[str, RngStream],
+) -> None:
+    model = PhasorSupervisedModel.create(
+        _small_multi_target_problem(),
+        n_frequencies=4,
+        hidden_size=8,
+        projection_kind=PhasorProjectionKind.dense,
+        streams=streams,
+    )
+
+    assert isinstance(model.link, FrequencyMobiusProjection)
+    assert isinstance(model.link.value, MobiusSummation)
+    expected_parameter_count = 4 + 2 * 8 * 4 + 2 * 8 * 2
+    assert _real_parameter_count(model) == expected_parameter_count
+
+
+def test_phasor_supervised_model_supports_phase_activation(
+    streams: Mapping[str, RngStream],
+) -> None:
+    model = PhasorSupervisedModel.create(
+        _small_multi_target_problem(),
+        n_frequencies=4,
+        hidden_size=8,
+        projection_kind=PhasorProjectionKind.phase_activated,
+        streams=streams,
+    )
+
+    assert isinstance(model.link, FrequencyMobiusProjection)
+    assert isinstance(model.link.activation, FrequencyPhaseActivation)
+    expected_parameter_count = 4 + 2 * 8 * 4 + 2 * 8 + 2 * 8 * 2
+    assert _real_parameter_count(model) == expected_parameter_count
+
+
+def test_phasor_supervised_model_supports_gated_projection(
+    streams: Mapping[str, RngStream],
+) -> None:
+    model = PhasorSupervisedModel.create(
+        _small_multi_target_problem(),
+        n_frequencies=4,
+        hidden_size=8,
+        mobius_rank=2,
+        projection_kind=PhasorProjectionKind.gated,
+        streams=streams,
+    )
+
+    assert isinstance(model.link, FrequencyGatedProjection)
+    expected_parameter_count = 4 + 4 * 2 * (8 + 4) + 8 + 2 * 8 * 2
+    assert _real_parameter_count(model) == expected_parameter_count
+
+
+def test_phasor_supervised_model_supports_recurrent_phase_focusing(
+    streams: Mapping[str, RngStream],
+) -> None:
+    recurrent_steps = 3
+    problem = _small_multi_target_problem()
+    model = PhasorSupervisedModel.create(
+        problem,
+        n_frequencies=4,
+        hidden_size=8,
+        recurrent_steps=recurrent_steps,
+        projection_kind=PhasorProjectionKind.recurrent_phase_focusing,
+        streams=streams,
+    )
+    observation = problem.create_data_source().initial_problem_state(jr.key(0))
+
+    assert isinstance(model.link, RecurrentPhaseFocusing)
+    assert model.link.iterations == recurrent_steps
+    assert model.target.frequencies.value.shape == (1,)
+    result = model.infer(observation, None, streams=streams, inference=True)
+    config = result.configurations["target"]
+    assert isinstance(config, PhasorTargetConfiguration)
+    assert config.score.shape == (problem.n_targets,)
+    assert jnp.isfinite(result.loss)
+
+
+@pytest.mark.parametrize(
+    (
+        "n_features",
+        "n_frequencies",
+        "phasor_hidden",
+        "mlp_hidden",
+    ),
+    [
+        (4, 12, 128, 220),
+        (6, 6, 73, 98),
+        (16, 8, 139, 85),
+        (21, 4, 27, 20),
+    ],
+)
+def test_supervised_models_have_similar_real_parameter_counts(
+    n_features: int,
+    n_frequencies: int,
+    phasor_hidden: int,
+    mlp_hidden: int,
+    streams: Mapping[str, RngStream],
+) -> None:
+    problem = _problem_with_feature_count(n_features)
+    perceptron = PerceptronSupervisedModel.create(problem, mlp_hidden, streams=streams)
+    phasor = PhasorSupervisedModel.create(
+        problem,
+        n_frequencies,
+        phasor_hidden,
+        4,
+        streams=streams,
+    )
+    perceptron_count = _real_parameter_count(perceptron)
+    phasor_count = _real_parameter_count(phasor)
+    assert (
+        abs(perceptron_count - phasor_count) / perceptron_count
+        < _PARAMETER_COUNT_RELATIVE_TOLERANCE
+    )
 
 
 def test_frequency_base_for_domain_width_keeps_unit_base_for_small_domains() -> None:

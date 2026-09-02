@@ -15,13 +15,18 @@ from tjax import JaxRealArray, RngStream, frozendict
 from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
 from cem.phasor.frequency import frequency_base_for_domain_width, geometric_frequencies
-from cem.phasor.gated_projection import GatedProjection
+from cem.phasor.frequency_gated_projection import FrequencyGatedProjection
+from cem.phasor.frequency_mobius_projection import (
+    FrequencyMobiusProjection,
+    MobiusParameterization,
+)
 from cem.phasor.particle import ObservationParticleState
+from cem.phasor.recurrent_phase_focusing import RecurrentPhaseFocusing
 from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import FixedParameter, Model, ModelResult
 from cem.structure.problem import DataSource, Problem
-from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
-from cem.transforms import encode_phasor
+from cem.structure.solver import Solver, bool_field, float_field, hardware_friendly_ints, int_field
+from cem.transforms import encode_phasor, encode_semicircle_phasors
 
 from .problem import (
     SupervisedProblem,
@@ -31,6 +36,9 @@ from .problem import (
 )
 
 _PHASOR_DROPOUT_RATE = 0.1
+_SUPERVISED_HIDDEN_SIZES = tuple(
+    sorted({*hardware_friendly_ints(4, 256), 20, 27, 73, 85, 98, 128, 139, 220})
+)
 
 
 # This has to be a cached function to avoid initializing JAX before training.
@@ -80,6 +88,16 @@ class DatasetKind(Enum):
 class LinkKind(Enum):
     perceptron = "perceptron"
     phasor = "phasor"
+
+
+class PhasorProjectionKind(Enum):
+    """Architecture used by the supervised phasor model."""
+
+    low_rank = "low_rank"
+    dense = "dense"
+    phase_activated = "phase_activated"
+    gated = "gated"
+    recurrent_phase_focusing = "recurrent_phase_focusing"
 
 
 _HF_TABULAR_REGRESSION_CONFIGS: dict[DatasetKind, str] = {
@@ -132,12 +150,14 @@ class PerceptronSupervisedModel(Model):
 
 
 class PhasorSupervisedModel(Model):
-    """Supervised model: phasor-encoded features → GatedProjection → PhasorTargetNode."""
+    """Supervised model: encoded features → Möbius projection → phasor target."""
 
-    link: GatedProjection
+    link: FrequencyMobiusProjection | FrequencyGatedProjection | RecurrentPhaseFocusing
     target: PhasorTargetNode
     _x_flattener: FixedParameter[Flattener[Any]]
     _frequencies: FixedParameter[JaxRealArray]
+    _input_centres: FixedParameter[JaxRealArray] | None
+    _input_angular_scales: FixedParameter[JaxRealArray] | None
 
     @override
     def initial_state(self) -> ObservationParticleState:
@@ -150,24 +170,69 @@ class PhasorSupervisedModel(Model):
         sup: SupervisedProblem,
         n_frequencies: int,
         hidden_size: int,
+        mobius_rank: int = 2,
+        recurrent_steps: int = 3,
         *,
+        projection_kind: PhasorProjectionKind = PhasorProjectionKind.low_rank,
         streams: Mapping[str, RngStream],
     ) -> Self:
         target_domain_width = jnp.max(sup.y_flat) - jnp.min(sup.y_flat)
-        freqs = geometric_frequencies(
-            n_frequencies, base=frequency_base_for_domain_width(target_domain_width)
+        target_frequencies = (
+            1 if projection_kind == PhasorProjectionKind.recurrent_phase_focusing else n_frequencies
         )
-        in_size = sup.n_features * n_frequencies
-        out_size = sup.n_targets * n_frequencies
+        freqs = geometric_frequencies(
+            target_frequencies, base=frequency_base_for_domain_width(target_domain_width)
+        )
+        mobius_rank = min(mobius_rank, sup.n_features, hidden_size)
         x_flattener, _ = Flattener.flatten(sup.x_prior, mapped_to_plane=True)
-        return cls(
-            link=GatedProjection.create(
-                in_size,
-                out_size,
-                mid_features=hidden_size,
+        parameterization = {
+            PhasorProjectionKind.low_rank: MobiusParameterization.low_rank,
+            PhasorProjectionKind.dense: MobiusParameterization.dense,
+            PhasorProjectionKind.phase_activated: MobiusParameterization.phase_activated_dense,
+        }.get(projection_kind)
+        link = (
+            RecurrentPhaseFocusing.create(
+                sup.n_features,
+                sup.n_targets,
+                hidden_features=hidden_size,
+                iterations=recurrent_steps,
                 dropout_rate=_PHASOR_DROPOUT_RATE,
                 streams=streams,
-            ),
+            )
+            if projection_kind == PhasorProjectionKind.recurrent_phase_focusing
+            else FrequencyGatedProjection.create(
+                sup.n_features,
+                sup.n_targets,
+                freqs,
+                hidden_features=hidden_size,
+                mobius_rank=mobius_rank,
+                dropout_rate=_PHASOR_DROPOUT_RATE,
+                streams=streams,
+            )
+            if projection_kind == PhasorProjectionKind.gated
+            else FrequencyMobiusProjection.create(
+                sup.n_features,
+                sup.n_targets,
+                freqs,
+                hidden_features=hidden_size,
+                mobius_rank=mobius_rank,
+                parameterization=parameterization or MobiusParameterization.low_rank,
+                dropout_rate=_PHASOR_DROPOUT_RATE,
+                streams=streams,
+            )
+        )
+        input_centres = None
+        input_angular_scales = None
+        if projection_kind == PhasorProjectionKind.recurrent_phase_focusing:
+            lower = jnp.min(sup.x_flat, axis=0)
+            upper = jnp.max(sup.x_flat, axis=0)
+            width = upper - lower
+            input_centres = FixedParameter((lower + upper) / 2)
+            input_angular_scales = FixedParameter(
+                jnp.where(width > 0, 0.9 * jnp.pi / width, jnp.ones_like(width))
+            )
+        return cls(
+            link=link,
             target=PhasorTargetNode.create(
                 _y_fields(sup.n_targets),
                 freqs,
@@ -175,6 +240,8 @@ class PhasorSupervisedModel(Model):
             ),
             _x_flattener=FixedParameter(x_flattener),
             _frequencies=FixedParameter(freqs),
+            _input_centres=input_centres,
+            _input_angular_scales=input_angular_scales,
         )
 
     @override
@@ -188,7 +255,20 @@ class PhasorSupervisedModel(Model):
     ) -> ModelResult:
         assert isinstance(observation, SupervisedProblemState)
         # observation.x: (n_features,), flat UnitVarianceNormalNP encodings.
-        x_phasor = encode_phasor(observation.x, self._x_flattener.value, self._frequencies.value)
+        if isinstance(self.link, RecurrentPhaseFocusing):
+            assert self._input_centres is not None
+            assert self._input_angular_scales is not None
+            x_phasor = encode_semicircle_phasors(
+                observation.x,
+                self._input_centres.value,
+                self._input_angular_scales.value,
+            )
+        else:
+            x_phasor = encode_phasor(
+                observation.x,
+                self._x_flattener.value,
+                self._frequencies.value,
+            )
         # z_hat: (n_targets * n_frequencies,), concatenated target phasors.
         z_hat = self.link.infer(x_phasor, streams=streams, inference=inference)
         # observation.y: (n_targets,), split into scalar fields; z_hat stays concatenated so
@@ -212,8 +292,13 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     Attributes:
         dataset_kind: Which dataset to use (set by the demo, not optimised).
         link_kind: Whether to use a perceptron or phasor link (set by the demo, not optimised).
-        hidden_size: Hidden dimension of the perceptron MLP or phasor gated projection.
+        hidden_size: Hidden dimension of the perceptron or Möbius projection.
         n_frequencies: Number of phasor frequencies (only used when ``link_kind == phasor``).
+        dense_mobius: Whether each Möbius candidate has independent dense input parameters.
+        phase_activation: Whether candidates use phase-only activation before output pooling.
+        gated_projection: Whether to use the separate admission path.
+        recurrent_phase_focusing: Whether to infer one adaptive input view at each recurrent step.
+        recurrent_steps: Number of shared-weight focusing steps.
     """
 
     _: KW_ONLY
@@ -229,14 +314,39 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     )
     hidden_size: int = int_field(
         default=64,
-        domain=CategoricalDistribution(hardware_friendly_ints(4, 128)),
+        domain=CategoricalDistribution(_SUPERVISED_HIDDEN_SIZES),
         optimize=True,
     )
     n_frequencies: int = int_field(
         default=10,
         domain=CategoricalDistribution(hardware_friendly_ints(2, 16)),
         optimize=True,
-        condition=lambda solver: solver.link_kind == LinkKind.phasor,  # type: ignore
+        condition=lambda solver: (
+            getattr(solver, "link_kind", None) == LinkKind.phasor
+            and not getattr(solver, "recurrent_phase_focusing", False)
+        ),
+    )
+    mobius_rank: int = int_field(
+        default=2,
+        domain=CategoricalDistribution((1, 2, 4)),
+        optimize=True,
+        condition=lambda solver: (
+            getattr(solver, "link_kind", None) == LinkKind.phasor
+            and not getattr(solver, "recurrent_phase_focusing", False)
+        ),
+    )
+    dense_mobius: bool = bool_field(default=False, static=True, optimize=False)
+    phase_activation: bool = bool_field(default=False, static=True, optimize=False)
+    gated_projection: bool = bool_field(default=False, static=True, optimize=False)
+    recurrent_phase_focusing: bool = bool_field(default=False, static=True, optimize=False)
+    recurrent_steps: int = int_field(
+        default=3,
+        domain=IntDistribution(1, 8),
+        optimize=False,
+        condition=lambda solver: (
+            getattr(solver, "link_kind", None) == LinkKind.phasor
+            and getattr(solver, "recurrent_phase_focusing", False)
+        ),
     )
 
     def compute_proxy(self) -> JaxRealArray:
@@ -245,7 +355,8 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         Uses the tunable dimensions that dominate local training cost:
         ``training_examples * training_batch_size * hidden_size**2``.
         """
-        return jnp.asarray(self.training_examples * self.hidden_size**2)
+        recurrent_multiplier = self.recurrent_steps if self.recurrent_phase_focusing else 1
+        return jnp.asarray(self.training_examples * self.hidden_size**2 * recurrent_multiplier)
 
     @override
     def problem(self) -> SupervisedProblem:
@@ -267,9 +378,23 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         assert isinstance(problem, SupervisedProblem)
         if self.link_kind == LinkKind.perceptron:
             return PerceptronSupervisedModel.create(problem, self.hidden_size, streams=streams)
+        projection_kind = (
+            PhasorProjectionKind.recurrent_phase_focusing
+            if self.recurrent_phase_focusing
+            else PhasorProjectionKind.gated
+            if self.gated_projection
+            else PhasorProjectionKind.phase_activated
+            if self.phase_activation
+            else PhasorProjectionKind.dense
+            if self.dense_mobius
+            else PhasorProjectionKind.low_rank
+        )
         return PhasorSupervisedModel.create(
             problem,
             self.n_frequencies,
             self.hidden_size,
+            mobius_rank=self.mobius_rank,
+            recurrent_steps=self.recurrent_steps,
+            projection_kind=projection_kind,
             streams=streams,
         )

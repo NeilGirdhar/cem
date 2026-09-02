@@ -96,14 +96,43 @@ def test_demo_default_hyperparameters_overlay_tuned_defaults(
     assert defaults["perceptron.learning_rate"] == _DEFAULT_LEARNING_RATE
 
 
-def test_supervised_shape_hyperparameters_use_hardware_friendly_choices() -> None:
+def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
     hyperparameters = supervised_bike_sharing_demand_demo.create_hyperparameters()
 
-    hidden_size = hyperparameters["hidden_size"]
+    perceptron_hidden_size = hyperparameters["perceptron.hidden_size"]
+    phasor_hidden_size = hyperparameters["phasor.hidden_size"]
     n_frequencies = hyperparameters["phasor.n_frequencies"]
 
-    assert isinstance(hidden_size, CategoricalDistribution)
-    assert hidden_size.choices == (4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128)
+    assert isinstance(perceptron_hidden_size, CategoricalDistribution)
+    assert perceptron_hidden_size.choices == (
+        4,
+        5,
+        6,
+        8,
+        10,
+        12,
+        16,
+        20,
+        24,
+        27,
+        32,
+        40,
+        48,
+        64,
+        73,
+        80,
+        85,
+        96,
+        98,
+        128,
+        139,
+        160,
+        192,
+        220,
+        256,
+    )
+    assert isinstance(phasor_hidden_size, CategoricalDistribution)
+    assert phasor_hidden_size.choices == perceptron_hidden_size.choices
     assert isinstance(n_frequencies, CategoricalDistribution)
     assert n_frequencies.choices == (2, 3, 4, 5, 6, 8, 10, 12, 16)
 

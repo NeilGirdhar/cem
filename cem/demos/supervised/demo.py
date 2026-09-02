@@ -55,7 +55,6 @@ class SupervisedVariant(Variant):
             {
                 "training_examples",
                 "training_batch_size",
-                "hidden_size",
             }
         )
 

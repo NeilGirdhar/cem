@@ -6,30 +6,38 @@
     "n_frequencies": 16
   },
   "supervised-bike-sharing-demand": {
-    "hidden_size": 32,
     "perceptron.learning_rate": 0.044637945540524644,
-    "phasor.learning_rate": 0.007985200502189701,
+    "perceptron.hidden_size": 98,
+    "phasor.hidden_size": 73,
+    "phasor.learning_rate": 0.031940802008758803,
+    "phasor.mobius_rank": 4,
     "phasor.n_frequencies": 6,
     "training_examples": 608
   },
   "supervised-cpu-activity": {
-    "hidden_size": 6,
     "perceptron.learning_rate": 0.22647324883255363,
-    "phasor.learning_rate": 0.035981851664397525,
+    "perceptron.hidden_size": 20,
+    "phasor.hidden_size": 27,
+    "phasor.learning_rate": 0.017990925832198763,
+    "phasor.mobius_rank": 4,
     "phasor.n_frequencies": 4,
     "training_examples": 441
   },
   "supervised-elevators": {
-    "hidden_size": 40,
     "perceptron.learning_rate": 0.0932401659405324,
-    "phasor.learning_rate": 0.00465383622191671,
+    "perceptron.hidden_size": 85,
+    "phasor.hidden_size": 139,
+    "phasor.learning_rate": 0.01861534488766684,
+    "phasor.mobius_rank": 4,
     "phasor.n_frequencies": 8,
     "training_examples": 307
   },
   "supervised-iris": {
-    "hidden_size": 64,
     "perceptron.learning_rate": 0.04145024111951306,
-    "phasor.learning_rate": 0.0025478417203447993,
+    "perceptron.hidden_size": 220,
+    "phasor.hidden_size": 128,
+    "phasor.learning_rate": 0.010191366881379197,
+    "phasor.mobius_rank": 4,
     "phasor.n_frequencies": 12,
     "training_examples": 584
   }
