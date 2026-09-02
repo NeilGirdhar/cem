@@ -178,7 +178,11 @@ def test_supervised_sources_reuse_rows_for_common_keys(source_name: str) -> None
 )
 def test_hf_supervised_demo_registry_and_variants(demo: Demo, enum_value: DemoEnum) -> None:
     assert demo_registry[enum_value] is demo
-    assert [variant.label for variant in demo.variants] == ["perceptron", "phasor"]
+    assert [variant.label for variant in demo.variants] == [
+        "perceptron",
+        "phasor",
+        "phase_activated",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -215,7 +219,9 @@ def test_hf_supervised_solver_short_training_is_finite(
     assert jnp.all(jnp.isfinite(losses))
 
 
+@pytest.mark.parametrize("variant_index", [1, 2])
 def test_phasor_supervised_solver_short_training_is_finite(
+    variant_index: int,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -225,7 +231,7 @@ def test_phasor_supervised_solver_short_training_is_finite(
     )
     telemetry = LossTelemetry(selected_node="target")
     packet = ExecutionPacket(telemetries=Telemetries((telemetry,)))
-    variant_solver = supervised_bike_sharing_demand_demo.variants[1].create_solver()
+    variant_solver = supervised_bike_sharing_demand_demo.variants[variant_index].create_solver()
     assert isinstance(variant_solver, SupervisedSolver)
     solver = replace(
         variant_solver,

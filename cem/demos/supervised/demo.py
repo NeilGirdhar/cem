@@ -92,6 +92,7 @@ supervised_iris_demo = SupervisedDemo(
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.perceptron),
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.phasor),
+        SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.phase_activated),
     ],
 )
 
@@ -106,6 +107,10 @@ supervised_bike_sharing_demand_demo = SupervisedDemo(
             dataset_kind=DatasetKind.bike_sharing_demand,
             link_kind=LinkKind.phasor,
         ),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.bike_sharing_demand,
+            link_kind=LinkKind.phase_activated,
+        ),
     ],
 )
 
@@ -114,6 +119,7 @@ supervised_elevators_demo = SupervisedDemo(
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.perceptron),
         SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.phasor),
+        SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.phase_activated),
     ],
 )
 
@@ -122,5 +128,9 @@ supervised_cpu_activity_demo = SupervisedDemo(
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.cpu_activity, link_kind=LinkKind.perceptron),
         SupervisedVariant(dataset_kind=DatasetKind.cpu_activity, link_kind=LinkKind.phasor),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.cpu_activity,
+            link_kind=LinkKind.phase_activated,
+        ),
     ],
 )

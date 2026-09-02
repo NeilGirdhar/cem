@@ -15,6 +15,7 @@ from tjax import JaxRealArray, RngStream, frozendict
 from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
 from cem.phasor.gated_projection import GatedProjection
+from cem.phasor.phase_activated_projection import PhaseActivatedProjection
 from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import Model, ModelResult
 from cem.structure.problem import DataSource, Problem
@@ -64,6 +65,7 @@ class DatasetKind(Enum):
 class LinkKind(Enum):
     perceptron = "perceptron"
     phasor = "phasor"
+    phase_activated = "phase_activated"
 
 
 _HF_TABULAR_REGRESSION_CONFIGS: dict[DatasetKind, str] = {
@@ -121,7 +123,7 @@ class PerceptronSupervisedModel(Model):
 class PhasorSupervisedModel(Model):
     """Supervised model with one observation phasor per scalar feature."""
 
-    link: GatedProjection
+    link: GatedProjection | PhaseActivatedProjection
     target: PhasorTargetNode
 
     @classmethod
@@ -130,10 +132,12 @@ class PhasorSupervisedModel(Model):
         sup: SupervisedProblem,
         hidden_size: int,
         *,
+        phase_activation: bool = False,
         streams: Mapping[str, RngStream],
     ) -> Self:
+        projection = PhaseActivatedProjection if phase_activation else GatedProjection
         return cls(
-            link=GatedProjection.create(
+            link=projection.create(
                 sup.n_features,
                 sup.n_targets,
                 mid_features=hidden_size,
@@ -218,4 +222,9 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         assert isinstance(problem, SupervisedProblem)
         if self.link_kind == LinkKind.perceptron:
             return PerceptronSupervisedModel.create(problem, self.hidden_size, streams=streams)
-        return PhasorSupervisedModel.create(problem, self.hidden_size, streams=streams)
+        return PhasorSupervisedModel.create(
+            problem,
+            self.hidden_size,
+            phase_activation=self.link_kind == LinkKind.phase_activated,
+            streams=streams,
+        )

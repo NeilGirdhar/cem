@@ -25,6 +25,8 @@ from cem.phasor.mobius_summation import (
     mobius_sum,
     phase_warp,
 )
+from cem.phasor.phase_activated_projection import PhaseActivatedProjection
+from cem.phasor.phase_activation import PhaseActivation
 from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
 from cem.phasor.value_projection import ValueProjection
 
@@ -39,6 +41,8 @@ __all__ = [
     "LossAndScore",
     "LowRankMobiusSummation",
     "MobiusSummation",
+    "PhaseActivatedProjection",
+    "PhaseActivation",
     "PhasorInputConfiguration",
     "PhasorTargetConfiguration",
     "PhasorTargetNode",

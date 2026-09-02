@@ -39,6 +39,8 @@ class SupervisedTrainingLossPlotter(_SupervisedLossPlotter):
     def line_plot_titles(self, label: str) -> LinePlotTitles:
         prefix = {
             "perceptron": "Perceptron",
+            "phasor": "Gated Phasor",
+            "phase_activated": "Phase-Activated Phasor",
         }.get(label, label.title())
         prefix = f"{prefix} " if prefix else ""
         return {

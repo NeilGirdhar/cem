@@ -11,6 +11,8 @@ from cem.phasor import (
     LogSpaceProjectionWithDropout,
     LowRankMobiusSummation,
     MobiusSummation,
+    PhaseActivatedProjection,
+    PhaseActivation,
     ValueProjection,
     interpolate,
     mobius_sum,
@@ -363,6 +365,37 @@ def test_elementwise_rotation_preserves_presence() -> None:
     assert jnp.allclose(jnp.abs(f.rotate(x)), jnp.abs(x))
 
 
+# ── PhaseActivation ──────────────────────────────────────────────────────────
+
+
+def test_phase_activation_depends_only_on_phase() -> None:
+    activation = PhaseActivation(
+        rotation=ElementwiseRotation(
+            displacements=LearnableParameter(jnp.zeros(1)),
+        ),
+        log_sharpnesses=LearnableParameter(jnp.log(jnp.array([2.0]))),
+    )
+    phase = 0.7
+    x = jnp.array([jnp.exp(1j * phase), 3 * jnp.exp(1j * phase)]).reshape(2, 1)
+
+    activated = activation.activate(x)
+    attenuation = jnp.abs(activated) / jnp.abs(x)
+
+    assert jnp.allclose(attenuation[0], attenuation[1])
+    assert jnp.all(attenuation > 0)
+
+
+def test_phase_activation_preserves_absence() -> None:
+    activation = PhaseActivation(
+        rotation=ElementwiseRotation(
+            displacements=LearnableParameter(jnp.array([0.4])),
+        ),
+        log_sharpnesses=LearnableParameter(jnp.zeros(1)),
+    )
+
+    assert jnp.array_equal(activation.activate(jnp.zeros(1, dtype=jnp.complex128)), jnp.zeros(1))
+
+
 # ── GatedProjection ───────────────────────────────────────────────────────────
 
 
@@ -405,6 +438,21 @@ def test_gated_projection_batched_shape(streams: Mapping[str, RngStream]) -> Non
 def test_gated_projection_custom_mid_features(streams: Mapping[str, RngStream]) -> None:
     f = GatedProjection.create(4, 6, mid_features=8, streams=streams)
     assert f.infer(jnp.ones(4, dtype=jnp.complex128), streams=streams, inference=True).shape == (6,)
+
+
+# ── PhaseActivatedProjection ─────────────────────────────────────────────────
+
+
+def test_phase_activated_projection_output_shape(streams: Mapping[str, RngStream]) -> None:
+    projection = PhaseActivatedProjection.create(4, 6, mid_features=8, streams=streams)
+    result = projection.infer(
+        jnp.ones((5, 4), dtype=jnp.complex128),
+        streams=streams,
+        inference=True,
+    )
+
+    assert result.shape == (5, 6)
+    assert result.dtype == jnp.complex128
 
 
 # ── select ────────────────────────────────────────────────────────────────────

@@ -98,6 +98,7 @@ def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
 
     perceptron_hidden_size = hyperparameters["perceptron.hidden_size"]
     phasor_hidden_size = hyperparameters["phasor.hidden_size"]
+    phase_activated_hidden_size = hyperparameters["phase_activated.hidden_size"]
 
     assert isinstance(perceptron_hidden_size, CategoricalDistribution)
     assert perceptron_hidden_size.choices == (
@@ -129,6 +130,8 @@ def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
     )
     assert isinstance(phasor_hidden_size, CategoricalDistribution)
     assert phasor_hidden_size.choices == perceptron_hidden_size.choices
+    assert isinstance(phase_activated_hidden_size, CategoricalDistribution)
+    assert phase_activated_hidden_size.choices == perceptron_hidden_size.choices
 
 
 def test_afp_shape_hyperparameters_use_hardware_friendly_choices() -> None:
