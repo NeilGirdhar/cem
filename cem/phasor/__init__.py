@@ -25,6 +25,7 @@ from cem.phasor.mobius_summation import (
     mobius_sum,
     phase_warp,
 )
+from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
 from cem.phasor.value_projection import ValueProjection
 
 __all__ = [
@@ -39,6 +40,8 @@ __all__ = [
     "LowRankMobiusSummation",
     "MobiusSummation",
     "PhasorInputConfiguration",
+    "PhasorTargetConfiguration",
+    "PhasorTargetNode",
     "ValueProjection",
     "centering_loss",
     "decorrelation_loss",

@@ -19,8 +19,14 @@ from cem.demos.supervised.demo import (
     supervised_iris_demo,
 )
 from cem.demos.supervised.problem import SupervisedProblem
-from cem.demos.supervised.solution import DatasetKind, PerceptronSupervisedModel, SupervisedSolver
+from cem.demos.supervised.solution import (
+    DatasetKind,
+    PerceptronSupervisedModel,
+    PhasorSupervisedModel,
+    SupervisedSolver,
+)
 from cem.perceptron.target_node import PerceptronTargetConfiguration
+from cem.phasor.target_node import PhasorTargetConfiguration
 from cem.structure.plotter import Demo
 from cem.structure.solution import (
     ExecutionPacket,
@@ -73,6 +79,21 @@ def test_perceptron_supervised_multi_target_infer_splits_target_fields(
     assert jnp.isfinite(result.loss)
 
 
+def test_phasor_supervised_multi_target_infer_splits_target_fields(
+    streams: Mapping[str, RngStream],
+) -> None:
+    problem = _small_multi_target_problem()
+    model = PhasorSupervisedModel.create(problem, hidden_size=8, streams=streams)
+    observation = problem.create_data_source().initial_problem_state(jr.key(0))
+
+    result = model.infer(observation, None, streams=streams, inference=False)
+    config = result.configurations["target"]
+    assert isinstance(config, PhasorTargetConfiguration)
+    assert tuple(config.loss) == ("y_0", "y_1")
+    assert config.score.shape == (problem.n_targets,)
+    assert jnp.isfinite(result.loss)
+
+
 def test_hf_tabular_regression_dataframe_loader_is_deterministic() -> None:
     df = pd.DataFrame(
         {
@@ -113,7 +134,7 @@ def test_hf_tabular_regression_dataframe_loader_is_deterministic() -> None:
 )
 def test_hf_supervised_demo_registry_and_variants(demo: Demo, enum_value: DemoEnum) -> None:
     assert demo_registry[enum_value] is demo
-    assert [variant.label for variant in demo.variants] == ["perceptron"]
+    assert [variant.label for variant in demo.variants] == ["perceptron", "phasor"]
 
 
 @pytest.mark.parametrize(
@@ -147,6 +168,32 @@ def test_hf_supervised_solver_short_training_is_finite(
     training_results = solver.training_results(packet=packet)
     losses = training_results.telemetries[telemetry]
     assert losses.shape[0] == solver.training_examples
+    assert jnp.all(jnp.isfinite(losses))
+
+
+def test_phasor_supervised_solver_short_training_is_finite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        supervised_solution,
+        "load_hf_tabular_regression",
+        lambda _config: _small_supervised_problem(),
+    )
+    telemetry = LossTelemetry(selected_node="target")
+    packet = ExecutionPacket(telemetries=Telemetries((telemetry,)))
+    variant_solver = supervised_bike_sharing_demand_demo.variants[1].create_solver()
+    assert isinstance(variant_solver, SupervisedSolver)
+    solver = replace(
+        variant_solver,
+        training_examples=2,
+        training_batch_size=4,
+        hidden_size=8,
+    )
+
+    training_results = solver.training_results(packet=packet)
+    losses = training_results.telemetries[telemetry]
+
+    assert losses.shape == (solver.training_examples,)
     assert jnp.all(jnp.isfinite(losses))
 
 

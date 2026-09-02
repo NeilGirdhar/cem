@@ -14,9 +14,12 @@ from tjax import JaxRealArray, RngStream, frozendict
 
 from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
+from cem.phasor.gated_projection import GatedProjection
+from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import Model, ModelResult
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
+from cem.transforms import encode_observation_phasors
 
 from .problem import (
     SupervisedProblem,
@@ -60,6 +63,7 @@ class DatasetKind(Enum):
 
 class LinkKind(Enum):
     perceptron = "perceptron"
+    phasor = "phasor"
 
 
 _HF_TABULAR_REGRESSION_CONFIGS: dict[DatasetKind, str] = {
@@ -114,8 +118,56 @@ class PerceptronSupervisedModel(Model):
         )
 
 
+class PhasorSupervisedModel(Model):
+    """Supervised model with one observation phasor per scalar feature."""
+
+    link: GatedProjection
+    target: PhasorTargetNode
+
+    @classmethod
+    def create(
+        cls,
+        sup: SupervisedProblem,
+        hidden_size: int,
+        *,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        return cls(
+            link=GatedProjection.create(
+                sup.n_features,
+                sup.n_targets,
+                mid_features=hidden_size,
+                streams=streams,
+            ),
+            target=PhasorTargetNode.create(_y_fields(sup.n_targets)),
+        )
+
+    @override
+    def infer(
+        self,
+        observation: object,
+        state: object,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> ModelResult:
+        del state
+        assert isinstance(observation, SupervisedProblemState)
+        x_phasors = encode_observation_phasors(
+            jnp.ones_like(observation.x),
+            observation.x,
+        )
+        prediction = self.link.infer(x_phasors, streams=streams, inference=inference)
+        target = self.target.infer(_y_flat_observed(observation.y), prediction)
+        return ModelResult(
+            loss=target.total_loss(),
+            configurations=frozendict({"target": target}),
+            state=None,
+        )
+
+
 class SupervisedSolver(Solver[SupervisedProblem]):
-    """Solver for supervised-learning baselines."""
+    """Solver for perceptron and one-phasor supervised models."""
 
     _: KW_ONLY
     dataset_kind: DatasetKind = eqx.field(static=True)
@@ -159,4 +211,6 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     ) -> Model:
         del data_source
         assert isinstance(problem, SupervisedProblem)
-        return PerceptronSupervisedModel.create(problem, self.hidden_size, streams=streams)
+        if self.link_kind == LinkKind.perceptron:
+            return PerceptronSupervisedModel.create(problem, self.hidden_size, streams=streams)
+        return PhasorSupervisedModel.create(problem, self.hidden_size, streams=streams)

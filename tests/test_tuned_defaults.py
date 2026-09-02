@@ -80,7 +80,7 @@ def test_demo_default_hyperparameters_overlay_tuned_defaults(
         json.dumps(
             {
                 supervised_bike_sharing_demand_demo.name: {
-                    "hidden_size": _TUNED_HIDDEN_SIZE,
+                    "phasor.hidden_size": _TUNED_HIDDEN_SIZE,
                 }
             }
         )
@@ -89,14 +89,15 @@ def test_demo_default_hyperparameters_overlay_tuned_defaults(
 
     defaults = supervised_bike_sharing_demand_demo.default_hyperparameters()
 
-    assert defaults["hidden_size"] == _TUNED_HIDDEN_SIZE
-    assert defaults["learning_rate"] == _DEFAULT_LEARNING_RATE
+    assert defaults["phasor.hidden_size"] == _TUNED_HIDDEN_SIZE
+    assert defaults["phasor.learning_rate"] == _DEFAULT_LEARNING_RATE
 
 
 def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
     hyperparameters = supervised_bike_sharing_demand_demo.create_hyperparameters()
 
-    perceptron_hidden_size = hyperparameters["hidden_size"]
+    perceptron_hidden_size = hyperparameters["perceptron.hidden_size"]
+    phasor_hidden_size = hyperparameters["phasor.hidden_size"]
 
     assert isinstance(perceptron_hidden_size, CategoricalDistribution)
     assert perceptron_hidden_size.choices == (
@@ -126,6 +127,8 @@ def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
         220,
         256,
     )
+    assert isinstance(phasor_hidden_size, CategoricalDistribution)
+    assert phasor_hidden_size.choices == perceptron_hidden_size.choices
 
 
 def test_afp_shape_hyperparameters_use_hardware_friendly_choices() -> None:

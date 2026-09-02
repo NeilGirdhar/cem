@@ -1,13 +1,22 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from efax import ComplexVonMisesNP, Flattener, NormalEP, NormalNP
+from efax import (
+    ComplexVonMisesNP,
+    Flattener,
+    NormalEP,
+    NormalNP,
+    UnitVarianceNormalEP,
+    UnitVarianceNormalNP,
+)
 from jax import tree
 from tjax import frozendict
 
 from cem.perceptron.target_node import PerceptronTargetConfiguration, PerceptronTargetNode
 from cem.phasor.loss import LossAndScore, phasor_reconstruction_loss_and_score
+from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
 from cem.structure.graph import LearnableParameter, ParameterType
+from cem.transforms import encode_observation_phasors
 
 
 def test_reconstruction_loss_and_score_returns_loss_and_score() -> None:
@@ -61,6 +70,22 @@ def test_reconstruction_score_equals_gradient() -> None:
         return jnp.mean(elementwise_loss)
 
     assert jnp.allclose(result.score, jax.grad(direct_loss)(prediction))
+
+
+def test_phasor_target_node_round_trip_recovers_observation() -> None:
+    observed = UnitVarianceNormalNP(jnp.asarray(0.75))
+    node = PhasorTargetNode.create({"obs": UnitVarianceNormalNP(jnp.asarray(0.0))})
+    flat_observed = frozendict({"obs": Flattener.flatten(observed, mapped_to_plane=True)[1]})
+    prediction = encode_observation_phasors(jnp.ones(1), jnp.asarray([0.75]))
+
+    result = node.infer(flat_observed, prediction)
+
+    assert isinstance(result, PhasorTargetConfiguration)
+    assert jnp.allclose(result.total_reconstruction_loss(), 0.0, atol=1e-8)
+    assert jnp.allclose(result.score, 0.0, atol=1e-8)
+    predicted = result.predicted_distributions["obs"]
+    assert isinstance(predicted, UnitVarianceNormalEP)
+    assert jnp.allclose(predicted.mean, 0.75)
 
 
 def infer_perceptron_target_node(

@@ -5,23 +5,23 @@
     "learning_rate": 0.041598722610794676
   },
   "supervised-bike-sharing-demand": {
-    "learning_rate": 0.044637945540524644,
-    "hidden_size": 98,
+    "perceptron.learning_rate": 0.044637945540524644,
+    "perceptron.hidden_size": 98,
     "training_examples": 608
   },
   "supervised-cpu-activity": {
-    "learning_rate": 0.22647324883255363,
-    "hidden_size": 20,
+    "perceptron.learning_rate": 0.22647324883255363,
+    "perceptron.hidden_size": 20,
     "training_examples": 441
   },
   "supervised-elevators": {
-    "learning_rate": 0.0932401659405324,
-    "hidden_size": 85,
+    "perceptron.learning_rate": 0.0932401659405324,
+    "perceptron.hidden_size": 85,
     "training_examples": 307
   },
   "supervised-iris": {
-    "learning_rate": 0.04145024111951306,
-    "hidden_size": 220,
+    "perceptron.learning_rate": 0.04145024111951306,
+    "perceptron.hidden_size": 220,
     "training_examples": 584
   }
 }
