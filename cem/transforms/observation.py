@@ -1,6 +1,34 @@
+import jax.numpy as jnp
 import numpy as np
 from efax import Flattener, UnitVarianceNormalNP
-from tjax import JaxRealArray
+from tjax import JaxArray, JaxRealArray
+
+_SEMICIRCLE_LIMIT = jnp.pi / 2
+
+
+def semicircle_observation_phase(values: JaxRealArray) -> JaxRealArray:
+    """Map real observations monotonically into the open phase semicircle."""
+    return _SEMICIRCLE_LIMIT * jnp.tanh(values)
+
+
+def inverse_semicircle_observation_phase(phases: JaxRealArray) -> JaxRealArray:
+    """Invert :func:`semicircle_observation_phase` within its open range."""
+    epsilon = jnp.finfo(phases.dtype).eps
+    normalized = jnp.clip(phases / _SEMICIRCLE_LIMIT, -1 + epsilon, 1 - epsilon)
+    return jnp.arctanh(normalized)
+
+
+def encode_observation_phasors(
+    presences: JaxRealArray,
+    values: JaxRealArray,
+) -> JaxArray:
+    """Encode scalar presences and values with the temporary semicircle map."""
+    return presences * jnp.exp(1j * semicircle_observation_phase(values))
+
+
+def decode_observation_phasors(phasors: JaxArray) -> JaxRealArray:
+    """Decode values from phasor phases under the temporary semicircle map."""
+    return inverse_semicircle_observation_phase(jnp.angle(phasors))
 
 
 def encode_flat(values: JaxRealArray) -> JaxRealArray:

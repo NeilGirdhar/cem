@@ -20,7 +20,40 @@ from cem.phasor import (
     select,
 )
 from cem.structure.graph import LearnableParameter
-from cem.transforms import dropout
+from cem.transforms import (
+    decode_observation_phasors,
+    dropout,
+    encode_observation_phasors,
+    semicircle_observation_phase,
+)
+
+# ── observation phase map ─────────────────────────────────────────────────────
+
+
+def test_semicircle_observation_phase_is_monotonic_and_bounded() -> None:
+    values = jnp.linspace(-5.0, 5.0, 1000)
+    phases = semicircle_observation_phase(values)
+
+    assert jnp.all(jnp.diff(phases) > 0)
+    assert jnp.all(phases > -jnp.pi / 2)
+    assert jnp.all(phases < jnp.pi / 2)
+
+
+def test_observation_phasor_encoding_preserves_presence() -> None:
+    presence = jnp.array([0.0, 0.25, 1.0, 3.0])
+    values = jnp.array([-2.0, -0.5, 0.5, 2.0])
+
+    encoded = encode_observation_phasors(presence, values)
+
+    assert jnp.allclose(jnp.abs(encoded), presence)
+
+
+def test_observation_phasor_round_trip() -> None:
+    values = jnp.linspace(-5.0, 5.0, 101)
+    encoded = encode_observation_phasors(jnp.ones_like(values), values)
+
+    assert jnp.allclose(decode_observation_phasors(encoded), values, atol=1e-8)
+
 
 # ── dropout ───────────────────────────────────────────────────────────────────
 
