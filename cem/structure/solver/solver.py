@@ -89,7 +89,7 @@ class Solver[P: Problem](eqx.Module):
         """
         problem = self.problem()
         parameters_key = jr.key(self.parameters_seed)
-        data_source = problem.create_data_source()
+        data_source = problem.create_data_source(inference=False)
         keys = {"parameters": parameters_key, "example": jr.key(0)}
         streams = create_streams(keys)
         model = self.create_model(data_source, problem, streams=streams)

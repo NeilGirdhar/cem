@@ -38,7 +38,9 @@ from cem.structure.solution import (
 )
 
 _EXPECTED_HF_TEST_FEATURES = 2
-_EXPECTED_HF_TEST_ROWS = 5
+_EXPECTED_HF_SELECTED_ROWS = 5
+_EXPECTED_HF_TRAINING_ROWS = 4
+_EXPECTED_HF_INFERENCE_ROWS = 1
 _IRIS_LOSS_THRESHOLD = 52.0
 
 
@@ -105,23 +107,51 @@ def test_hf_tabular_regression_dataframe_loader_is_deterministic() -> None:
     )
     first = supervised_problem.problem_from_numeric_dataframe(
         df,
-        max_rows=_EXPECTED_HF_TEST_ROWS,
+        max_rows=_EXPECTED_HF_SELECTED_ROWS,
         seed=7,
     )
     second = supervised_problem.problem_from_numeric_dataframe(
         df,
-        max_rows=_EXPECTED_HF_TEST_ROWS,
+        max_rows=_EXPECTED_HF_SELECTED_ROWS,
         seed=7,
     )
 
     assert first.n_features == _EXPECTED_HF_TEST_FEATURES
     assert first.n_targets == 1
-    assert first.x_flat.shape == (_EXPECTED_HF_TEST_ROWS, _EXPECTED_HF_TEST_FEATURES)
-    assert first.y_flat.shape == (_EXPECTED_HF_TEST_ROWS, 1)
-    assert jnp.all(jnp.isfinite(first.x_flat))
-    assert jnp.all(jnp.isfinite(first.y_flat))
-    assert jnp.allclose(first.x_flat, second.x_flat)
-    assert jnp.allclose(first.y_flat, second.y_flat)
+    assert first.training.x_flat.shape == (
+        _EXPECTED_HF_TRAINING_ROWS,
+        _EXPECTED_HF_TEST_FEATURES,
+    )
+    assert first.training.y_flat.shape == (_EXPECTED_HF_TRAINING_ROWS, 1)
+    assert first.inference.x_flat.shape == (
+        _EXPECTED_HF_INFERENCE_ROWS,
+        _EXPECTED_HF_TEST_FEATURES,
+    )
+    assert first.inference.y_flat.shape == (_EXPECTED_HF_INFERENCE_ROWS, 1)
+    assert jnp.all(jnp.isfinite(first.training.x_flat))
+    assert jnp.all(jnp.isfinite(first.training.y_flat))
+    assert jnp.all(jnp.isfinite(first.inference.x_flat))
+    assert jnp.all(jnp.isfinite(first.inference.y_flat))
+    assert jnp.allclose(first.training.x_flat, second.training.x_flat)
+    assert jnp.allclose(first.training.y_flat, second.training.y_flat)
+    assert jnp.allclose(first.inference.x_flat, second.inference.x_flat)
+    assert jnp.allclose(first.inference.y_flat, second.inference.y_flat)
+    assert not jnp.any(
+        jnp.all(
+            first.training.x_flat == first.inference.x_flat[0][jnp.newaxis, :],
+            axis=-1,
+        )
+    )
+
+
+def test_supervised_problem_selects_training_and_inference_sources() -> None:
+    problem = _small_supervised_problem()
+
+    training = problem.create_data_source(inference=False)
+    inference = problem.create_data_source(inference=True)
+
+    assert training is problem.training
+    assert inference is problem.inference
 
 
 @pytest.mark.parametrize(
@@ -201,6 +231,18 @@ def test_supervised_training_and_inference_support_non_divisible_scan_chunks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     examples = 5
+    data_source_modes: list[bool] = []
+    original_create_data_source = SupervisedProblem.create_data_source
+
+    def tracked_create_data_source(
+        problem: SupervisedProblem,
+        *,
+        inference: bool = False,
+    ) -> supervised_problem.SupervisedDataSource:
+        data_source_modes.append(inference)
+        return original_create_data_source(problem, inference=inference)
+
+    monkeypatch.setattr(SupervisedProblem, "create_data_source", tracked_create_data_source)
     monkeypatch.setattr(
         supervised_solution,
         "load_hf_tabular_regression",
@@ -227,6 +269,8 @@ def test_supervised_training_and_inference_support_non_divisible_scan_chunks(
     assert inference_results.telemetries[telemetry].shape == (examples,)
     assert jnp.all(jnp.isfinite(training_results.telemetries[telemetry]))
     assert jnp.all(jnp.isfinite(inference_results.telemetries[telemetry]))
+    assert False in data_source_modes
+    assert True in data_source_modes
 
 
 def _training_results_with_target_losses(losses: jnp.ndarray) -> TrainingResults:
@@ -238,35 +282,55 @@ def _training_results_with_target_losses(losses: jnp.ndarray) -> TrainingResults
     )
 
 
-def _inference_results() -> InferenceResults:
-    return InferenceResults(count=0, telemetries={})
+def _inference_results(losses: jnp.ndarray) -> InferenceResults:
+    telemetry = LossTelemetry(selected_node="target")
+    return InferenceResults(count=losses.shape[0], telemetries={telemetry: losses})
 
 
-def test_supervised_demo_loss_uses_final_quarter_mean() -> None:
+def test_supervised_demo_loss_uses_inference_loss() -> None:
     variant = supervised_bike_sharing_demand_demo.variants[0]
-    high_early_loss = jnp.array([100.0, 100.0, 100.0, 100.0, 4.0, 3.0, 2.0, 1.0])
-    high_late_loss = jnp.array([4.0, 3.0, 2.0, 1.0, 100.0, 100.0, 100.0, 100.0])
+    training_losses = jnp.array([4.0, 3.0, 2.0, 1.0])
+    low_inference_loss = jnp.array([1.0, 2.0])
+    high_inference_loss = jnp.array([100.0, 100.0])
     hyperparameters = {"training_examples": 8, "training_batch_size": 4, "hidden_size": 8}
 
-    low_final_loss = supervised_bike_sharing_demand_demo.demo_loss(
-        [(variant, _training_results_with_target_losses(high_early_loss), _inference_results())],
+    low_loss = supervised_bike_sharing_demand_demo.demo_loss(
+        [
+            (
+                variant,
+                _training_results_with_target_losses(training_losses),
+                _inference_results(low_inference_loss),
+            )
+        ],
         hyperparameters,
     )
-    high_final_loss = supervised_bike_sharing_demand_demo.demo_loss(
-        [(variant, _training_results_with_target_losses(high_late_loss), _inference_results())],
+    high_loss = supervised_bike_sharing_demand_demo.demo_loss(
+        [
+            (
+                variant,
+                _training_results_with_target_losses(training_losses),
+                _inference_results(high_inference_loss),
+            )
+        ],
         hyperparameters,
     )
 
-    assert high_final_loss > low_final_loss
+    assert high_loss > low_loss
 
 
-def test_supervised_demo_loss_rejects_fewer_than_four_training_examples() -> None:
+def test_supervised_demo_loss_requires_inference_results() -> None:
     variant = supervised_bike_sharing_demand_demo.variants[0]
     losses = jnp.array([2.0])
 
-    with pytest.raises(ValueError, match="at least 4 training examples"):
+    with pytest.raises(ValueError, match="requires inference results"):
         supervised_bike_sharing_demand_demo.demo_loss(
-            [(variant, _training_results_with_target_losses(losses), _inference_results())],
+            [
+                (
+                    variant,
+                    _training_results_with_target_losses(losses),
+                    InferenceResults(count=0, telemetries={}),
+                )
+            ],
             {"training_examples": 1, "training_batch_size": 4, "hidden_size": 8},
         )
 
@@ -275,7 +339,11 @@ def test_supervised_demo_loss_penalizes_compute_proxy() -> None:
     variant = supervised_bike_sharing_demand_demo.variants[0]
     losses = jnp.array([2.0, 2.0, 2.0, 2.0])
     variant_results = [
-        (variant, _training_results_with_target_losses(losses), _inference_results())
+        (
+            variant,
+            _training_results_with_target_losses(losses),
+            _inference_results(losses),
+        )
     ]
 
     small = supervised_bike_sharing_demand_demo.demo_loss(

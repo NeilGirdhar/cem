@@ -68,32 +68,23 @@ class SupervisedDemo(Demo):
         hyperparameters: dict[str, Any],
     ) -> float:
         telemetry = LossTelemetry(selected_node="target")
-        final_losses: list[jnp.ndarray] = []
-        for _variant, training_results, _inference_results in variant_results:
-            losses = training_results.telemetries[telemetry]
-            final_losses.append(_final_quarter_mean(losses))
+        inference_losses: list[jnp.ndarray] = []
+        for _variant, _training_results, inference_results in variant_results:
+            if inference_results.count < 1:
+                msg = "supervised demo scoring requires inference results"
+                raise ValueError(msg)
+            inference_losses.append(jnp.mean(inference_results.telemetries[telemetry]))
         default_solver = self._default_solver()
         solver = default_solver.populate_from_hyperparameters(hyperparameters)
         compute_penalty = _COMPUTE_WEIGHT * (
             solver.compute_proxy() / default_solver.compute_proxy()
         )
-        return float(jnp.max(jnp.asarray(final_losses)) + compute_penalty)
+        return float(jnp.max(jnp.asarray(inference_losses)) + compute_penalty)
 
     def _default_solver(self) -> SupervisedSolver:
         solver = self.variants[0].create_solver()
         assert isinstance(solver, SupervisedSolver)
         return solver
-
-
-SUPERVISED_MIN_TRAINING_EXAMPLES = 4
-
-
-def _final_quarter_mean(losses: jnp.ndarray) -> jnp.ndarray:
-    if losses.shape[0] < SUPERVISED_MIN_TRAINING_EXAMPLES:
-        msg = "supervised demo scoring requires at least 4 training examples"
-        raise ValueError(msg)
-    quarter = max(1, losses.shape[0] // 4)
-    return jnp.mean(losses[-quarter:])
 
 
 supervised_iris_demo = SupervisedDemo(

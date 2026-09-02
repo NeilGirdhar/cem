@@ -173,7 +173,7 @@ def train_episodes(
         msg = f"training_examples must be > 0, got {episodes}"
         raise ValueError(msg)
     solution_state = solution.solution_state
-    data_source = solution.problem.create_data_source()
+    data_source = solution.problem.create_data_source(inference=False)
 
     def handle_chunk(
         example_key_base: KeyArray,

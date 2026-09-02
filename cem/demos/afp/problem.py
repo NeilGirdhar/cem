@@ -187,7 +187,8 @@ class IVProblem(Problem):
         return self.gamma @ self.beta + self.delta
 
     @override
-    def create_data_source(self) -> IVDataSource:
+    def create_data_source(self, *, inference: bool = False) -> IVDataSource:
+        del inference
         return IVDataSource(
             alpha=self.alpha,
             beta=self.beta,

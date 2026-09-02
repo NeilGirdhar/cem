@@ -1,7 +1,7 @@
 """Supervised learning problem: data sources and problem state."""
 
 from functools import cache
-from typing import Any, cast
+from typing import Any, cast, override
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -14,7 +14,10 @@ from tjax import JaxRealArray, KeyArray
 
 from cem.structure.problem import Problem
 from cem.structure.problem.data_source import DataSource, ProblemState
-from cem.transforms import encode_flat, standardize_columns
+from cem.transforms import encode_flat
+
+_INFERENCE_FRACTION = 0.2
+_MIN_PARTITIONED_ROWS = 2
 
 
 class SupervisedProblemState(ProblemState):
@@ -54,8 +57,8 @@ class SupervisedProblem(Problem):
     """Complete supervised learning dataset with priors.
 
     Attributes:
-        x_flat: Pre-encoded feature matrix, shape ``(n_samples, n_features)``.
-        y_flat: Pre-encoded target matrix, shape ``(n_samples, n_targets)``.
+        training: Encoded examples used for parameter updates.
+        inference: Held-out encoded examples used for inference.
         x_prior: UnitVarianceNormalNP prior for the input features (used to configure the input
             node).
         y_prior: UnitVarianceNormalNP prior for the targets (used to configure the target node).
@@ -63,51 +66,86 @@ class SupervisedProblem(Problem):
         n_targets: Number of target dimensions.
     """
 
-    x_flat: JaxRealArray
-    y_flat: JaxRealArray
+    training: SupervisedDataSource
+    inference: SupervisedDataSource
     x_prior: UnitVarianceNormalNP
     y_prior: UnitVarianceNormalNP
     n_features: int = eqx.field(static=True)
     n_targets: int = eqx.field(static=True)
 
-    def create_data_source(self) -> SupervisedDataSource:
-        return SupervisedDataSource(x_flat=self.x_flat, y_flat=self.y_flat)
+    @override
+    def create_data_source(self, *, inference: bool = False) -> SupervisedDataSource:
+        return self.inference if inference else self.training
 
 
 def _encode_dataset(
-    x: np.ndarray,
-    y: np.ndarray,
-) -> tuple[JaxRealArray, JaxRealArray, UnitVarianceNormalNP, UnitVarianceNormalNP, int, int]:
-    """Standardise, encode, and return all components for a SupervisedProblem.
+    training_x: np.ndarray,
+    training_y: np.ndarray,
+    inference_x: np.ndarray,
+    inference_y: np.ndarray,
+) -> tuple[
+    SupervisedDataSource,
+    SupervisedDataSource,
+    UnitVarianceNormalNP,
+    UnitVarianceNormalNP,
+    int,
+    int,
+]:
+    """Standardize both partitions with training statistics and encode them.
 
     Args:
-        x: Feature matrix, shape ``(n_samples, n_features)``.
-        y: Target matrix, shape ``(n_samples, n_targets)`` or ``(n_samples,)``.
+        training_x: Training feature matrix.
+        training_y: Training target matrix.
+        inference_x: Held-out feature matrix.
+        inference_y: Held-out target matrix.
 
     Returns:
-        Tuple of ``(x_flat, y_flat, x_prior, y_prior, n_features, n_targets)``.
+        Training and inference data sources, priors, and feature counts.
     """
-    if y.ndim == 1:
-        y = y[:, np.newaxis]
-    x = standardize_columns(x)
-    y = standardize_columns(y)
+    if training_y.ndim == 1:
+        training_y = training_y[:, np.newaxis]
+    if inference_y.ndim == 1:
+        inference_y = inference_y[:, np.newaxis]
 
-    n_features = x.shape[1]
-    n_targets = y.shape[1]
+    def standardize_from_training(
+        training: np.ndarray,
+        inference: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        mean = training.mean(axis=0)
+        std = training.std(axis=0)
+        std = np.where(std == 0.0, 1.0, std)
+        return (training - mean) / std, (inference - mean) / std
 
-    x_jax = jnp.asarray(x)
-    y_jax = jnp.asarray(y)
+    training_x, inference_x = standardize_from_training(training_x, inference_x)
+    training_y, inference_y = standardize_from_training(training_y, inference_y)
+
+    n_features = training_x.shape[1]
+    n_targets = training_y.shape[1]
+
+    training_x_jax = jnp.asarray(training_x)
+    training_y_jax = jnp.asarray(training_y)
+    inference_x_jax = jnp.asarray(inference_x)
+    inference_y_jax = jnp.asarray(inference_y)
 
     # Vectorise over samples.
     from jax import vmap  # ruff:ignore[import-outside-top-level]
 
-    x_flat = vmap(encode_flat)(x_jax)  # (n_samples, n_features)
-    y_flat = vmap(encode_flat)(y_jax)  # (n_samples, n_targets)
+    training_x_flat = vmap(encode_flat)(training_x_jax)
+    training_y_flat = vmap(encode_flat)(training_y_jax)
+    inference_x_flat = vmap(encode_flat)(inference_x_jax)
+    inference_y_flat = vmap(encode_flat)(inference_y_jax)
 
     # Priors: zero-mean, unit variance.
     x_prior = UnitVarianceNormalNP(jnp.zeros(n_features))
     y_prior = UnitVarianceNormalNP(jnp.zeros(n_targets))
-    return x_flat, y_flat, x_prior, y_prior, n_features, n_targets
+    return (
+        SupervisedDataSource(x_flat=training_x_flat, y_flat=training_y_flat),
+        SupervisedDataSource(x_flat=inference_x_flat, y_flat=inference_y_flat),
+        x_prior,
+        y_prior,
+        n_features,
+        n_targets,
+    )
 
 
 def problem_from_numeric_dataframe(
@@ -117,7 +155,7 @@ def problem_from_numeric_dataframe(
     seed: int,
     n_targets: int = 1,
 ) -> SupervisedProblem:
-    """Build a supervised problem from a numeric table, using final columns as targets."""
+    """Build deterministic training and inference partitions from a numeric table."""
     numeric_df = df.select_dtypes(include=[np.number]).dropna()
     if n_targets < 1:
         msg = f"n_targets must be positive, got {n_targets}"
@@ -125,14 +163,33 @@ def problem_from_numeric_dataframe(
     if len(numeric_df.columns) <= n_targets:
         msg = "tabular regression data must contain at least one numeric feature and target"
         raise ValueError(msg)
+    if len(numeric_df) < _MIN_PARTITIONED_ROWS:
+        msg = "supervised data requires at least two rows"
+        raise ValueError(msg)
+    numeric_df = numeric_df.sample(frac=1.0, random_state=seed)
     if max_rows is not None:
-        numeric_df = numeric_df.sample(frac=1.0, random_state=seed).head(max_rows)
-    x = numeric_df.iloc[:, :-n_targets].to_numpy(dtype=np.float64)
-    y = numeric_df.iloc[:, -n_targets:].to_numpy(dtype=np.float64)
-    x_flat, y_flat, x_prior, y_prior, n_features, n_targets = _encode_dataset(x, y)
+        numeric_df = numeric_df.head(max_rows)
+    if len(numeric_df) < _MIN_PARTITIONED_ROWS:
+        msg = "supervised data requires at least two selected rows"
+        raise ValueError(msg)
+    inference_rows = max(1, round(len(numeric_df) * _INFERENCE_FRACTION))
+    inference_df = numeric_df.iloc[:inference_rows]
+    training_df = numeric_df.iloc[inference_rows:]
+    training_x = training_df.iloc[:, :-n_targets].to_numpy(dtype=np.float64)
+    training_y = training_df.iloc[:, -n_targets:].to_numpy(dtype=np.float64)
+    inference_x = inference_df.iloc[:, :-n_targets].to_numpy(dtype=np.float64)
+    inference_y = inference_df.iloc[:, -n_targets:].to_numpy(dtype=np.float64)
+    (
+        training,
+        inference,
+        x_prior,
+        y_prior,
+        n_features,
+        n_targets,
+    ) = _encode_dataset(training_x, training_y, inference_x, inference_y)
     return SupervisedProblem(
-        x_flat=x_flat,
-        y_flat=y_flat,
+        training=training,
+        inference=inference,
         x_prior=x_prior,
         y_prior=y_prior,
         n_features=n_features,
@@ -173,12 +230,11 @@ def load_iris() -> SupervisedProblem:
     x = df[feature_cols].to_numpy(dtype=np.float64)
     species_map: dict[Any, int] = {s: i for i, s in enumerate(df["Species"].unique())}
     y = df["Species"].map(species_map).to_numpy(dtype=np.float64)
-    x_flat, y_flat, x_prior, y_prior, n_features, n_targets = _encode_dataset(x, y)
-    return SupervisedProblem(
-        x_flat=x_flat,
-        y_flat=y_flat,
-        x_prior=x_prior,
-        y_prior=y_prior,
-        n_features=n_features,
-        n_targets=n_targets,
+    return problem_from_numeric_dataframe(
+        pd.DataFrame(
+            np.column_stack((x, y)),
+            columns=[*feature_cols, "target"],
+        ),
+        max_rows=None,
+        seed=0,
     )

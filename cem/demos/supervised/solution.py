@@ -172,6 +172,11 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     _: KW_ONLY
     dataset_kind: DatasetKind = eqx.field(static=True)
     link_kind: LinkKind = eqx.field(static=True)
+    inference_examples: int = int_field(
+        default=1,
+        domain=IntDistribution(1, 1),
+        optimize=False,
+    )
     training_examples: int = int_field(
         default=200,
         domain=IntDistribution(SUPERVISED_MIN_TRAINING_EXAMPLES, 1024, log=True),

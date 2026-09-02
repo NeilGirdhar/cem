@@ -86,7 +86,7 @@ def infer_episodes(
         raise ValueError(msg)
     if episodes == 0:
         return InferenceResults(count=0, telemetries={})
-    data_source = problem.create_data_source()
+    data_source = problem.create_data_source(inference=True)
 
     def handle_chunk(
         example_key_base: KeyArray,

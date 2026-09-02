@@ -9,5 +9,6 @@ class Problem(eqx.Module):
     def extract_observation(self, state: ProblemState) -> ProblemObservation:
         return state
 
-    def create_data_source(self) -> DataSource:
+    def create_data_source(self, *, inference: bool = False) -> DataSource:
+        """Create the training or inference data source."""
         raise NotImplementedError
