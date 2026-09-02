@@ -37,7 +37,9 @@ class SupervisedDataSource(DataSource):
     """Data source for a supervised learning problem.
 
     Stores pre-encoded flat arrays for all examples and draws one uniformly at
-    random per call to :meth:`initial_problem_state`.
+    random, with replacement, per call to :meth:`initial_problem_state`.  The
+    same example key always selects the same row.  Consequently, solvers that
+    share a partition and example-key schedule receive the same sequence of rows.
 
     Attributes:
         x_flat: Shape ``(n_samples, n_features)``.

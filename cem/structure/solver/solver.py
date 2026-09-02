@@ -32,6 +32,15 @@ __all__ = ["Solver"]
 
 
 class Solver[P: Problem](eqx.Module):
+    """Configure training and inference for one model.
+
+    The execution loop derives example keys solely from the corresponding seed,
+    episode index, and batch position.  Therefore, deterministic data sources give
+    solvers with matching seeds, batch sizes, and episode counts the same sequence
+    of examples.  A separate random stream controls model inference, so differences
+    between models cannot change which examples they receive.
+    """
+
     _: KW_ONLY
     title: str = ""
     name: str | None = None

@@ -154,6 +154,20 @@ def test_supervised_problem_selects_training_and_inference_sources() -> None:
     assert inference is problem.inference
 
 
+@pytest.mark.parametrize("source_name", ["training", "inference"])
+def test_supervised_sources_reuse_rows_for_common_keys(source_name: str) -> None:
+    first = getattr(_small_supervised_problem(), source_name)
+    second = getattr(_small_supervised_problem(), source_name)
+    keys = jr.split(jr.key(23), 16)
+
+    first_states = [first.initial_problem_state(key) for key in keys]
+    second_states = [second.initial_problem_state(key) for key in keys]
+
+    for first_state, second_state in zip(first_states, second_states, strict=True):
+        assert jnp.array_equal(first_state.x, second_state.x)
+        assert jnp.array_equal(first_state.y, second_state.y)
+
+
 @pytest.mark.parametrize(
     ("demo", "enum_value"),
     [
