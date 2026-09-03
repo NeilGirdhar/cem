@@ -66,6 +66,7 @@
         width: chart-width,
         height: chart-width / aspect-ratio,
         margin: 0%,
+        yscale: if plot-title.ends-with("-loss") { "log" } else { "linear" },
         xaxis: (subticks: none, tick-args: (density: 60%)),
         yaxis: (subticks: none, tick-args: (density: 60%)),
         legend: (position: top + right),
