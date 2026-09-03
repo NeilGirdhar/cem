@@ -5,13 +5,13 @@
     "learning_rate": 0.041598722610794676
   },
   "supervised-bike-sharing-demand": {
-    "perceptron.hidden_size": 12,
-    "perceptron.learning_rate": 0.14290864011272736,
-    "phase_activated.hidden_size": 16,
-    "phase_activated.learning_rate": 0.12502408245645713,
-    "phasor.hidden_size": 96,
-    "phasor.learning_rate": 0.4690339298857091,
-    "training_examples": 353
+    "perceptron.hidden_size": 160,
+    "perceptron.learning_rate": 0.1641228846488652,
+    "phase_activated.hidden_size": 8,
+    "phase_activated.learning_rate": 0.12606358250375785,
+    "phasor.hidden_size": 5,
+    "phasor.learning_rate": 0.27503266361432593,
+    "training_examples": 808
   },
   "supervised-cpu-activity": {
     "perceptron.hidden_size": 16,
