@@ -15,28 +15,32 @@ _SEMICIRCLE_LIMIT = jnp.pi / 2
 class ArctangentPhaseMap(eqx.Module):
     """Map each real feature to the open semicircle with a positive scale.
 
-    The map ``atan(x / scale)`` compresses the real line polynomially near the
-    phase boundaries. Each feature has its own scale, initialized to one.
+    The map ``atan((x - centre) / scale)`` compresses the real line polynomially
+    near the phase boundaries. Each feature has its own centre and scale.
 
     Attributes:
         log_scales: Logarithms of the positive feature scales.
+        centres: Feature centres in the original value coordinates.
     """
 
     log_scales: Parameter[JaxRealArray]
+    centres: Parameter[JaxRealArray]
 
     @classmethod
     def create_learned(cls, features: int) -> Self:
         """Create a learnable, initially unit-scaled phase map."""
-        return cls(log_scales=MetaParameter(jnp.zeros(features, dtype=jnp.float64)))
+        zeros = jnp.zeros(features, dtype=jnp.float64)
+        return cls(log_scales=MetaParameter(zeros), centres=MetaParameter(zeros))
 
     @classmethod
     def create_fixed(cls, features: int) -> Self:
         """Create a fixed unit-scaled phase map."""
-        return cls(log_scales=FixedParameter(jnp.zeros(features, dtype=jnp.float64)))
+        zeros = jnp.zeros(features, dtype=jnp.float64)
+        return cls(log_scales=FixedParameter(zeros), centres=FixedParameter(zeros))
 
     def phase(self, values: JaxRealArray) -> JaxRealArray:
         """Map real feature values into phases in ``(-pi / 2, pi / 2)``."""
-        return jnp.atan(values / jnp.exp(self.log_scales.value))
+        return jnp.atan((values - self.centres.value) / jnp.exp(self.log_scales.value))
 
     def fisher_equalization_loss(self, values: JaxRealArray) -> JaxRealArray:
         """Measure variation in the phase map's local Fisher metric.
@@ -46,7 +50,8 @@ class ArctangentPhaseMap(eqx.Module):
         the metric is equalized.
         """
         scale = jnp.exp(self.log_scales.value)
-        derivative = scale / (jnp.square(scale) + jnp.square(values))
+        centred = values - self.centres.value
+        derivative = scale / (jnp.square(scale) + jnp.square(centred))
         log_metric = jnp.log(jnp.square(derivative) + jnp.finfo(values.dtype).eps)
         equalization = jnp.mean(
             jnp.square(log_metric - jnp.mean(log_metric, axis=0, keepdims=True))
@@ -80,7 +85,7 @@ class ArctangentPhaseMap(eqx.Module):
             -_SEMICIRCLE_LIMIT + epsilon,
             _SEMICIRCLE_LIMIT - epsilon,
         )
-        return jnp.exp(self.log_scales.value) * jnp.tan(phases)
+        return self.centres.value + jnp.exp(self.log_scales.value) * jnp.tan(phases)
 
 
 def semicircle_observation_phase(values: JaxRealArray) -> JaxRealArray:

@@ -57,7 +57,10 @@ def test_reversed_phase_gradient_is_opposite_of_normal_gradient() -> None:
     presences = jnp.ones_like(values)
 
     def phase_sum(log_scales: jnp.ndarray, *, reversed_gradient: bool) -> jnp.ndarray:
-        phase_map = ArctangentPhaseMap(log_scales=MetaParameter(log_scales))
+        phase_map = ArctangentPhaseMap(
+            log_scales=MetaParameter(log_scales),
+            centres=MetaParameter(jnp.zeros(2)),
+        )
         if reversed_gradient:
             encoded = phase_map.encode_with_reversed_phase_gradient(presences, values)
         else:

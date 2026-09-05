@@ -169,6 +169,7 @@ class PhasorSupervisedModel(Model):
     input_phase_map: ArctangentPhaseMap
     links: tuple[GatedProjection | PhaseActivatedProjection, ...]
     target: PhasorTargetNode
+    phase_map_fisher_weight: float = eqx.field(static=True)
 
     @classmethod
     def create(
@@ -179,6 +180,7 @@ class PhasorSupervisedModel(Model):
         phase_activation: bool = False,
         depth: int = 1,
         mobius_presence_rule: MobiusPresenceRule = MobiusPresenceRule.parallel,
+        phase_map_fisher_weight: float = 0.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
         if depth not in {1, _TWO_LAYER_DEPTH}:
@@ -205,6 +207,7 @@ class PhasorSupervisedModel(Model):
                 for in_features, out_features in layer_shapes
             ),
             target=PhasorTargetNode.create(_y_fields(sup.n_targets)),
+            phase_map_fisher_weight=phase_map_fisher_weight,
         )
 
     @override
@@ -240,7 +243,7 @@ class PhasorSupervisedModel(Model):
         return ModelResult(
             loss=copy_cotangent(
                 stop_gradient(target_loss),
-                target_loss + fisher_loss,
+                target_loss + self.phase_map_fisher_weight * fisher_loss,
             ),
             configurations=frozendict(configurations),
             state=None,
@@ -273,6 +276,16 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         domain=CategoricalDistribution(_SUPERVISED_HIDDEN_SIZES),
         optimize=True,
     )
+    phase_map_learning_rate_scale: float = float_field(
+        default=1.0,
+        domain=FloatDistribution(1e-4, 1.0, log=True),
+        optimize=False,
+    )
+    phase_map_fisher_weight: float = float_field(
+        default=0.0,
+        domain=FloatDistribution(0.0, 1.0),
+        optimize=False,
+    )
 
     def gradient_transformations(self) -> DisGradientTransformation:
         """Use a slower optimizer for adaptive input phase-map scales."""
@@ -281,7 +294,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
                 (ParameterType(FixedParameter), None),
                 (
                     ParameterType(MetaParameter),
-                    Adam[Model](0.1 * self.learning_rate),
+                    Adam[Model](self.phase_map_learning_rate_scale * self.learning_rate),
                 ),
                 (ParameterType(LearnableParameter), Adam[Model](self.learning_rate)),
             ]
@@ -326,6 +339,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
             phase_activation=self.link_kind in _PHASE_ACTIVATED_LINK_KINDS,
             depth=_TWO_LAYER_DEPTH if self.link_kind in _TWO_LAYER_LINK_KINDS else 1,
             mobius_presence_rule=_MOBIUS_PRESENCE_RULES[self.link_kind],
+            phase_map_fisher_weight=self.phase_map_fisher_weight,
             streams=streams,
         )
 
