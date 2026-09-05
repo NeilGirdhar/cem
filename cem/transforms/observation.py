@@ -4,6 +4,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
 from efax import Flattener, UnitVarianceNormalNP
+from jax.lax import stop_gradient
 from tjax import JaxArray, JaxRealArray
 
 from cem.structure.graph import FixedParameter, MetaParameter, Parameter
@@ -44,6 +45,16 @@ class ArctangentPhaseMap(eqx.Module):
     ) -> JaxArray:
         """Encode feature presences and values as evidence phasors."""
         return presences * jnp.exp(1j * self.phase(values))
+
+    def encode_with_reversed_phase_gradient(
+        self,
+        presences: JaxRealArray,
+        values: JaxRealArray,
+    ) -> JaxArray:
+        """Encode phasors while reversing gradients into the phase map."""
+        phase = self.phase(values)
+        reversed_phase = 2 * stop_gradient(phase) - phase
+        return presences * jnp.exp(1j * reversed_phase)
 
     def decode(self, phasors: JaxArray) -> JaxRealArray:
         """Decode phasors whose phases lie in the open right semicircle."""

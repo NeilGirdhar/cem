@@ -217,7 +217,7 @@ class PhasorSupervisedModel(Model):
     ) -> ModelResult:
         del state
         assert isinstance(observation, SupervisedProblemState)
-        x_phasors = self.input_phase_map.encode(
+        x_phasors = self.input_phase_map.encode_with_reversed_phase_gradient(
             jnp.ones_like(observation.x),
             observation.x,
         )
