@@ -31,7 +31,7 @@ from cem.structure.graph import (
     count_real_learnable_parameters,
 )
 from cem.structure.problem import DataSource, Problem
-from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
+from cem.structure.solver import Solver, bool_field, float_field, hardware_friendly_ints, int_field
 from cem.transforms import ArctangentPhaseMap
 
 from .problem import (
@@ -170,6 +170,7 @@ class PhasorSupervisedModel(Model):
     links: tuple[GatedProjection | PhaseActivatedProjection, ...]
     target: PhasorTargetNode
     phase_map_fisher_weight: float = eqx.field(static=True)
+    phase_map_adversarial: bool = eqx.field(static=True)
 
     @classmethod
     def create(
@@ -181,6 +182,7 @@ class PhasorSupervisedModel(Model):
         depth: int = 1,
         mobius_presence_rule: MobiusPresenceRule = MobiusPresenceRule.parallel,
         phase_map_fisher_weight: float = 0.0,
+        phase_map_adversarial: bool = True,
         streams: Mapping[str, RngStream],
     ) -> Self:
         if depth not in {1, _TWO_LAYER_DEPTH}:
@@ -208,6 +210,7 @@ class PhasorSupervisedModel(Model):
             ),
             target=PhasorTargetNode.create(_y_fields(sup.n_targets)),
             phase_map_fisher_weight=phase_map_fisher_weight,
+            phase_map_adversarial=phase_map_adversarial,
         )
 
     @override
@@ -221,10 +224,12 @@ class PhasorSupervisedModel(Model):
     ) -> ModelResult:
         del state
         assert isinstance(observation, SupervisedProblemState)
-        x_phasors = self.input_phase_map.encode_with_reversed_phase_gradient(
-            jnp.ones_like(observation.x),
-            observation.x,
-        )
+        if self.phase_map_adversarial:
+            x_phasors = self.input_phase_map.encode_with_reversed_phase_gradient(
+                jnp.ones_like(observation.x), observation.x
+            )
+        else:
+            x_phasors = self.input_phase_map.encode(jnp.ones_like(observation.x), observation.x)
         prediction = x_phasors
         mobius_diagnostics = []
         for link in self.links:
@@ -286,6 +291,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         domain=FloatDistribution(0.0, 1.0),
         optimize=False,
     )
+    phase_map_adversarial: bool = bool_field(default=True, optimize=False)
 
     def gradient_transformations(self) -> DisGradientTransformation:
         """Use a slower optimizer for adaptive input phase-map scales."""
@@ -340,6 +346,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
             depth=_TWO_LAYER_DEPTH if self.link_kind in _TWO_LAYER_LINK_KINDS else 1,
             mobius_presence_rule=_MOBIUS_PRESENCE_RULES[self.link_kind],
             phase_map_fisher_weight=self.phase_map_fisher_weight,
+            phase_map_adversarial=self.phase_map_adversarial,
             streams=streams,
         )
 
