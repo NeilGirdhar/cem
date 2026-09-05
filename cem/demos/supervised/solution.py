@@ -9,8 +9,9 @@ from typing import Self, override
 import equinox as eqx
 import jax.numpy as jnp
 from efax import UnitVarianceNormalNP
+from jax.lax import stop_gradient
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
-from tjax import JaxRealArray, RngStream, frozendict
+from tjax import JaxRealArray, RngStream, copy_cotangent, frozendict
 from tjax.gradient import Adam
 
 from cem.perceptron.mlp import MLP
@@ -231,11 +232,16 @@ class PhasorSupervisedModel(Model):
             )
             mobius_diagnostics.append(diagnostics)
         target = self.target.infer(_y_flat_observed(observation.y), prediction)
+        target_loss = target.total_loss()
+        fisher_loss = self.input_phase_map.fisher_equalization_loss(observation.x)
         configurations = {"mobius": mobius_diagnostics[-1], "target": target}
         if len(mobius_diagnostics) > 1:
             configurations["mobius_input"] = mobius_diagnostics[0]
         return ModelResult(
-            loss=target.total_loss(),
+            loss=copy_cotangent(
+                stop_gradient(target_loss),
+                target_loss + fisher_loss,
+            ),
             configurations=frozendict(configurations),
             state=None,
         )

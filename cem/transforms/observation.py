@@ -38,6 +38,22 @@ class ArctangentPhaseMap(eqx.Module):
         """Map real feature values into phases in ``(-pi / 2, pi / 2)``."""
         return jnp.atan(values / jnp.exp(self.log_scales.value))
 
+    def fisher_equalization_loss(self, values: JaxRealArray) -> JaxRealArray:
+        """Measure variation in the phase map's local Fisher metric.
+
+        The metric is the squared derivative of phase with respect to the input. A
+        small scale penalty prevents the learned global scale from drifting while
+        the metric is equalized.
+        """
+        scale = jnp.exp(self.log_scales.value)
+        derivative = scale / (jnp.square(scale) + jnp.square(values))
+        log_metric = jnp.log(jnp.square(derivative) + jnp.finfo(values.dtype).eps)
+        equalization = jnp.mean(
+            jnp.square(log_metric - jnp.mean(log_metric, axis=0, keepdims=True))
+        )
+        scale_penalty = 0.01 * jnp.mean(jnp.square(self.log_scales.value))
+        return equalization + scale_penalty
+
     def encode(
         self,
         presences: JaxRealArray,
