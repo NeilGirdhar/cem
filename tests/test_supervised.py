@@ -26,6 +26,7 @@ from cem.demos.supervised.solution import (
     SupervisedSolver,
 )
 from cem.perceptron.target_node import PerceptronTargetConfiguration
+from cem.phasor.mobius_summation import MobiusSummationDiagnostics
 from cem.phasor.target_node import PhasorTargetConfiguration
 from cem.structure.plotter import Demo
 from cem.structure.solution import (
@@ -93,6 +94,32 @@ def test_phasor_supervised_multi_target_infer_splits_target_fields(
     assert isinstance(config, PhasorTargetConfiguration)
     assert tuple(config.loss) == ("y_0", "y_1")
     assert config.score.shape == (problem.n_targets,)
+    assert jnp.isfinite(result.loss)
+
+
+@pytest.mark.parametrize("phase_activation", [False, True])
+def test_two_layer_phasor_supervised_model_reports_each_mobius_layer(
+    phase_activation: bool,  # ruff:ignore[boolean-type-hint-positional-argument]
+    streams: Mapping[str, RngStream],
+) -> None:
+    problem = _small_multi_target_problem()
+    model = PhasorSupervisedModel.create(
+        problem,
+        hidden_size=8,
+        phase_activation=phase_activation,
+        depth=2,
+        streams=streams,
+    )
+    observation = problem.create_data_source().initial_problem_state(jr.key(0))
+
+    result = model.infer(observation, None, streams=streams, inference=True)
+
+    input_diagnostics = result.configurations["mobius_input"]
+    output_diagnostics = result.configurations["mobius"]
+    assert isinstance(input_diagnostics, MobiusSummationDiagnostics)
+    assert isinstance(output_diagnostics, MobiusSummationDiagnostics)
+    assert input_diagnostics.candidate_presence.shape == (8,)
+    assert output_diagnostics.candidate_presence.shape == (8,)
     assert jnp.isfinite(result.loss)
 
 
@@ -178,11 +205,21 @@ def test_supervised_sources_reuse_rows_for_common_keys(source_name: str) -> None
 )
 def test_hf_supervised_demo_registry_and_variants(demo: Demo, enum_value: DemoEnum) -> None:
     assert demo_registry[enum_value] is demo
-    assert [variant.label for variant in demo.variants] == [
+    expected = [
         "perceptron",
         "phasor",
         "phase_activated",
     ]
+    if enum_value == DemoEnum.supervised_elevators:
+        expected.extend(
+            [
+                "gated_two_layer",
+                "phase_activated_two_layer",
+                "phase_activated_no_parallel",
+                "phase_activated_participation_only",
+            ]
+        )
+    assert [variant.label for variant in demo.variants] == expected
 
 
 @pytest.mark.parametrize(

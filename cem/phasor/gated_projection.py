@@ -9,7 +9,11 @@ from cem.phasor.elementwise_rotation import ElementwiseRotation
 from cem.phasor.evidence_pooling import EvidencePooling
 from cem.phasor.gate import phasor_gate
 from cem.phasor.message import JaxComplexArray
-from cem.phasor.mobius_summation import MobiusSummation
+from cem.phasor.mobius_summation import (
+    MobiusPresenceRule,
+    MobiusSummation,
+    MobiusSummationDiagnostics,
+)
 from cem.structure.graph import FixedParameter, LearnableParameter
 from cem.transforms.dropout import apply_dropout_if_training
 
@@ -50,6 +54,7 @@ class GatedProjection(eqx.Module):
         out_features: int,
         *,
         mid_features: int | None = None,
+        mobius_presence_rule: MobiusPresenceRule = MobiusPresenceRule.parallel,
         dropout_rate: float = 0.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
@@ -57,7 +62,12 @@ class GatedProjection(eqx.Module):
             mid_features = out_features
         return cls(
             input_rotation=ElementwiseRotation.create(in_features, streams=streams),
-            value=MobiusSummation.create(in_features, mid_features, streams=streams),
+            value=MobiusSummation.create(
+                in_features,
+                mid_features,
+                presence_rule=mobius_presence_rule,
+                streams=streams,
+            ),
             admission=EvidencePooling.create(in_features, mid_features, streams=streams),
             gate_bias=LearnableParameter(jnp.zeros(mid_features, dtype=jnp.float64)),
             output=EvidencePooling.create(mid_features, out_features, streams=streams),
@@ -77,12 +87,23 @@ class GatedProjection(eqx.Module):
         Returns:
             Output phasors, shape (..., out_features).
         """
+        result, _ = self.infer_with_diagnostics(z, streams=streams, inference=inference)
+        return result
+
+    def infer_with_diagnostics(
+        self, z: JaxComplexArray, *, streams: Mapping[str, RngStream], inference: bool
+    ) -> tuple[JaxComplexArray, MobiusSummationDiagnostics]:
+        """Apply the projection and return its candidate-presence diagnostics."""
         rotated = self.input_rotation.rotate(z)
-        value = self.value.sum(rotated)
+        value, diagnostics = self.value.sum_with_diagnostics(rotated)
         gate_signal = self.admission.project(rotated)
         bias = jnp.reshape(self.gate_bias.value, (1,) * (gate_signal.ndim - 1) + (-1,))
         gated = phasor_gate(gate_signal + bias, value)
         result = self.output.project(gated)
-        return apply_dropout_if_training(
-            result, streams=streams, inference=inference, dropout_rate=self.dropout_rate.value
+        result = apply_dropout_if_training(
+            result,
+            streams=streams,
+            inference=inference,
+            dropout_rate=self.dropout_rate.value,
         )
+        return result, diagnostics

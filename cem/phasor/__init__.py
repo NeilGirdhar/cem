@@ -21,8 +21,11 @@ from cem.phasor.message import (
 )
 from cem.phasor.mobius_summation import (
     LowRankMobiusSummation,
+    MobiusPresenceRule,
     MobiusSummation,
+    MobiusSummationDiagnostics,
     mobius_sum,
+    mobius_sum_with_diagnostics,
     phase_warp,
 )
 from cem.phasor.phase_activated_projection import PhaseActivatedProjection
@@ -40,7 +43,9 @@ __all__ = [
     "LogSpaceProjectionWithDropout",
     "LossAndScore",
     "LowRankMobiusSummation",
+    "MobiusPresenceRule",
     "MobiusSummation",
+    "MobiusSummationDiagnostics",
     "PhaseActivatedProjection",
     "PhaseActivation",
     "PhasorInputConfiguration",
@@ -51,6 +56,7 @@ __all__ = [
     "decorrelation_loss",
     "interpolate",
     "mobius_sum",
+    "mobius_sum_with_diagnostics",
     "phase_warp",
     "phasor_concordance",
     "phasor_gate",

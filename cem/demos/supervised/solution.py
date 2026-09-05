@@ -15,6 +15,7 @@ from tjax import JaxRealArray, RngStream, frozendict
 from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
 from cem.phasor.gated_projection import GatedProjection
+from cem.phasor.mobius_summation import MobiusPresenceRule
 from cem.phasor.phase_activated_projection import PhaseActivatedProjection
 from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import Model, ModelResult
@@ -32,6 +33,7 @@ from .problem import (
 _SUPERVISED_HIDDEN_SIZES = tuple(
     sorted({*hardware_friendly_ints(4, 256), 20, 27, 73, 85, 98, 128, 139, 220})
 )
+_TWO_LAYER_DEPTH = 2
 
 
 # This has to be a cached function to avoid initializing JAX before training.
@@ -66,6 +68,36 @@ class LinkKind(Enum):
     perceptron = "perceptron"
     phasor = "phasor"
     phase_activated = "phase_activated"
+    gated_two_layer = "gated_two_layer"
+    phase_activated_two_layer = "phase_activated_two_layer"
+    phase_activated_no_parallel = "phase_activated_no_parallel"
+    phase_activated_participation_only = "phase_activated_participation_only"
+
+
+_PHASE_ACTIVATED_LINK_KINDS = frozenset(
+    {
+        LinkKind.phase_activated,
+        LinkKind.phase_activated_two_layer,
+        LinkKind.phase_activated_no_parallel,
+        LinkKind.phase_activated_participation_only,
+    }
+)
+
+_TWO_LAYER_LINK_KINDS = frozenset(
+    {
+        LinkKind.gated_two_layer,
+        LinkKind.phase_activated_two_layer,
+    }
+)
+
+_MOBIUS_PRESENCE_RULES = {
+    LinkKind.phasor: MobiusPresenceRule.parallel,
+    LinkKind.phase_activated: MobiusPresenceRule.parallel,
+    LinkKind.gated_two_layer: MobiusPresenceRule.parallel,
+    LinkKind.phase_activated_two_layer: MobiusPresenceRule.parallel,
+    LinkKind.phase_activated_no_parallel: MobiusPresenceRule.participation,
+    LinkKind.phase_activated_participation_only: MobiusPresenceRule.participation_only,
+}
 
 
 _HF_TABULAR_REGRESSION_CONFIGS: dict[DatasetKind, str] = {
@@ -123,7 +155,7 @@ class PerceptronSupervisedModel(Model):
 class PhasorSupervisedModel(Model):
     """Supervised model with one observation phasor per scalar feature."""
 
-    link: GatedProjection | PhaseActivatedProjection
+    links: tuple[GatedProjection | PhaseActivatedProjection, ...]
     target: PhasorTargetNode
 
     @classmethod
@@ -133,15 +165,31 @@ class PhasorSupervisedModel(Model):
         hidden_size: int,
         *,
         phase_activation: bool = False,
+        depth: int = 1,
+        mobius_presence_rule: MobiusPresenceRule = MobiusPresenceRule.parallel,
         streams: Mapping[str, RngStream],
     ) -> Self:
+        if depth not in {1, _TWO_LAYER_DEPTH}:
+            msg = f"depth must be 1 or 2, got {depth}"
+            raise ValueError(msg)
         projection = PhaseActivatedProjection if phase_activation else GatedProjection
+        if depth == 1:
+            layer_shapes = ((sup.n_features, sup.n_targets),)
+        else:
+            layer_shapes = (
+                (sup.n_features, hidden_size),
+                (hidden_size, sup.n_targets),
+            )
         return cls(
-            link=projection.create(
-                sup.n_features,
-                sup.n_targets,
-                mid_features=hidden_size,
-                streams=streams,
+            links=tuple(
+                projection.create(
+                    in_features,
+                    out_features,
+                    mid_features=hidden_size,
+                    mobius_presence_rule=mobius_presence_rule,
+                    streams=streams,
+                )
+                for in_features, out_features in layer_shapes
             ),
             target=PhasorTargetNode.create(_y_fields(sup.n_targets)),
         )
@@ -161,11 +209,22 @@ class PhasorSupervisedModel(Model):
             jnp.ones_like(observation.x),
             observation.x,
         )
-        prediction = self.link.infer(x_phasors, streams=streams, inference=inference)
+        prediction = x_phasors
+        mobius_diagnostics = []
+        for link in self.links:
+            prediction, diagnostics = link.infer_with_diagnostics(
+                prediction,
+                streams=streams,
+                inference=inference,
+            )
+            mobius_diagnostics.append(diagnostics)
         target = self.target.infer(_y_flat_observed(observation.y), prediction)
+        configurations = {"mobius": mobius_diagnostics[-1], "target": target}
+        if len(mobius_diagnostics) > 1:
+            configurations["mobius_input"] = mobius_diagnostics[0]
         return ModelResult(
             loss=target.total_loss(),
-            configurations=frozendict({"target": target}),
+            configurations=frozendict(configurations),
             state=None,
         )
 
@@ -225,6 +284,8 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         return PhasorSupervisedModel.create(
             problem,
             self.hidden_size,
-            phase_activation=self.link_kind == LinkKind.phase_activated,
+            phase_activation=self.link_kind in _PHASE_ACTIVATED_LINK_KINDS,
+            depth=_TWO_LAYER_DEPTH if self.link_kind in _TWO_LAYER_LINK_KINDS else 1,
+            mobius_presence_rule=_MOBIUS_PRESENCE_RULES[self.link_kind],
             streams=streams,
         )

@@ -10,12 +10,14 @@ from cem.phasor import (
     LogSpaceProjection,
     LogSpaceProjectionWithDropout,
     LowRankMobiusSummation,
+    MobiusPresenceRule,
     MobiusSummation,
     PhaseActivatedProjection,
     PhaseActivation,
     ValueProjection,
     interpolate,
     mobius_sum,
+    mobius_sum_with_diagnostics,
     phase_warp,
     phasor_gate,
     rotate_by_location,
@@ -291,6 +293,36 @@ def test_mobius_summation_soft_single_input() -> None:
         participation * jnp.abs(x[0]) * ((1 - participation) + participation * x[0] / jnp.abs(x[0]))
     )
     assert jnp.allclose(result, expected)
+
+
+def test_mobius_summation_presence_rule_ablations() -> None:
+    x = jnp.array([0.5 * jnp.exp(0.2j), 2.0 * jnp.exp(-0.4j)])
+    weights = jnp.ones((1, 2))
+    participations = jnp.array([[0.25, 0.5]])
+
+    parallel, diagnostics = mobius_sum_with_diagnostics(x, weights, participations)
+    participation = mobius_sum(
+        x,
+        weights,
+        participations,
+        presence_rule=MobiusPresenceRule.participation,
+    )
+    participation_only = mobius_sum(
+        x,
+        weights,
+        participations,
+        presence_rule=MobiusPresenceRule.participation_only,
+    )
+
+    disjunction = 1 - jnp.prod(1 - participations)
+    effective_participation = jnp.sum(participations)
+    parallel_presence = disjunction**2 / jnp.sum(participations / jnp.abs(x)[jnp.newaxis, :])
+    assert jnp.allclose(diagnostics.participation_disjunction, disjunction)
+    assert jnp.allclose(diagnostics.effective_participation, effective_participation)
+    assert jnp.allclose(diagnostics.parallel_presence, parallel_presence)
+    assert jnp.allclose(jnp.abs(parallel), parallel_presence * diagnostics.contribution_presence)
+    assert jnp.allclose(jnp.abs(participation), disjunction * diagnostics.contribution_presence)
+    assert jnp.allclose(jnp.abs(participation_only), disjunction)
 
 
 def test_mobius_summation_zero_input_is_zero_and_finite() -> None:

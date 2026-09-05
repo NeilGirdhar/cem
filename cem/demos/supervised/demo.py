@@ -17,6 +17,7 @@ from .solution import (
     LinkKind,
     SupervisedSolver,
 )
+from .telemetry import MobiusSummationTelemetry
 
 _COMPUTE_WEIGHT = 0.1
 
@@ -47,7 +48,15 @@ class SupervisedVariant(Variant):
 
     @override
     def extra_telemetries(self) -> Telemetries:
-        return Telemetries()
+        if self.link_kind == LinkKind.perceptron:
+            return Telemetries()
+        telemetries = [MobiusSummationTelemetry()]
+        if self.link_kind in {
+            LinkKind.gated_two_layer,
+            LinkKind.phase_activated_two_layer,
+        }:
+            telemetries.append(MobiusSummationTelemetry(selected_node="mobius_input"))
+        return Telemetries(tuple(telemetries))
 
     @override
     def shared_hyperparameter_names(self) -> frozenset[str]:
@@ -129,6 +138,22 @@ supervised_elevators_demo = SupervisedDemo(
         SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.perceptron),
         SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.phasor),
         SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.phase_activated),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.elevators,
+            link_kind=LinkKind.gated_two_layer,
+        ),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.elevators,
+            link_kind=LinkKind.phase_activated_two_layer,
+        ),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.elevators,
+            link_kind=LinkKind.phase_activated_no_parallel,
+        ),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.elevators,
+            link_kind=LinkKind.phase_activated_participation_only,
+        ),
     ],
 )
 

@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from enum import Enum
 from typing import Self
 
 import equinox as eqx
@@ -8,7 +9,25 @@ from jax.nn import sigmoid
 from tjax import JaxRealArray, RngStream
 
 from cem.phasor.message import JaxComplexArray
-from cem.structure.graph import LearnableParameter
+from cem.structure.graph import LearnableParameter, NodeConfiguration
+
+
+class MobiusPresenceRule(Enum):
+    """Rule used to set a Möbius candidate's presence."""
+
+    parallel = "parallel"
+    participation = "participation"
+    participation_only = "participation_only"
+
+
+class MobiusSummationDiagnostics(NodeConfiguration):
+    """Intermediate presences produced by one Möbius summation."""
+
+    participation_disjunction: JaxRealArray
+    parallel_presence: JaxRealArray
+    effective_participation: JaxRealArray
+    contribution_presence: JaxRealArray
+    candidate_presence: JaxRealArray
 
 
 def phase_warp(u: JaxComplexArray, weights: JaxRealArray) -> JaxComplexArray:
@@ -28,6 +47,8 @@ def mobius_sum(
     x: JaxComplexArray,
     weights: JaxRealArray,
     participations: JaxRealArray,
+    *,
+    presence_rule: MobiusPresenceRule = MobiusPresenceRule.parallel,
 ) -> JaxComplexArray:
     """Construct phasor features with signed value weights and soft participation.
 
@@ -36,10 +57,29 @@ def mobius_sum(
         weights: Signed Cayley-coordinate weights, shape
             (out_features, in_features).
         participations: Participation probabilities, same shape.
+        presence_rule: Rule used to convert participation and input presence
+            into candidate presence.
 
     Returns:
         Constructed phasors, shape (..., out_features).
     """
+    result, _ = mobius_sum_with_diagnostics(
+        x,
+        weights,
+        participations,
+        presence_rule=presence_rule,
+    )
+    return result
+
+
+def mobius_sum_with_diagnostics(
+    x: JaxComplexArray,
+    weights: JaxRealArray,
+    participations: JaxRealArray,
+    *,
+    presence_rule: MobiusPresenceRule = MobiusPresenceRule.parallel,
+) -> tuple[JaxComplexArray, MobiusSummationDiagnostics]:
+    """Construct phasor features and expose their intermediate presences."""
     parameter_shape = (1,) * (x.ndim - 1) + weights.shape
     weights = jnp.reshape(weights, parameter_shape)
     participations = jnp.reshape(participations, parameter_shape)
@@ -60,12 +100,39 @@ def mobius_sum(
     inverse_presence = jnp.where(participations > 0, inverse_presence, 0)
     denominator = jnp.sum(inverse_presence, axis=-1)
     safe_denominator = jnp.where(denominator > 0, denominator, 1)
-    base_presence = jnp.where(
+    parallel_presence = jnp.where(
         total_participation > 0,
         total_participation**2 / safe_denominator,
         0,
     )
-    return base_presence * jnp.prod(contribution, axis=-1)
+    contribution_product = jnp.prod(contribution, axis=-1)
+    contribution_presence = jnp.abs(contribution_product)
+
+    if presence_rule == MobiusPresenceRule.parallel:
+        result = parallel_presence * contribution_product
+    elif presence_rule == MobiusPresenceRule.participation:
+        result = total_participation * contribution_product
+    elif presence_rule == MobiusPresenceRule.participation_only:
+        unit_contribution = contribution_product / jnp.where(
+            contribution_presence > 0,
+            contribution_presence,
+            1,
+        )
+        result = total_participation * unit_contribution
+    else:
+        raise ValueError(presence_rule)
+
+    diagnostic_shape = result.shape
+    diagnostics = MobiusSummationDiagnostics(
+        participation_disjunction=jnp.broadcast_to(total_participation, diagnostic_shape),
+        parallel_presence=parallel_presence,
+        effective_participation=jnp.broadcast_to(
+            jnp.sum(participations, axis=-1), diagnostic_shape
+        ),
+        contribution_presence=contribution_presence,
+        candidate_presence=jnp.abs(result),
+    )
+    return result, diagnostics
 
 
 def _signed_unit_initialization(
@@ -89,6 +156,7 @@ class MobiusSummation(eqx.Module):
 
     weights: LearnableParameter[JaxRealArray]
     participation_logits: LearnableParameter[JaxRealArray]
+    presence_rule: MobiusPresenceRule = eqx.field(static=True)
 
     @classmethod
     def create(
@@ -96,6 +164,7 @@ class MobiusSummation(eqx.Module):
         in_features: int,
         out_features: int,
         *,
+        presence_rule: MobiusPresenceRule = MobiusPresenceRule.parallel,
         streams: Mapping[str, RngStream],
     ) -> Self:
         shape = (out_features, in_features)
@@ -107,6 +176,7 @@ class MobiusSummation(eqx.Module):
             participation_logits=LearnableParameter(
                 initial_logit + scale * jr.normal(stream.key(), shape, dtype=jnp.float64)
             ),
+            presence_rule=presence_rule,
         )
 
     def sum(self, x: JaxComplexArray) -> JaxComplexArray:
@@ -115,6 +185,18 @@ class MobiusSummation(eqx.Module):
             x,
             self.weights.value,
             sigmoid(self.participation_logits.value),
+            presence_rule=self.presence_rule,
+        )
+
+    def sum_with_diagnostics(
+        self, x: JaxComplexArray
+    ) -> tuple[JaxComplexArray, MobiusSummationDiagnostics]:
+        """Apply the learned bank and return its intermediate presences."""
+        return mobius_sum_with_diagnostics(
+            x,
+            self.weights.value,
+            sigmoid(self.participation_logits.value),
+            presence_rule=self.presence_rule,
         )
 
 
@@ -125,6 +207,7 @@ class LowRankMobiusSummation(eqx.Module):
     weight_input: LearnableParameter[JaxRealArray]
     participation_output: LearnableParameter[JaxRealArray]
     participation_input: LearnableParameter[JaxRealArray]
+    presence_rule: MobiusPresenceRule = eqx.field(static=True)
 
     @classmethod
     def create(
@@ -133,6 +216,7 @@ class LowRankMobiusSummation(eqx.Module):
         out_features: int,
         rank: int,
         *,
+        presence_rule: MobiusPresenceRule = MobiusPresenceRule.parallel,
         streams: Mapping[str, RngStream],
     ) -> Self:
         if rank < 1 or rank > min(in_features, out_features):
@@ -166,6 +250,7 @@ class LowRankMobiusSummation(eqx.Module):
             weight_input=LearnableParameter(weight_input),
             participation_output=LearnableParameter(participation_output),
             participation_input=LearnableParameter(participation_input),
+            presence_rule=presence_rule,
         )
 
     def sum(self, x: JaxComplexArray) -> JaxComplexArray:
@@ -174,4 +259,5 @@ class LowRankMobiusSummation(eqx.Module):
             x,
             self.weight_output.value @ self.weight_input.value,
             sigmoid(self.participation_output.value @ self.participation_input.value),
+            presence_rule=self.presence_rule,
         )
