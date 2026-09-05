@@ -93,7 +93,7 @@ _TWO_LAYER_LINK_KINDS = frozenset(
 _MOBIUS_PRESENCE_RULES = {
     LinkKind.phasor: MobiusPresenceRule.parallel,
     LinkKind.phase_activated: MobiusPresenceRule.parallel,
-    LinkKind.gated_two_layer: MobiusPresenceRule.parallel,
+    LinkKind.gated_two_layer: MobiusPresenceRule.participation,
     LinkKind.phase_activated_two_layer: MobiusPresenceRule.parallel,
     LinkKind.phase_activated_no_parallel: MobiusPresenceRule.participation,
     LinkKind.phase_activated_participation_only: MobiusPresenceRule.participation_only,

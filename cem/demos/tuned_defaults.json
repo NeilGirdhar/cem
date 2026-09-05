@@ -29,7 +29,7 @@
     "phase_activated.learning_rate": 0.007686488586430041,
     "phasor.hidden_size": 160,
     "phasor.learning_rate": 0.0030088739220097624,
-    "training_examples": 247
+    "training_examples": 250
   },
   "supervised-iris": {
     "perceptron.hidden_size": 4,
