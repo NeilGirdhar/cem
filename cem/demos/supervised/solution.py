@@ -21,7 +21,7 @@ from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import Model, ModelResult
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
-from cem.transforms import encode_observation_phasors
+from cem.transforms import LearnedArctangentPhaseMap
 
 from .problem import (
     SupervisedProblem,
@@ -155,6 +155,7 @@ class PerceptronSupervisedModel(Model):
 class PhasorSupervisedModel(Model):
     """Supervised model with one observation phasor per scalar feature."""
 
+    input_phase_map: LearnedArctangentPhaseMap
     links: tuple[GatedProjection | PhaseActivatedProjection, ...]
     target: PhasorTargetNode
 
@@ -181,6 +182,7 @@ class PhasorSupervisedModel(Model):
                 (hidden_size, sup.n_targets),
             )
         return cls(
+            input_phase_map=LearnedArctangentPhaseMap.create(sup.n_features),
             links=tuple(
                 projection.create(
                     in_features,
@@ -205,7 +207,7 @@ class PhasorSupervisedModel(Model):
     ) -> ModelResult:
         del state
         assert isinstance(observation, SupervisedProblemState)
-        x_phasors = encode_observation_phasors(
+        x_phasors = self.input_phase_map.encode(
             jnp.ones_like(observation.x),
             observation.x,
         )

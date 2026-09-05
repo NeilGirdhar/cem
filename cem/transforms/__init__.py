@@ -3,6 +3,7 @@
 from cem.transforms.affine import Affine
 from cem.transforms.dropout import apply_dropout_if_training, dropout
 from cem.transforms.observation import (
+    LearnedArctangentPhaseMap,
     decode_observation_phasors,
     encode_flat,
     encode_observation_phasors,
@@ -13,6 +14,7 @@ from cem.transforms.observation import (
 
 __all__ = [
     "Affine",
+    "LearnedArctangentPhaseMap",
     "apply_dropout_if_training",
     "decode_observation_phasors",
     "dropout",
