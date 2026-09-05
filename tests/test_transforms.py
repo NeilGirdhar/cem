@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 
+import jax
 import jax.numpy as jnp
 from tjax import RngStream
 
@@ -49,6 +50,25 @@ def test_learned_arctangent_phase_map_preserves_presence() -> None:
     phase_map = ArctangentPhaseMap.create_learned(values.size)
 
     assert jnp.allclose(jnp.abs(phase_map.encode(presences, values)), presences)
+
+
+def test_reversed_phase_gradient_is_opposite_of_normal_gradient() -> None:
+    values = jnp.array([-1.0, 0.5])
+    presences = jnp.ones_like(values)
+
+    def phase_sum(log_scales: jnp.ndarray, *, reversed_gradient: bool) -> jnp.ndarray:
+        phase_map = ArctangentPhaseMap(
+            log_scales=LearnableParameter(log_scales),
+        )
+        if reversed_gradient:
+            encoded = phase_map.encode_with_reversed_phase_gradient(presences, values)
+        else:
+            encoded = phase_map.encode(presences, values)
+        return jnp.real(jnp.sum(encoded))
+
+    normal = jax.grad(phase_sum)(jnp.zeros(2), reversed_gradient=False)
+    reversed_ = jax.grad(phase_sum)(jnp.zeros(2), reversed_gradient=True)
+    assert jnp.allclose(reversed_, -normal)
 
 
 def test_fixed_arctangent_phase_map_round_trip() -> None:
