@@ -171,9 +171,10 @@ class PhasorSupervisedModel(Model):
     target: PhasorTargetNode
     phase_map_fisher_weight: float = eqx.field(static=True)
     phase_map_adversarial: bool = eqx.field(static=True)
+    phase_map_translation: bool = eqx.field(static=True)
 
     @classmethod
-    def create(
+    def create(  # ruff: ignore[too-many-arguments]
         cls,
         sup: SupervisedProblem,
         hidden_size: int,
@@ -183,6 +184,7 @@ class PhasorSupervisedModel(Model):
         mobius_presence_rule: MobiusPresenceRule = MobiusPresenceRule.parallel,
         phase_map_fisher_weight: float = 0.0,
         phase_map_adversarial: bool = True,
+        phase_map_translation: bool = True,
         streams: Mapping[str, RngStream],
     ) -> Self:
         if depth not in {1, _TWO_LAYER_DEPTH}:
@@ -196,8 +198,15 @@ class PhasorSupervisedModel(Model):
                 (sup.n_features, hidden_size),
                 (hidden_size, sup.n_targets),
             )
+        input_phase_map = ArctangentPhaseMap.create_learned(sup.n_features)
+        if not phase_map_translation:
+            input_phase_map = eqx.tree_at(
+                lambda phase_map: phase_map.centres,
+                input_phase_map,
+                FixedParameter(jnp.zeros(sup.n_features)),
+            )
         return cls(
-            input_phase_map=ArctangentPhaseMap.create_learned(sup.n_features),
+            input_phase_map=input_phase_map,
             links=tuple(
                 projection.create(
                     in_features,
@@ -211,6 +220,7 @@ class PhasorSupervisedModel(Model):
             target=PhasorTargetNode.create(_y_fields(sup.n_targets)),
             phase_map_fisher_weight=phase_map_fisher_weight,
             phase_map_adversarial=phase_map_adversarial,
+            phase_map_translation=phase_map_translation,
         )
 
     @override
@@ -292,6 +302,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         optimize=False,
     )
     phase_map_adversarial: bool = bool_field(default=True, optimize=False)
+    phase_map_translation: bool = bool_field(default=True, optimize=False)
 
     def gradient_transformations(self) -> DisGradientTransformation:
         """Use a slower optimizer for adaptive input phase-map scales."""
@@ -316,6 +327,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
             self.dataset_kind,
             self.link_kind,
             self.hidden_size,
+            phase_map_translation=self.phase_map_translation,
         )
 
     @override
@@ -347,6 +359,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
             mobius_presence_rule=_MOBIUS_PRESENCE_RULES[self.link_kind],
             phase_map_fisher_weight=self.phase_map_fisher_weight,
             phase_map_adversarial=self.phase_map_adversarial,
+            phase_map_translation=self.phase_map_translation,
             streams=streams,
         )
 
@@ -356,11 +369,14 @@ def _supervised_parameter_count(
     dataset_kind: DatasetKind,
     link_kind: LinkKind,
     hidden_size: int,
+    *,
+    phase_map_translation: bool,
 ) -> int:
     solver = SupervisedSolver(
         dataset_kind=dataset_kind,
         link_kind=link_kind,
         hidden_size=hidden_size,
+        phase_map_translation=phase_map_translation,
     )
     learnable_model = solver.solution().solution_state.dis_learnable_parameters.assembled()
     return count_real_learnable_parameters(learnable_model)
