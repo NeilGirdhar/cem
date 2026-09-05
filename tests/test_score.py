@@ -16,7 +16,7 @@ from cem.perceptron.target_node import PerceptronTargetConfiguration, Perceptron
 from cem.phasor.loss import LossAndScore, phasor_reconstruction_loss_and_score
 from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
 from cem.structure.graph import LearnableParameter, ParameterType
-from cem.transforms import encode_observation_phasors
+from cem.transforms import ArctangentPhaseMap
 
 
 def test_reconstruction_loss_and_score_returns_loss_and_score() -> None:
@@ -76,16 +76,28 @@ def test_phasor_target_node_round_trip_recovers_observation() -> None:
     observed = UnitVarianceNormalNP(jnp.asarray(0.75))
     node = PhasorTargetNode.create({"obs": UnitVarianceNormalNP(jnp.asarray(0.0))})
     flat_observed = frozendict({"obs": Flattener.flatten(observed, mapped_to_plane=True)[1]})
-    prediction = encode_observation_phasors(jnp.ones(1), jnp.asarray([0.75]))
+    prediction = ArctangentPhaseMap.create_fixed(1).encode(jnp.ones(1), jnp.asarray([0.75]))
 
     result = node.infer(flat_observed, prediction)
 
     assert isinstance(result, PhasorTargetConfiguration)
     assert jnp.allclose(result.total_reconstruction_loss(), 0.0, atol=1e-8)
+    assert jnp.allclose(result.total_phase_domain_loss(), 0.0, atol=1e-8)
     assert jnp.allclose(result.score, 0.0, atol=1e-8)
     predicted = result.predicted_distributions["obs"]
     assert isinstance(predicted, UnitVarianceNormalEP)
     assert jnp.allclose(predicted.mean, 0.75)
+
+
+def test_phasor_target_node_penalizes_left_semicircle_predictions() -> None:
+    observed = UnitVarianceNormalNP(jnp.asarray(0.0))
+    node = PhasorTargetNode.create({"obs": UnitVarianceNormalNP(jnp.asarray(0.0))})
+    flat_observed = frozendict({"obs": Flattener.flatten(observed, mapped_to_plane=True)[1]})
+
+    result = node.infer(flat_observed, jnp.asarray([-1.0 + 0.0j]))
+
+    assert jnp.allclose(result.total_phase_domain_loss(), 1.0)
+    assert jnp.abs(result.score[0]) > 0
 
 
 def infer_perceptron_target_node(

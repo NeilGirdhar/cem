@@ -6,27 +6,32 @@ import numpy as np
 from efax import Flattener, UnitVarianceNormalNP
 from tjax import JaxArray, JaxRealArray
 
-from cem.structure.graph import LearnableParameter
+from cem.structure.graph import FixedParameter, LearnableParameter, Parameter
 
 _SEMICIRCLE_LIMIT = jnp.pi / 2
 
 
-class LearnedArctangentPhaseMap(eqx.Module):
-    """Map each real feature to the open semicircle with a learned positive scale.
+class ArctangentPhaseMap(eqx.Module):
+    """Map each real feature to the open semicircle with a positive scale.
 
     The map ``atan(x / scale)`` compresses the real line polynomially near the
     phase boundaries. Each feature has its own scale, initialized to one.
 
     Attributes:
-        log_scales: Unconstrained logarithms of the positive feature scales.
+        log_scales: Logarithms of the positive feature scales.
     """
 
-    log_scales: LearnableParameter[JaxRealArray]
+    log_scales: Parameter[JaxRealArray]
 
     @classmethod
-    def create(cls, features: int) -> Self:
-        """Create an initially unit-scaled phase map."""
+    def create_learned(cls, features: int) -> Self:
+        """Create a learnable, initially unit-scaled phase map."""
         return cls(log_scales=LearnableParameter(jnp.zeros(features, dtype=jnp.float64)))
+
+    @classmethod
+    def create_fixed(cls, features: int) -> Self:
+        """Create a fixed unit-scaled phase map."""
+        return cls(log_scales=FixedParameter(jnp.zeros(features, dtype=jnp.float64)))
 
     def phase(self, values: JaxRealArray) -> JaxRealArray:
         """Map real feature values into phases in ``(-pi / 2, pi / 2)``."""
@@ -39,6 +44,16 @@ class LearnedArctangentPhaseMap(eqx.Module):
     ) -> JaxArray:
         """Encode feature presences and values as evidence phasors."""
         return presences * jnp.exp(1j * self.phase(values))
+
+    def decode(self, phasors: JaxArray) -> JaxRealArray:
+        """Decode phasors whose phases lie in the open right semicircle."""
+        epsilon = jnp.finfo(phasors.real.dtype).eps
+        phases = jnp.clip(
+            jnp.angle(phasors),
+            -_SEMICIRCLE_LIMIT + epsilon,
+            _SEMICIRCLE_LIMIT - epsilon,
+        )
+        return jnp.exp(self.log_scales.value) * jnp.tan(phases)
 
 
 def semicircle_observation_phase(values: JaxRealArray) -> JaxRealArray:

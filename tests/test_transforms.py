@@ -25,7 +25,7 @@ from cem.phasor import (
 )
 from cem.structure.graph import LearnableParameter
 from cem.transforms import (
-    LearnedArctangentPhaseMap,
+    ArctangentPhaseMap,
     decode_observation_phasors,
     dropout,
     encode_observation_phasors,
@@ -37,7 +37,7 @@ from cem.transforms import (
 
 def test_learned_arctangent_phase_map_starts_at_unit_scale() -> None:
     values = jnp.array([-3.0, -0.5, 0.0, 0.5, 3.0])
-    phase_map = LearnedArctangentPhaseMap.create(values.size)
+    phase_map = ArctangentPhaseMap.create_learned(values.size)
 
     assert jnp.allclose(phase_map.phase(values), jnp.atan(values))
     assert jnp.all(jnp.diff(phase_map.phase(values)) > 0)
@@ -46,9 +46,17 @@ def test_learned_arctangent_phase_map_starts_at_unit_scale() -> None:
 def test_learned_arctangent_phase_map_preserves_presence() -> None:
     values = jnp.array([-2.0, 0.0, 2.0])
     presences = jnp.array([0.2, 0.5, 1.5])
-    phase_map = LearnedArctangentPhaseMap.create(values.size)
+    phase_map = ArctangentPhaseMap.create_learned(values.size)
 
     assert jnp.allclose(jnp.abs(phase_map.encode(presences, values)), presences)
+
+
+def test_fixed_arctangent_phase_map_round_trip() -> None:
+    values = jnp.linspace(-5.0, 5.0, 101)
+    phase_map = ArctangentPhaseMap.create_fixed(values.size)
+    encoded = phase_map.encode(jnp.ones_like(values), values)
+
+    assert jnp.allclose(phase_map.decode(encoded), values, atol=1e-8)
 
 
 def test_semicircle_observation_phase_is_monotonic_and_bounded() -> None:

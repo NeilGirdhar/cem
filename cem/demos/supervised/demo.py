@@ -17,7 +17,7 @@ from .solution import (
     LinkKind,
     SupervisedSolver,
 )
-from .telemetry import MobiusSummationTelemetry
+from .telemetry import MobiusSummationTelemetry, PhaseDomainTelemetry
 
 _COMPUTE_WEIGHT = 0.1
 
@@ -50,7 +50,7 @@ class SupervisedVariant(Variant):
     def extra_telemetries(self) -> Telemetries:
         if self.link_kind == LinkKind.perceptron:
             return Telemetries()
-        telemetries = [MobiusSummationTelemetry()]
+        telemetries = [MobiusSummationTelemetry(), PhaseDomainTelemetry()]
         if self.link_kind in {
             LinkKind.gated_two_layer,
             LinkKind.phase_activated_two_layer,
