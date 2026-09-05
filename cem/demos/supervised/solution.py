@@ -11,6 +11,7 @@ import jax.numpy as jnp
 from efax import UnitVarianceNormalNP
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream, frozendict
+from tjax.gradient import Adam
 
 from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
@@ -18,7 +19,16 @@ from cem.phasor.gated_projection import GatedProjection
 from cem.phasor.mobius_summation import MobiusPresenceRule
 from cem.phasor.phase_activated_projection import PhaseActivatedProjection
 from cem.phasor.target_node import PhasorTargetNode
-from cem.structure.graph import Model, ModelResult, count_real_learnable_parameters
+from cem.structure.graph import (
+    DisGradientTransformation,
+    FixedParameter,
+    LearnableParameter,
+    MetaParameter,
+    Model,
+    ModelResult,
+    ParameterType,
+    count_real_learnable_parameters,
+)
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
 from cem.transforms import ArctangentPhaseMap
@@ -207,7 +217,7 @@ class PhasorSupervisedModel(Model):
     ) -> ModelResult:
         del state
         assert isinstance(observation, SupervisedProblemState)
-        x_phasors = self.input_phase_map.encode_with_reversed_phase_gradient(
+        x_phasors = self.input_phase_map.encode(
             jnp.ones_like(observation.x),
             observation.x,
         )
@@ -257,6 +267,19 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         domain=CategoricalDistribution(_SUPERVISED_HIDDEN_SIZES),
         optimize=True,
     )
+
+    def gradient_transformations(self) -> DisGradientTransformation:
+        """Use a slower optimizer for adaptive input phase-map scales."""
+        return DisGradientTransformation(
+            [
+                (ParameterType(FixedParameter), None),
+                (
+                    ParameterType(MetaParameter),
+                    Adam[Model](0.1 * self.learning_rate),
+                ),
+                (ParameterType(LearnableParameter), Adam[Model](self.learning_rate)),
+            ]
+        )
 
     def compute_proxy(self) -> JaxRealArray:
         """Return the number of trainable real scalars updated during training."""

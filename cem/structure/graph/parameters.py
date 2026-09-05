@@ -46,7 +46,7 @@ def count_real_learnable_parameters(x: object, /) -> int:
     """
     count = 0
     for leaf in tree.leaves(x, is_leaf=is_parameter):
-        if not isinstance(leaf, LearnableParameter):
+        if not isinstance(leaf, (LearnableParameter, MetaParameter)):
             continue
         value = leaf.value
         multiplier = 2 if jnp.iscomplexobj(value) else 1

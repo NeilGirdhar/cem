@@ -28,7 +28,7 @@ from cem.demos.supervised.solution import (
 from cem.perceptron.target_node import PerceptronTargetConfiguration
 from cem.phasor.mobius_summation import MobiusSummationDiagnostics
 from cem.phasor.target_node import PhasorTargetConfiguration
-from cem.structure.graph import LearnableParameter, count_real_learnable_parameters
+from cem.structure.graph import LearnableParameter, MetaParameter, count_real_learnable_parameters
 from cem.structure.plotter import Demo
 from cem.structure.solution import (
     ExecutionPacket,
@@ -429,9 +429,10 @@ def test_real_parameter_count_counts_complex_values_twice() -> None:
     parameters = {
         "real": LearnableParameter(jnp.zeros(3)),
         "complex": LearnableParameter(jnp.zeros(2, dtype=jnp.complex64)),
+        "meta": MetaParameter(jnp.zeros(1)),
     }
 
-    assert count_real_learnable_parameters(parameters) == _EXPECTED_REAL_PARAMETER_COUNT
+    assert count_real_learnable_parameters(parameters) == _EXPECTED_REAL_PARAMETER_COUNT + 1
 
 
 def test_supervised_iris_demo_second_half_loss_is_low() -> None:
