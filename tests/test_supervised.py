@@ -28,6 +28,7 @@ from cem.demos.supervised.solution import (
 from cem.perceptron.target_node import PerceptronTargetConfiguration
 from cem.phasor.mobius_summation import MobiusSummationDiagnostics
 from cem.phasor.target_node import PhasorTargetConfiguration
+from cem.structure.graph import LearnableParameter, count_real_learnable_parameters
 from cem.structure.plotter import Demo
 from cem.structure.solution import (
     ExecutionPacket,
@@ -42,6 +43,7 @@ _EXPECTED_HF_TEST_FEATURES = 2
 _EXPECTED_HF_SELECTED_ROWS = 5
 _EXPECTED_HF_TRAINING_ROWS = 4
 _EXPECTED_HF_INFERENCE_ROWS = 1
+_EXPECTED_REAL_PARAMETER_COUNT = 7
 _IRIS_LOSS_THRESHOLD = 52.0
 
 
@@ -421,6 +423,15 @@ def test_supervised_demo_loss_penalizes_compute_proxy() -> None:
     )
 
     assert large > small
+
+
+def test_real_parameter_count_counts_complex_values_twice() -> None:
+    parameters = {
+        "real": LearnableParameter(jnp.zeros(3)),
+        "complex": LearnableParameter(jnp.zeros(2, dtype=jnp.complex64)),
+    }
+
+    assert count_real_learnable_parameters(parameters) == _EXPECTED_REAL_PARAMETER_COUNT
 
 
 def test_supervised_iris_demo_second_half_loss_is_low() -> None:

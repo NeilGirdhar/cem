@@ -102,6 +102,8 @@ def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
 
     assert isinstance(perceptron_hidden_size, CategoricalDistribution)
     assert perceptron_hidden_size.choices == (
+        2,
+        3,
         4,
         5,
         6,

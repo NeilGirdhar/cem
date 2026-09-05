@@ -18,7 +18,7 @@ from cem.phasor.gated_projection import GatedProjection
 from cem.phasor.mobius_summation import MobiusPresenceRule
 from cem.phasor.phase_activated_projection import PhaseActivatedProjection
 from cem.phasor.target_node import PhasorTargetNode
-from cem.structure.graph import Model, ModelResult
+from cem.structure.graph import Model, ModelResult, count_real_learnable_parameters
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, float_field, hardware_friendly_ints, int_field
 from cem.transforms import ArctangentPhaseMap
@@ -31,7 +31,7 @@ from .problem import (
 )
 
 _SUPERVISED_HIDDEN_SIZES = tuple(
-    sorted({*hardware_friendly_ints(4, 256), 20, 27, 73, 85, 98, 128, 139, 220})
+    sorted({*hardware_friendly_ints(2, 256), 20, 27, 73, 85, 98, 128, 139, 220})
 )
 _TWO_LAYER_DEPTH = 2
 
@@ -259,8 +259,16 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     )
 
     def compute_proxy(self) -> JaxRealArray:
-        """Approximate the local training cost."""
-        return jnp.asarray(self.training_examples * self.hidden_size**2)
+        """Return the number of trainable real scalars updated during training."""
+        return jnp.asarray(self.training_examples * self.parameter_count())
+
+    def parameter_count(self) -> int:
+        """Return the model's trainable real scalar degrees of freedom."""
+        return _supervised_parameter_count(
+            self.dataset_kind,
+            self.link_kind,
+            self.hidden_size,
+        )
 
     @override
     def problem(self) -> SupervisedProblem:
@@ -291,3 +299,18 @@ class SupervisedSolver(Solver[SupervisedProblem]):
             mobius_presence_rule=_MOBIUS_PRESENCE_RULES[self.link_kind],
             streams=streams,
         )
+
+
+@cache
+def _supervised_parameter_count(
+    dataset_kind: DatasetKind,
+    link_kind: LinkKind,
+    hidden_size: int,
+) -> int:
+    solver = SupervisedSolver(
+        dataset_kind=dataset_kind,
+        link_kind=link_kind,
+        hidden_size=hidden_size,
+    )
+    learnable_model = solver.solution().solution_state.dis_learnable_parameters.assembled()
+    return count_real_learnable_parameters(learnable_model)
