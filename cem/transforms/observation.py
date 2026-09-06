@@ -10,6 +10,8 @@ from tjax import JaxArray, JaxRealArray
 from cem.structure.graph import FixedParameter, MetaParameter, Parameter
 
 _SEMICIRCLE_LIMIT = jnp.pi / 2
+_LOG_SCALE_LIMIT = 3.0
+_CENTRE_LIMIT = 10.0
 
 
 class ArctangentPhaseMap(eqx.Module):
@@ -40,7 +42,9 @@ class ArctangentPhaseMap(eqx.Module):
 
     def phase(self, values: JaxRealArray) -> JaxRealArray:
         """Map real feature values into phases in ``(-pi / 2, pi / 2)``."""
-        return jnp.atan((values - self.centres.value) / jnp.exp(self.log_scales.value))
+        centre = _CENTRE_LIMIT * jnp.tanh(self.centres.value / _CENTRE_LIMIT)
+        log_scale = _LOG_SCALE_LIMIT * jnp.tanh(self.log_scales.value / _LOG_SCALE_LIMIT)
+        return jnp.atan((values - centre) / jnp.exp(log_scale))
 
     def fisher_equalization_loss(self, values: JaxRealArray) -> JaxRealArray:
         """Measure variation in the phase map's local Fisher metric.
@@ -49,8 +53,10 @@ class ArctangentPhaseMap(eqx.Module):
         small scale penalty prevents the learned global scale from drifting while
         the metric is equalized.
         """
-        scale = jnp.exp(self.log_scales.value)
-        centred = values - self.centres.value
+        centre = _CENTRE_LIMIT * jnp.tanh(self.centres.value / _CENTRE_LIMIT)
+        log_scale = _LOG_SCALE_LIMIT * jnp.tanh(self.log_scales.value / _LOG_SCALE_LIMIT)
+        scale = jnp.exp(log_scale)
+        centred = values - centre
         derivative = scale / (jnp.square(scale) + jnp.square(centred))
         log_metric = jnp.log(jnp.square(derivative) + jnp.finfo(values.dtype).eps)
         equalization = jnp.mean(
@@ -85,7 +91,9 @@ class ArctangentPhaseMap(eqx.Module):
             -_SEMICIRCLE_LIMIT + epsilon,
             _SEMICIRCLE_LIMIT - epsilon,
         )
-        return self.centres.value + jnp.exp(self.log_scales.value) * jnp.tan(phases)
+        centre = _CENTRE_LIMIT * jnp.tanh(self.centres.value / _CENTRE_LIMIT)
+        log_scale = _LOG_SCALE_LIMIT * jnp.tanh(self.log_scales.value / _LOG_SCALE_LIMIT)
+        return centre + jnp.exp(log_scale) * jnp.tan(phases)
 
 
 def semicircle_observation_phase(values: JaxRealArray) -> JaxRealArray:
