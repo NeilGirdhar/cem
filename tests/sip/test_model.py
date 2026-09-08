@@ -55,3 +55,41 @@ def test_chain_gradients_reach_emitter_and_score() -> None:
 
     gradients = jax.grad(loss)(chain)
     assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(gradients))
+
+
+def test_chain_passes_intervention_noise_to_downstream_prediction() -> None:
+    chain = _chain()
+    inputs = _inputs()
+    first = chain.infer(
+        *inputs,
+        streams=create_streams({"inference": jr.key(24)}),
+        inference=False,
+    )
+    second = chain.infer(
+        *inputs,
+        streams=create_streams({"inference": jr.key(25)}),
+        inference=False,
+    )
+
+    assert not jnp.allclose(first.source.injected_noise, second.source.injected_noise)
+    assert not jnp.allclose(first.source.observation, second.source.observation)
+    assert not jnp.allclose(first.target.prediction, second.target.prediction)
+
+
+def test_chain_is_deterministic_without_intervention_noise() -> None:
+    chain = _chain()
+    inputs = _inputs()
+    first = chain.infer(
+        *inputs,
+        streams=create_streams({"inference": jr.key(26)}),
+        inference=True,
+    )
+    second = chain.infer(
+        *inputs,
+        streams=create_streams({"inference": jr.key(27)}),
+        inference=True,
+    )
+
+    assert jnp.allclose(first.source.observation, second.source.observation)
+    assert jnp.allclose(first.source.instrument, second.source.instrument)
+    assert jnp.allclose(first.target.prediction, second.target.prediction)
