@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import jax.scipy.special as jss
 from efax import ComplexVonMisesNP
 
-from cem.phasor.loss import (
+from cem.experimental.phasor.loss import (
     centering_loss,
     decorrelation_loss,
     strength_loss,

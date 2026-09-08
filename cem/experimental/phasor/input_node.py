@@ -1,6 +1,6 @@
 from tjax import frozendict
 
-from cem.phasor.message import JaxComplexArray
+from cem.experimental.phasor.message import JaxComplexArray
 from cem.structure.graph.node import NodeConfiguration
 
 

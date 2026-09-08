@@ -5,7 +5,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from tjax import JaxRealArray, RngStream
 
-from cem.phasor.message import JaxComplexArray
+from cem.experimental.phasor.message import JaxComplexArray
 from cem.structure.graph import LearnableParameter
 
 

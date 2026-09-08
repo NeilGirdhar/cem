@@ -2,13 +2,13 @@
 
 from enum import Enum
 
-from cem.demos.afp.demo import afp_synthetic_iv_demo
 from cem.demos.supervised.demo import (
     supervised_bike_sharing_demand_demo,
     supervised_cpu_activity_demo,
     supervised_elevators_demo,
     supervised_iris_demo,
 )
+from cem.experimental.afp.demo import afp_synthetic_iv_demo
 from cem.structure.plotter.demo import Demo
 
 

@@ -5,8 +5,8 @@ import pytest
 from optuna.distributions import CategoricalDistribution
 
 from cem import tuned_defaults
-from cem.demos.afp.demo import afp_synthetic_iv_demo
 from cem.demos.supervised.demo import supervised_bike_sharing_demand_demo
+from cem.experimental.afp.demo import afp_synthetic_iv_demo
 
 _TUNED_HIDDEN_SIZE = 42
 _DEFAULT_LEARNING_RATE = 0.01

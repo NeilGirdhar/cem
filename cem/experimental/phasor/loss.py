@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from efax import ComplexVonMisesNP
 from tjax import JaxArray
 
-from cem.phasor.message import JaxComplexArray
+from cem.experimental.phasor.message import JaxComplexArray
 
 
 class LossAndScore(eqx.Module):

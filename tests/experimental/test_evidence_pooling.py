@@ -3,7 +3,7 @@ from collections.abc import Mapping
 import jax.numpy as jnp
 from tjax import RngStream
 
-from cem.phasor.evidence_pooling import EvidencePooling, EvidencePoolingWithDropout
+from cem.experimental.phasor.evidence_pooling import EvidencePooling, EvidencePoolingWithDropout
 
 
 def test_evidence_pooling_initialization(streams: Mapping[str, RngStream]) -> None:

@@ -25,9 +25,9 @@ from cem.demos.supervised.solution import (
     PhasorSupervisedModel,
     SupervisedSolver,
 )
+from cem.experimental.phasor.mobius_summation import MobiusSummationDiagnostics
+from cem.experimental.phasor.target_node import PhasorTargetConfiguration
 from cem.perceptron.target_node import PerceptronTargetConfiguration
-from cem.phasor.mobius_summation import MobiusSummationDiagnostics
-from cem.phasor.target_node import PhasorTargetConfiguration
 from cem.structure.graph import LearnableParameter, MetaParameter, count_real_learnable_parameters
 from cem.structure.plotter import Demo
 from cem.structure.solution import (

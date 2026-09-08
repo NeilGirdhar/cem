@@ -14,12 +14,12 @@ from optuna.distributions import CategoricalDistribution, FloatDistribution, Int
 from tjax import JaxRealArray, RngStream, copy_cotangent, frozendict
 from tjax.gradient import Adam
 
+from cem.experimental.phasor.gated_projection import GatedProjection
+from cem.experimental.phasor.mobius_summation import MobiusPresenceRule
+from cem.experimental.phasor.phase_activated_projection import PhaseActivatedProjection
+from cem.experimental.phasor.target_node import PhasorTargetNode
 from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
-from cem.phasor.gated_projection import GatedProjection
-from cem.phasor.mobius_summation import MobiusPresenceRule
-from cem.phasor.phase_activated_projection import PhaseActivatedProjection
-from cem.phasor.target_node import PhasorTargetNode
 from cem.structure.graph import (
     DisGradientTransformation,
     FixedParameter,

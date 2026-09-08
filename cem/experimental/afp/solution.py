@@ -9,9 +9,9 @@ from jax.lax import stop_gradient
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
 from tjax import JaxArray, JaxRealArray, RngStream, frozendict, negate_cotangent
 
-from cem.phasor.evidence_pooling import EvidencePoolingWithDropout
-from cem.phasor.gated_projection import GatedProjection
-from cem.phasor.loss import decorrelation_loss, phasor_reconstruction_loss_and_score
+from cem.experimental.phasor.evidence_pooling import EvidencePoolingWithDropout
+from cem.experimental.phasor.gated_projection import GatedProjection
+from cem.experimental.phasor.loss import decorrelation_loss, phasor_reconstruction_loss_and_score
 from cem.structure.graph import Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration
 from cem.structure.problem import DataSource, Problem

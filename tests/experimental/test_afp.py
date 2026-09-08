@@ -2,9 +2,9 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams
 
-from cem.demos.afp.plotter import AFPTelemetry
-from cem.demos.afp.problem import NonlinearityKind
-from cem.demos.afp.solution import AFPModel, AFPSolver
+from cem.experimental.afp.plotter import AFPTelemetry
+from cem.experimental.afp.problem import NonlinearityKind
+from cem.experimental.afp.solution import AFPModel, AFPSolver
 from cem.structure.solution import ExecutionPacket, Telemetries
 
 

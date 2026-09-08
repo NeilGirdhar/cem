@@ -4,24 +4,26 @@ import jax
 import jax.numpy as jnp
 from tjax import RngStream
 
-from cem.phasor import (
-    Accumulator,
+from cem.experimental.phasor import (
     ElementwiseRotation,
     GatedProjection,
-    LogSpaceProjection,
-    LogSpaceProjectionWithDropout,
     LowRankMobiusSummation,
     MobiusPresenceRule,
     MobiusSummation,
     PhaseActivatedProjection,
     PhaseActivation,
-    ValueProjection,
-    interpolate,
     mobius_sum,
     mobius_sum_with_diagnostics,
     phase_warp,
     phasor_gate,
     rotate_by_location,
+)
+from cem.experimental.phasor.obsolete import (
+    Accumulator,
+    LogSpaceProjection,
+    LogSpaceProjectionWithDropout,
+    ValueProjection,
+    interpolate,
     select,
 )
 from cem.structure.graph import LearnableParameter, MetaParameter

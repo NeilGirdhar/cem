@@ -8,7 +8,7 @@ import jax.random as jr
 from jax.nn import sigmoid
 from tjax import JaxRealArray, RngStream
 
-from cem.phasor.message import JaxComplexArray
+from cem.experimental.phasor.message import JaxComplexArray
 from cem.structure.graph import LearnableParameter, NodeConfiguration
 
 

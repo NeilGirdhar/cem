@@ -6,8 +6,8 @@ from typing import Any, override
 from tjax import JaxArray
 from tjax.dataclasses import field
 
-from cem.phasor.mobius_summation import MobiusSummationDiagnostics
-from cem.phasor.target_node import PhasorTargetConfiguration
+from cem.experimental.phasor.mobius_summation import MobiusSummationDiagnostics
+from cem.experimental.phasor.target_node import PhasorTargetConfiguration
 from cem.structure.solution.inference import Inference, InferenceResult, TrainingResult
 from cem.structure.solution.telemetry import Telemetry
 from cem.structure.solution.training_solution import TrainingSolution

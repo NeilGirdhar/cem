@@ -5,11 +5,11 @@ import equinox as eqx
 import jax.numpy as jnp
 from tjax import JaxRealArray, RngStream
 
-from cem.phasor.elementwise_rotation import ElementwiseRotation
-from cem.phasor.evidence_pooling import EvidencePooling
-from cem.phasor.gate import phasor_gate
-from cem.phasor.message import JaxComplexArray
-from cem.phasor.mobius_summation import (
+from cem.experimental.phasor.elementwise_rotation import ElementwiseRotation
+from cem.experimental.phasor.evidence_pooling import EvidencePooling
+from cem.experimental.phasor.gate import phasor_gate
+from cem.experimental.phasor.message import JaxComplexArray
+from cem.experimental.phasor.mobius_summation import (
     MobiusPresenceRule,
     MobiusSummation,
     MobiusSummationDiagnostics,

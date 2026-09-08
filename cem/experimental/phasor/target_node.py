@@ -7,9 +7,9 @@ from efax import ExpectationParametrization, Flattener, HasEntropyEP, NaturalPar
 from jax.lax import stop_gradient
 from tjax import JaxArray, JaxRealArray, copy_cotangent, frozendict
 
-from cem.phasor.input_node import PhasorInputConfiguration
-from cem.phasor.loss import LossAndScore, phasor_reconstruction_loss_and_score
-from cem.phasor.message import JaxComplexArray
+from cem.experimental.phasor.input_node import PhasorInputConfiguration
+from cem.experimental.phasor.loss import LossAndScore, phasor_reconstruction_loss_and_score
+from cem.experimental.phasor.message import JaxComplexArray
 from cem.structure.graph import FixedParameter
 from cem.structure.graph.node import TargetConfiguration, TargetNode
 from cem.transforms import ArctangentPhaseMap

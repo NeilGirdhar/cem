@@ -5,7 +5,7 @@ from typing import Any, override
 
 import jax.numpy as jnp
 
-from cem.demos.afp.problem import IVProblem
+from cem.experimental.afp.problem import IVProblem
 from cem.structure.plotter import Demo, Plotter, Variant
 from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
 from cem.structure.solver import Solver

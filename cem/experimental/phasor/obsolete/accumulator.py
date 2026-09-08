@@ -2,7 +2,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from tjax import JaxArray
 
-from cem.phasor.gate import phasor_gate
+from cem.experimental.phasor.gate import phasor_gate
 
 
 class Accumulator(eqx.Module):

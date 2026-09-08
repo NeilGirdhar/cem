@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 
-from cem.phasor.message import phasor_concordance, phasor_to_real
+from cem.experimental.phasor.message import phasor_concordance, phasor_to_real
 
 
 def test_concordance_with_self_is_squared_presence() -> None:

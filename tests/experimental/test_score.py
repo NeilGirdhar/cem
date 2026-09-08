@@ -12,9 +12,9 @@ from efax import (
 from jax import tree
 from tjax import frozendict
 
+from cem.experimental.phasor.loss import LossAndScore, phasor_reconstruction_loss_and_score
+from cem.experimental.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
 from cem.perceptron.target_node import PerceptronTargetConfiguration, PerceptronTargetNode
-from cem.phasor.loss import LossAndScore, phasor_reconstruction_loss_and_score
-from cem.phasor.target_node import PhasorTargetConfiguration, PhasorTargetNode
 from cem.structure.graph import LearnableParameter, ParameterType
 from cem.transforms import ArctangentPhaseMap
 

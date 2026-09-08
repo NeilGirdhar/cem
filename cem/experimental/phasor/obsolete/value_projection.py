@@ -6,8 +6,8 @@ import jax
 import jax.numpy as jnp
 from tjax import RngStream
 
+from cem.experimental.phasor.message import JaxComplexArray, phasor_to_real
 from cem.perceptron import MLP
-from cem.phasor.message import JaxComplexArray, phasor_to_real
 
 
 class ValueProjection(eqx.Module):
