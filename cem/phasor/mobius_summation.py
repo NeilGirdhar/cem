@@ -31,16 +31,18 @@ class MobiusSummationDiagnostics(NodeConfiguration):
 
 
 def phase_warp(u: JaxComplexArray, weights: JaxRealArray) -> JaxComplexArray:
-    """Multiply unit phasor values by real weights in the Cayley coordinate.
+    """Apply a bounded, evidence-scaled Cayley-coordinate phase warp.
 
     The exceptional pair ``u == -1`` and ``weight == 0`` is assigned the
-    collapsed value ``+1``. This makes zero weight a total, noninvertible map.
+    collapsed value ``0``. The magnitude factor makes zero weight a total,
+    noninvertible map and prevents the warp from manufacturing evidence.
     """
     numerator = (1 + weights) * u + (1 - weights)
     denominator = (1 - weights) * u + (1 + weights)
     defined = denominator != 0
     safe_denominator = jnp.where(defined, denominator, 1)
-    return jnp.where(defined, numerator / safe_denominator, jnp.ones_like(numerator))
+    warped = jnp.where(defined, numerator / safe_denominator, jnp.ones_like(numerator))
+    return jnp.abs(weights) * warped
 
 
 def mobius_sum(
@@ -183,7 +185,7 @@ class MobiusSummation(eqx.Module):
         """Apply the learned Möbius summation bank."""
         return mobius_sum(
             x,
-            self.weights.value,
+            jnp.tanh(self.weights.value),
             sigmoid(self.participation_logits.value),
             presence_rule=self.presence_rule,
         )
@@ -194,7 +196,7 @@ class MobiusSummation(eqx.Module):
         """Apply the learned bank and return its intermediate presences."""
         return mobius_sum_with_diagnostics(
             x,
-            self.weights.value,
+            jnp.tanh(self.weights.value),
             sigmoid(self.participation_logits.value),
             presence_rule=self.presence_rule,
         )
@@ -257,7 +259,7 @@ class LowRankMobiusSummation(eqx.Module):
         """Apply the generated dense Möbius summation bank."""
         return mobius_sum(
             x,
-            self.weight_output.value @ self.weight_input.value,
+            jnp.tanh(self.weight_output.value @ self.weight_input.value),
             sigmoid(self.participation_output.value @ self.participation_input.value),
             presence_rule=self.presence_rule,
         )

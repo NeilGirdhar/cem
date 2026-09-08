@@ -424,7 +424,7 @@ def test_mobius_summation_reversal_endpoints() -> None:
 def test_phase_warp_zero_weight_is_finite_at_negative_one() -> None:
     assert jnp.allclose(
         phase_warp(jnp.array([-1.0 + 0.0j]), jnp.array([0.0])),
-        jnp.array([1.0 + 0.0j]),
+        jnp.array([0.0 + 0.0j]),
     )
 
 
