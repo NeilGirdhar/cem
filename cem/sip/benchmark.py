@@ -103,14 +103,15 @@ def run_synthetic_sip_benchmark(
         "purified": (0.05, 2.0, 0.005),
     }
     results: dict[str, SIPBenchmarkResult] = {}
-    for index, (name, (noise, confounding, witness_rate)) in enumerate(conditions.items()):
+    parameter_key = jr.key(seed + 1)
+    for name, (noise, confounding, witness_rate) in conditions.items():
         chain, history = _train_condition(
             initial_noise=noise,
             confounding_weight=confounding,
             witness_learning_rate=witness_rate,
             data=data,
             steps=steps,
-            key=jr.fold_in(jr.key(seed + 1), index),
+            key=parameter_key,
         )
         output = chain.infer(
             shifted_innovation,
@@ -119,7 +120,7 @@ def run_synthetic_sip_benchmark(
             parent_instruments,
             target,
             gain,
-            streams=create_streams({"inference": jr.key(seed + 2 + index)}),
+            streams=create_streams({"inference": jr.key(seed + 2)}),
             inference=True,
         )
         results[name] = SIPBenchmarkResult(
