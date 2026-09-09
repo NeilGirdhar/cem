@@ -2,6 +2,7 @@
 
 from cem.sip.emitter import EmitterOutput, SIPEmitter
 from cem.sip.model import SIPChain, SIPChainOutput
+from cem.sip.objectives import purification_loss, witness_loss
 from cem.sip.score import ScoreOutput, SIPScore
 
 __all__ = [
@@ -11,4 +12,6 @@ __all__ = [
     "SIPEmitter",
     "SIPScore",
     "ScoreOutput",
+    "purification_loss",
+    "witness_loss",
 ]

@@ -118,9 +118,11 @@ class SIPScore(eqx.Module):
             streams=streams,
             inference=inference,
         )
+        witness_norm = jnp.sqrt(jnp.mean(jnp.square(raw_witness), axis=-1, keepdims=True) + 1e-8)
+        normalized_witness = raw_witness / witness_norm
         gain = jnp.broadcast_to(gain, (*raw_prediction.shape[:-1], 1))
         prediction = gain * raw_prediction
-        witness = gain * raw_witness
+        witness = gain * normalized_witness
         observation_score = prediction - observation
         reconstruction_loss = 0.5 * jnp.sum(jnp.square(observation_score), axis=-1)
         confounding_error = jnp.sum(observation_score * witness, axis=-1)

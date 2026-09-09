@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams
 
-from cem.sip import SIPScore
+from cem.sip import SIPScore, purification_loss, witness_loss
 
 
 def _score() -> SIPScore:
@@ -79,3 +79,33 @@ def test_score_has_finite_gradients() -> None:
 
     gradients = jax.grad(loss)(score)
     assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(gradients))
+
+
+def test_witness_is_normalized_before_gain() -> None:
+    score = _score()
+    output = score.infer(
+        *_inputs()[:3],
+        jnp.array([1.0]),
+        streams=create_streams({"inference": jr.key(15)}),
+        inference=True,
+    )
+    assert jnp.allclose(jnp.mean(jnp.square(output.witness)), 1.0, atol=1e-3)
+
+
+def test_alternating_sip_objectives_have_finite_gradients() -> None:
+    score = _score()
+    inputs = _inputs()
+    streams = create_streams({"inference": jr.key(16)})
+
+    def predictor_objective(model: SIPScore) -> jnp.ndarray:
+        output = model.infer(*inputs, streams=streams, inference=True)
+        return purification_loss(output, confounding_weight=0.5)
+
+    def witness_objective(model: SIPScore) -> jnp.ndarray:
+        output = model.infer(*inputs, streams=streams, inference=True)
+        return witness_loss(output)
+
+    predictor_gradients = jax.grad(predictor_objective)(score)
+    witness_gradients = jax.grad(witness_objective)(score)
+    assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(predictor_gradients))
+    assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(witness_gradients))
