@@ -160,7 +160,11 @@ class SIPEmitter(eqx.Module):
         inherited_instrument = self.instrument_map.project(predictor_instruments)
         noise = jnp.zeros_like(raw_observation)
         if not inference:
-            noise = self.noise_magnitudes * jr.normal(
+            noise_magnitudes = jnp.reshape(
+                self.noise_magnitudes,
+                (1,) * (raw_observation.ndim - 1) + (-1,),
+            )
+            noise = noise_magnitudes * jr.normal(
                 streams["inference"].key(),
                 shape=raw_observation.shape,
                 dtype=raw_observation.dtype,
