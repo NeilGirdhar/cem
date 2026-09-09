@@ -85,3 +85,55 @@ def test_alternating_chain_training_records_finite_objectives() -> None:
     assert jnp.all(jnp.isfinite(history.purification_losses))
     assert jnp.all(jnp.isfinite(history.witness_losses))
     assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(trained))
+
+
+def test_adversarial_training_reduces_instrument_conditioned_residual() -> None:
+    count = 64
+    signal = jr.normal(jr.key(61), (count,))
+    clean_noise = jr.normal(jr.key(62), (count,))
+    instrument = jr.normal(jr.key(63), (count,))
+    observation = jnp.stack(
+        (signal + 0.8 * clean_noise, signal + 0.1 * instrument),
+        axis=-1,
+    )
+    target = signal[:, jnp.newaxis]
+    instruments = instrument[:, jnp.newaxis]
+    gain = jnp.ones((count, 1))
+
+    def train(*, adversarial: bool) -> SIPScore:
+        score = SIPScore.create(
+            predictor_observation_features=2,
+            predictor_instrument_features=1,
+            observation_features=1,
+            hidden_features=(),
+            streams=create_streams({"parameters": jr.key(64), "inference": jr.key(65)}),
+        )
+        trained, _ = train_score_adversarial(
+            score,
+            target,
+            observation,
+            instruments,
+            gain,
+            steps=300,
+            predictor_learning_rate=0.005,
+            witness_learning_rate=0.005 if adversarial else 0.0,
+            confounding_weight=2.0 if adversarial else 0.0,
+            streams=create_streams({"inference": jr.key(66)}),
+        )
+        return trained
+
+    def residual_correlation(score: SIPScore) -> jnp.ndarray:
+        output = score.infer(
+            target,
+            observation,
+            instruments,
+            gain,
+            streams=create_streams({"inference": jr.key(67)}),
+            inference=True,
+        )
+        residual = output.observation_score[:, 0]
+        return jnp.square(jnp.mean(residual * instruments[:, 0]))
+
+    ordinary_correlation = residual_correlation(train(adversarial=False))
+    adversarial_correlation = residual_correlation(train(adversarial=True))
+    assert adversarial_correlation < ordinary_correlation
