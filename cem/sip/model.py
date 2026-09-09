@@ -24,7 +24,7 @@ class SIPChain(eqx.Module):
     score: SIPScore
 
     @classmethod
-    def create(
+    def create(  # ruff: ignore[too-many-arguments]
         cls,
         innovation_features: int,
         goal_features: int,
@@ -34,6 +34,7 @@ class SIPChain(eqx.Module):
         *,
         hidden_features: int | tuple[int, ...] = (),
         initial_noise: float = 1e-3,
+        learn_noise: bool = True,
         streams: Mapping[str, RngStream],
     ) -> Self:
         emitter = SIPEmitter.create(
@@ -43,6 +44,7 @@ class SIPChain(eqx.Module):
             source_features,
             hidden_features=hidden_features,
             initial_noise=initial_noise,
+            learn_noise=learn_noise,
             streams=streams,
         )
         score = SIPScore.create(

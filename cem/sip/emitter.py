@@ -7,6 +7,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+from jax.lax import stop_gradient
 from tjax import JaxRealArray, RngStream
 
 from cem.perceptron.mlp import MLP
@@ -67,6 +68,7 @@ class SIPEmitter(eqx.Module):
     observation_features: int = eqx.field(static=True)
     goal_features: int = eqx.field(static=True)
     predictor_instrument_features: int = eqx.field(static=True)
+    learn_noise: bool = eqx.field(static=True)
 
     @classmethod
     def create(
@@ -78,6 +80,7 @@ class SIPEmitter(eqx.Module):
         *,
         hidden_features: int | tuple[int, ...] = (),
         initial_noise: float = 1e-3,
+        learn_noise: bool = True,
         streams: Mapping[str, RngStream],
     ) -> Self:
         dimensions = (
@@ -112,12 +115,14 @@ class SIPEmitter(eqx.Module):
             observation_features=observation_features,
             goal_features=goal_features,
             predictor_instrument_features=predictor_instrument_features,
+            learn_noise=learn_noise,
         )
 
     @property
     def noise_magnitudes(self) -> JaxRealArray:
         """Learned nonnegative intervention scale per channel."""
-        return jax.nn.softplus(self.noise_logits.value)
+        magnitudes = jax.nn.softplus(self.noise_logits.value)
+        return magnitudes if self.learn_noise else stop_gradient(magnitudes)
 
     @staticmethod
     def _feature_vector(value: JaxRealArray, expected_features: int) -> JaxRealArray:
