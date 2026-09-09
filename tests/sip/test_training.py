@@ -1,3 +1,4 @@
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -137,3 +138,117 @@ def test_adversarial_training_reduces_instrument_conditioned_residual() -> None:
     ordinary_correlation = residual_correlation(train(adversarial=False))
     adversarial_correlation = residual_correlation(train(adversarial=True))
     assert adversarial_correlation < ordinary_correlation
+
+
+def test_full_chain_purification_survives_shifted_confounding() -> None:
+    count = 32
+    signal = jr.normal(jr.key(1), (count,))
+    clean_noise = jr.normal(jr.key(2), (count,))
+    instrument = jr.normal(jr.key(3), (count,))
+    training_innovation = jnp.stack(
+        (signal + 0.5 * clean_noise, signal + 0.1 * instrument),
+        axis=-1,
+    )
+    shifted_innovation = jnp.stack(
+        (signal + 0.5 * clean_noise, jr.normal(jr.key(8), (count,))),
+        axis=-1,
+    )
+    goal = jnp.zeros((count, 1))
+    parent_instruments = instrument[:, jnp.newaxis]
+    gain = jnp.ones((count, 1))
+    target = signal[:, jnp.newaxis]
+
+    def train(*, adversarial: bool) -> SIPChain:
+        chain = SIPChain.create(
+            innovation_features=2,
+            goal_features=1,
+            parent_instrument_features=1,
+            source_features=2,
+            target_features=1,
+            hidden_features=(),
+            initial_noise=0.05,
+            learn_noise=False,
+            streams=create_streams({"parameters": jr.key(4), "inference": jr.key(5)}),
+        )
+        trained, _ = train_chain_adversarial(
+            chain,
+            training_innovation,
+            goal,
+            gain,
+            parent_instruments,
+            target,
+            gain,
+            steps=100,
+            predictor_learning_rate=0.005,
+            witness_learning_rate=0.005 if adversarial else 0.0,
+            confounding_weight=2.0 if adversarial else 0.0,
+            streams=create_streams({"inference": jr.key(6)}),
+        )
+        return trained
+
+    def shifted_loss(chain: SIPChain) -> jnp.ndarray:
+        output = chain.infer(
+            shifted_innovation,
+            goal,
+            gain,
+            parent_instruments,
+            target,
+            gain,
+            streams=create_streams({"inference": jr.key(7)}),
+            inference=True,
+        )
+        return jnp.mean(output.target.reconstruction_loss)
+
+    ordinary_error = shifted_loss(train(adversarial=False))
+    adversarial_error = shifted_loss(train(adversarial=True))
+    assert adversarial_error < ordinary_error
+
+
+def test_chain_witness_update_does_not_change_predictor_path() -> None:
+    count = 8
+    innovation = jr.normal(jr.key(76), (count, 2))
+    goal = jnp.zeros((count, 1))
+    gain = jnp.ones((count, 1))
+    parent_instruments = jr.normal(jr.key(77), (count, 1))
+    target = innovation[:, :1]
+    initial = SIPChain.create(
+        innovation_features=2,
+        goal_features=1,
+        parent_instrument_features=1,
+        source_features=2,
+        target_features=1,
+        hidden_features=(),
+        streams=create_streams({"parameters": jr.key(78), "inference": jr.key(79)}),
+    )
+    trained, _ = train_chain_adversarial(
+        initial,
+        innovation,
+        goal,
+        gain,
+        parent_instruments,
+        target,
+        gain,
+        steps=2,
+        predictor_learning_rate=0.0,
+        witness_learning_rate=0.01,
+        streams=create_streams({"inference": jr.key(80)}),
+    )
+
+    assert all(
+        jnp.allclose(before, after)
+        for before, after in zip(
+            jax.tree.leaves(initial.emitter),
+            jax.tree.leaves(trained.emitter),
+            strict=True,
+        )
+        if eqx.is_array(before)
+    )
+    assert all(
+        jnp.allclose(before, after)
+        for before, after in zip(
+            jax.tree.leaves(initial.score.prediction_map),
+            jax.tree.leaves(trained.score.prediction_map),
+            strict=True,
+        )
+        if eqx.is_array(before)
+    )
