@@ -7,6 +7,19 @@ from tjax import JaxRealArray
 from cem.sip.score import ScoreOutput
 
 
+def _confounding_moment(
+    residual: JaxRealArray,
+    witness: JaxRealArray,
+) -> JaxRealArray:
+    if residual.ndim == 1:
+        residual = residual[jnp.newaxis, :]
+        witness = witness[jnp.newaxis, :]
+    residual -= jnp.mean(residual, axis=0, keepdims=True)
+    witness -= jnp.mean(witness, axis=0, keepdims=True)
+    moment = jnp.mean(residual * witness, axis=0)
+    return jnp.sum(jnp.square(moment))
+
+
 def purification_loss(
     output: ScoreOutput,
     *,
@@ -16,13 +29,17 @@ def purification_loss(
     if confounding_weight < 0.0:
         msg = "confounding_weight must be nonnegative"
         raise ValueError(msg)
-    residual = output.observation_score
-    confounding = jnp.square(jnp.sum(residual * stop_gradient(output.witness), axis=-1))
-    return jnp.mean(output.reconstruction_loss + confounding_weight * confounding)
+    confounding = _confounding_moment(
+        output.observation_score,
+        stop_gradient(output.witness),
+    )
+    return jnp.mean(output.reconstruction_loss) + confounding_weight * confounding
 
 
 def witness_loss(output: ScoreOutput) -> JaxRealArray:
     """Train the witness to expose predictable residual structure."""
-    residual = stop_gradient(output.observation_score)
-    confounding = jnp.square(jnp.sum(residual * output.witness, axis=-1))
-    return -jnp.mean(confounding)
+    confounding = _confounding_moment(
+        stop_gradient(output.observation_score),
+        output.witness,
+    )
+    return -confounding

@@ -1,6 +1,12 @@
 """Self-instrumental purification components."""
 
-from cem.sip.benchmark import SIPBenchmarkResult, run_synthetic_sip_benchmark
+from cem.sip.benchmark import (
+    CausalBenchmarkResult,
+    SIPBenchmarkResult,
+    run_action_sensation_benchmark,
+    run_confounded_action_benchmark,
+    run_synthetic_sip_benchmark,
+)
 from cem.sip.emitter import EmitterOutput, SIPEmitter
 from cem.sip.model import SIPChain, SIPChainOutput
 from cem.sip.objectives import purification_loss, witness_loss
@@ -12,6 +18,7 @@ from cem.sip.training import (
 )
 
 __all__ = [
+    "CausalBenchmarkResult",
     "EmitterOutput",
     "SIPBenchmarkResult",
     "SIPChain",
@@ -21,6 +28,8 @@ __all__ = [
     "SIPTrainingHistory",
     "ScoreOutput",
     "purification_loss",
+    "run_action_sensation_benchmark",
+    "run_confounded_action_benchmark",
     "run_synthetic_sip_benchmark",
     "train_chain_adversarial",
     "train_score_adversarial",
