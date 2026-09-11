@@ -4,11 +4,11 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams
 
-from cem.sip import SIPChain
+from cem.sip import ExplanatoryCoupling
 
 
-def _chain() -> SIPChain:
-    return SIPChain.create(
+def _coupling() -> ExplanatoryCoupling:
+    return ExplanatoryCoupling.create(
         innovation_features=2,
         goal_features=1,
         parent_instrument_features=2,
@@ -31,9 +31,9 @@ def _inputs() -> tuple[jnp.ndarray, ...]:
     )
 
 
-def test_chain_connects_source_observation_and_instrument() -> None:
-    chain = _chain()
-    result = chain.infer(
+def test_coupling_connects_source_observation_and_instrument() -> None:
+    coupling = _coupling()
+    result = coupling.infer(
         *_inputs(),
         streams=create_streams({"inference": jr.key(22)}),
         inference=True,
@@ -45,28 +45,28 @@ def test_chain_connects_source_observation_and_instrument() -> None:
     assert jnp.all(jnp.isfinite(result.target.observation_score))
 
 
-def test_chain_gradients_reach_emitter_and_score() -> None:
-    chain = _chain()
+def test_coupling_gradients_reach_emitter_and_score() -> None:
+    coupling = _coupling()
     inputs = _inputs()
     streams = create_streams({"inference": jr.key(23)})
 
-    def loss(model: SIPChain) -> jnp.ndarray:
-        output = model.infer(*inputs, streams=streams, inference=True)
+    def loss(current: ExplanatoryCoupling) -> jnp.ndarray:
+        output = current.infer(*inputs, streams=streams, inference=True)
         return output.target.reconstruction_loss + output.target.confounding_error**2
 
-    gradients = jax.grad(loss)(chain)
+    gradients = jax.grad(loss)(coupling)
     assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(gradients))
 
 
-def test_chain_passes_intervention_noise_to_downstream_prediction() -> None:
-    chain = _chain()
+def test_intervention_noise_reaches_downstream_prediction() -> None:
+    coupling = _coupling()
     inputs = _inputs()
-    first = chain.infer(
+    first = coupling.infer(
         *inputs,
         streams=create_streams({"inference": jr.key(24)}),
         inference=False,
     )
-    second = chain.infer(
+    second = coupling.infer(
         *inputs,
         streams=create_streams({"inference": jr.key(25)}),
         inference=False,
@@ -77,15 +77,15 @@ def test_chain_passes_intervention_noise_to_downstream_prediction() -> None:
     assert not jnp.allclose(first.target.prediction, second.target.prediction)
 
 
-def test_chain_is_deterministic_without_intervention_noise() -> None:
-    chain = _chain()
+def test_coupling_is_deterministic_without_intervention_noise() -> None:
+    coupling = _coupling()
     inputs = _inputs()
-    first = chain.infer(
+    first = coupling.infer(
         *inputs,
         streams=create_streams({"inference": jr.key(26)}),
         inference=True,
     )
-    second = chain.infer(
+    second = coupling.infer(
         *inputs,
         streams=create_streams({"inference": jr.key(27)}),
         inference=True,
@@ -96,8 +96,8 @@ def test_chain_is_deterministic_without_intervention_noise() -> None:
     assert jnp.allclose(first.target.prediction, second.target.prediction)
 
 
-def test_chain_learns_a_synthetic_target_relation() -> None:
-    """Both emitter and score weights can learn through a noisy observation."""
+def test_coupling_learns_a_synthetic_target_relation() -> None:
+    """The emitter and score weights can learn through a noisy observation."""
     key = jr.key(28)
     innovation_key, goal_key, parent_key, target_key = jr.split(key, 4)
     innovation = jr.normal(innovation_key, (32, 2))
@@ -107,7 +107,7 @@ def test_chain_learns_a_synthetic_target_relation() -> None:
     target_observation = innovation[:, :1] + 0.2 * jr.normal(target_key, (32, 1))
     target_gain = jnp.ones((32, 1))
     noise_stream_key = jr.key(29)
-    model = SIPChain.create(
+    coupling = ExplanatoryCoupling.create(
         innovation_features=2,
         goal_features=1,
         parent_instrument_features=1,
@@ -118,7 +118,7 @@ def test_chain_learns_a_synthetic_target_relation() -> None:
         streams=create_streams({"parameters": jr.key(30), "inference": jr.key(31)}),
     )
 
-    def loss(current: SIPChain, step: int) -> jnp.ndarray:
+    def loss(current: ExplanatoryCoupling, step: int) -> jnp.ndarray:
         result = current.infer(
             innovation,
             goal,
@@ -131,17 +131,20 @@ def test_chain_learns_a_synthetic_target_relation() -> None:
         )
         return jnp.mean(result.target.reconstruction_loss)
 
-    initial_loss = loss(model, 0)
+    initial_loss = loss(coupling, 0)
     for step in range(1, 61):
-        _, gradients = eqx.filter_value_and_grad(loss)(model, step)
-        model = eqx.apply_updates(model, jax.tree.map(lambda value: -0.03 * value, gradients))
-    final_loss = loss(model, 61)
+        _, gradients = eqx.filter_value_and_grad(loss)(coupling, step)
+        coupling = eqx.apply_updates(
+            coupling,
+            jax.tree.map(lambda value: -0.03 * value, gradients),
+        )
+    final_loss = loss(coupling, 61)
 
     assert final_loss < 0.75 * initial_loss
 
 
-def test_fixed_intervention_noise_improves_full_chain_shifted_error() -> None:
-    """A fixed SIP intervention can improve robustness through the whole chain."""
+def test_fixed_intervention_noise_improves_coupling_shifted_error() -> None:
+    """A fixed SIP intervention can improve coupling robustness under a shift."""
     key = jr.key(37)
     signal_key, stable_key, nuisance_key, shift_key = jr.split(key, 4)
     count = 32
@@ -156,8 +159,8 @@ def test_fixed_intervention_noise_improves_full_chain_shifted_error() -> None:
     target = signal[:, jnp.newaxis]
     noise_key = jr.key(38)
 
-    def train(initial_noise: float) -> SIPChain:
-        model = SIPChain.create(
+    def train(initial_noise: float) -> ExplanatoryCoupling:
+        coupling = ExplanatoryCoupling.create(
             innovation_features=2,
             goal_features=1,
             parent_instrument_features=1,
@@ -170,7 +173,7 @@ def test_fixed_intervention_noise_improves_full_chain_shifted_error() -> None:
         )
         for step in range(80):
 
-            def loss(current: SIPChain, update_step: int) -> jnp.ndarray:
+            def loss(current: ExplanatoryCoupling, update_step: int) -> jnp.ndarray:
                 result = current.infer(
                     training_innovation,
                     goal,
@@ -183,12 +186,15 @@ def test_fixed_intervention_noise_improves_full_chain_shifted_error() -> None:
                 )
                 return jnp.mean(result.target.reconstruction_loss)
 
-            _, gradients = eqx.filter_value_and_grad(loss)(model, step)
-            model = eqx.apply_updates(model, jax.tree.map(lambda value: -0.02 * value, gradients))
-        return model
+            _, gradients = eqx.filter_value_and_grad(loss)(coupling, step)
+            coupling = eqx.apply_updates(
+                coupling,
+                jax.tree.map(lambda value: -0.02 * value, gradients),
+            )
+        return coupling
 
-    def shifted_loss(model: SIPChain) -> jnp.ndarray:
-        result = model.infer(
+    def shifted_loss(coupling: ExplanatoryCoupling) -> jnp.ndarray:
+        result = coupling.infer(
             shifted_innovation,
             goal,
             gain,

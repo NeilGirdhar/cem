@@ -4,7 +4,12 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams
 
-from cem.sip import SIPChain, SIPScore, train_chain_adversarial, train_score_adversarial
+from cem.sip import (
+    ExplanatoryCoupling,
+    SIPScore,
+    train_explanatory_coupling_adversarial,
+    train_score_adversarial,
+)
 
 
 def test_alternating_score_training_records_finite_objectives() -> None:
@@ -49,7 +54,7 @@ def test_alternating_score_training_records_finite_objectives() -> None:
     assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(trained))
 
 
-def test_alternating_chain_training_records_finite_objectives() -> None:
+def test_alternating_coupling_training_records_finite_objectives() -> None:
     count = 16
     innovation = jr.normal(jr.key(55), (count, 2))
     goal = jr.normal(jr.key(56), (count, 1))
@@ -57,7 +62,7 @@ def test_alternating_chain_training_records_finite_objectives() -> None:
     parent_instruments = jr.normal(jr.key(57), (count, 1))
     target_observation = innovation[:, :1]
     target_gain = jnp.ones((count, 1))
-    chain = SIPChain.create(
+    coupling = ExplanatoryCoupling.create(
         innovation_features=2,
         goal_features=1,
         parent_instrument_features=1,
@@ -67,8 +72,8 @@ def test_alternating_chain_training_records_finite_objectives() -> None:
         streams=create_streams({"parameters": jr.key(58), "inference": jr.key(59)}),
     )
 
-    trained, history = train_chain_adversarial(
-        chain,
+    trained, history = train_explanatory_coupling_adversarial(
+        coupling,
         innovation,
         goal,
         source_gain,
@@ -140,7 +145,7 @@ def test_adversarial_training_reduces_instrument_conditioned_residual() -> None:
     assert adversarial_correlation < ordinary_correlation
 
 
-def test_full_chain_purification_survives_shifted_confounding() -> None:
+def test_explanatory_coupling_purification_survives_shifted_confounding() -> None:
     count = 32
     signal = jr.normal(jr.key(1), (count,))
     clean_noise = jr.normal(jr.key(2), (count,))
@@ -158,8 +163,8 @@ def test_full_chain_purification_survives_shifted_confounding() -> None:
     gain = jnp.ones((count, 1))
     target = signal[:, jnp.newaxis]
 
-    def train(*, adversarial: bool) -> SIPChain:
-        chain = SIPChain.create(
+    def train(*, adversarial: bool) -> ExplanatoryCoupling:
+        coupling = ExplanatoryCoupling.create(
             innovation_features=2,
             goal_features=1,
             parent_instrument_features=1,
@@ -170,8 +175,8 @@ def test_full_chain_purification_survives_shifted_confounding() -> None:
             learn_noise=False,
             streams=create_streams({"parameters": jr.key(4), "inference": jr.key(5)}),
         )
-        trained, _ = train_chain_adversarial(
-            chain,
+        trained, _ = train_explanatory_coupling_adversarial(
+            coupling,
             training_innovation,
             goal,
             gain,
@@ -186,8 +191,8 @@ def test_full_chain_purification_survives_shifted_confounding() -> None:
         )
         return trained
 
-    def shifted_loss(chain: SIPChain) -> jnp.ndarray:
-        output = chain.infer(
+    def shifted_loss(coupling: ExplanatoryCoupling) -> jnp.ndarray:
+        output = coupling.infer(
             shifted_innovation,
             goal,
             gain,
@@ -204,14 +209,14 @@ def test_full_chain_purification_survives_shifted_confounding() -> None:
     assert adversarial_error < ordinary_error
 
 
-def test_chain_witness_update_does_not_change_predictor_path() -> None:
+def test_coupling_witness_update_does_not_change_predictor_path() -> None:
     count = 8
     innovation = jr.normal(jr.key(76), (count, 2))
     goal = jnp.zeros((count, 1))
     gain = jnp.ones((count, 1))
     parent_instruments = jr.normal(jr.key(77), (count, 1))
     target = innovation[:, :1]
-    initial = SIPChain.create(
+    initial = ExplanatoryCoupling.create(
         innovation_features=2,
         goal_features=1,
         parent_instrument_features=1,
@@ -220,7 +225,7 @@ def test_chain_witness_update_does_not_change_predictor_path() -> None:
         hidden_features=(),
         streams=create_streams({"parameters": jr.key(78), "inference": jr.key(79)}),
     )
-    trained, _ = train_chain_adversarial(
+    trained, _ = train_explanatory_coupling_adversarial(
         initial,
         innovation,
         goal,

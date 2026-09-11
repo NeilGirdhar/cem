@@ -1,4 +1,4 @@
-"""Small real-valued SIP chains used for integration tests."""
+"""A real-valued explanatory coupling between two SIP features."""
 
 from collections.abc import Mapping
 from typing import Self
@@ -10,15 +10,15 @@ from cem.sip.emitter import EmitterOutput, SIPEmitter
 from cem.sip.score import ScoreOutput, SIPScore
 
 
-class SIPChainOutput(eqx.Module):
-    """Outputs from one source-emitter to target-score chain."""
+class ExplanatoryCouplingOutput(eqx.Module):
+    """Outputs from a source emitter and its downstream target score."""
 
     source: EmitterOutput
     target: ScoreOutput
 
 
-class SIPChain(eqx.Module):
-    """Connect one real-valued emitter to one real-valued score circuit."""
+class ExplanatoryCoupling(eqx.Module):
+    """Couple a source emitter to a downstream target score circuit."""
 
     emitter: SIPEmitter
     score: SIPScore
@@ -67,8 +67,8 @@ class SIPChain(eqx.Module):
         *,
         streams: Mapping[str, RngStream],
         inference: bool,
-    ) -> SIPChainOutput:
-        """Run the source emitter and score its target."""
+    ) -> ExplanatoryCouplingOutput:
+        """Emit the source feature and use it to score the target observation."""
         source = self.emitter.infer(
             innovation,
             goal,
@@ -85,4 +85,4 @@ class SIPChain(eqx.Module):
             streams=streams,
             inference=inference,
         )
-        return SIPChainOutput(source=source, target=target)
+        return ExplanatoryCouplingOutput(source=source, target=target)

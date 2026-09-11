@@ -1,4 +1,4 @@
-"""Reproducible synthetic benchmarks for the real-valued SIP chain."""
+"""Reproducible synthetic benchmarks for real-valued SIP."""
 
 from dataclasses import dataclass
 
@@ -6,11 +6,11 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams
 
-from cem.sip.model import SIPChain
+from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.score import SIPScore
 from cem.sip.training import (
     SIPTrainingHistory,
-    train_chain_adversarial,
+    train_explanatory_coupling_adversarial,
     train_score_adversarial,
 )
 
@@ -71,9 +71,9 @@ def _train_condition(
     data: tuple[jnp.ndarray, ...],
     steps: int,
     key: jnp.ndarray,
-) -> tuple[SIPChain, SIPTrainingHistory]:
+) -> tuple[ExplanatoryCoupling, SIPTrainingHistory]:
     training_innovation, _, goal, parent_instruments, gain, target = data
-    chain = SIPChain.create(
+    coupling = ExplanatoryCoupling.create(
         innovation_features=2,
         goal_features=1,
         parent_instrument_features=1,
@@ -84,8 +84,8 @@ def _train_condition(
         learn_noise=False,
         streams=create_streams({"parameters": jr.fold_in(key, 0), "inference": jr.fold_in(key, 1)}),
     )
-    return train_chain_adversarial(
-        chain,
+    return train_explanatory_coupling_adversarial(
+        coupling,
         training_innovation,
         goal,
         gain,
@@ -106,7 +106,7 @@ def run_synthetic_sip_benchmark(
     steps: int = 100,
     seed: int = 0,
 ) -> dict[str, SIPBenchmarkResult]:
-    """Compare ordinary, noisy, and purified chains on shifted confounding."""
+    """Compare ordinary, noisy, and purified couplings under shifted confounding."""
     if count < 1 or steps < 1:
         msg = "count and steps must be positive"
         raise ValueError(msg)
@@ -120,7 +120,7 @@ def run_synthetic_sip_benchmark(
     results: dict[str, SIPBenchmarkResult] = {}
     parameter_key = jr.key(seed + 1)
     for name, (noise, confounding, witness_rate) in conditions.items():
-        chain, history = _train_condition(
+        coupling, history = _train_condition(
             initial_noise=noise,
             confounding_weight=confounding,
             witness_learning_rate=witness_rate,
@@ -128,7 +128,7 @@ def run_synthetic_sip_benchmark(
             steps=steps,
             key=parameter_key,
         )
-        output = chain.infer(
+        output = coupling.infer(
             shifted_innovation,
             goal,
             gain,
@@ -147,7 +147,7 @@ def run_synthetic_sip_benchmark(
                 )
             ),
             witness_loss=float(history.witness_losses[-1]),
-            noise_magnitudes=tuple(float(value) for value in chain.emitter.noise_magnitudes),
+            noise_magnitudes=tuple(float(value) for value in coupling.emitter.noise_magnitudes),
         )
     return results
 

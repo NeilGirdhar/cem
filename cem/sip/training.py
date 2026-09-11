@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 from tjax import JaxRealArray, RngStream
 
-from cem.sip.model import SIPChain
+from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.objectives import purification_loss, witness_loss
 from cem.sip.score import SIPScore
 
@@ -109,8 +109,8 @@ def train_score_adversarial(  # ruff: ignore[too-many-arguments]
     )
 
 
-def train_chain_adversarial(  # ruff: ignore[too-many-arguments]
-    chain: SIPChain,
+def train_explanatory_coupling_adversarial(  # ruff: ignore[too-many-arguments]
+    coupling: ExplanatoryCoupling,
     innovation: JaxRealArray,
     goal: JaxRealArray,
     source_gain: JaxRealArray,
@@ -123,8 +123,8 @@ def train_chain_adversarial(  # ruff: ignore[too-many-arguments]
     witness_learning_rate: float,
     confounding_weight: float = 1.0,
     streams: Mapping[str, RngStream],
-) -> tuple[SIPChain, SIPTrainingHistory]:
-    """Alternate purification and witness updates through an entire SIP chain."""
+) -> tuple[ExplanatoryCoupling, SIPTrainingHistory]:
+    """Alternate purification and witness updates through an explanatory coupling."""
     if steps < 1:
         msg = "steps must be positive"
         raise ValueError(msg)
@@ -136,7 +136,7 @@ def train_chain_adversarial(  # ruff: ignore[too-many-arguments]
     witness_losses: list[JaxRealArray] = []
     for _ in range(steps):
 
-        def predictor_objective(current: SIPChain) -> JaxRealArray:
+        def predictor_objective(current: ExplanatoryCoupling) -> JaxRealArray:
             output = current.infer(
                 innovation,
                 goal,
@@ -149,21 +149,23 @@ def train_chain_adversarial(  # ruff: ignore[too-many-arguments]
             )
             return purification_loss(output.target, confounding_weight=confounding_weight)
 
-        predictor_value, predictor_gradients = eqx.filter_value_and_grad(predictor_objective)(chain)
+        predictor_value, predictor_gradients = eqx.filter_value_and_grad(predictor_objective)(
+            coupling
+        )
         predictor_gradients = eqx.tree_at(
             lambda gradients: gradients.score.witness_map,
             predictor_gradients,
             _zero_tree(predictor_gradients.score.witness_map),
         )
-        chain = eqx.apply_updates(
-            chain,
+        coupling = eqx.apply_updates(
+            coupling,
             jax.tree.map(
                 lambda value: -predictor_learning_rate * value,
                 predictor_gradients,
             ),
         )
 
-        def witness_objective(current: SIPChain) -> JaxRealArray:
+        def witness_objective(current: ExplanatoryCoupling) -> JaxRealArray:
             output = current.infer(
                 innovation,
                 goal,
@@ -176,7 +178,7 @@ def train_chain_adversarial(  # ruff: ignore[too-many-arguments]
             )
             return witness_loss(output.target)
 
-        witness_value, witness_gradients = eqx.filter_value_and_grad(witness_objective)(chain)
+        witness_value, witness_gradients = eqx.filter_value_and_grad(witness_objective)(coupling)
         witness_gradients = eqx.tree_at(
             lambda gradients: gradients.emitter,
             witness_gradients,
@@ -187,8 +189,8 @@ def train_chain_adversarial(  # ruff: ignore[too-many-arguments]
             witness_gradients,
             _zero_tree(witness_gradients.score.prediction_map),
         )
-        chain = eqx.apply_updates(
-            chain,
+        coupling = eqx.apply_updates(
+            coupling,
             jax.tree.map(
                 lambda value: -witness_learning_rate * value,
                 witness_gradients,
@@ -197,7 +199,7 @@ def train_chain_adversarial(  # ruff: ignore[too-many-arguments]
         purification_losses.append(predictor_value)
         witness_losses.append(witness_value)
 
-    return chain, SIPTrainingHistory(
+    return coupling, SIPTrainingHistory(
         purification_losses=jnp.stack(purification_losses),
         witness_losses=jnp.stack(witness_losses),
     )
