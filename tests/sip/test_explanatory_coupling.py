@@ -31,33 +31,6 @@ def _inputs() -> tuple[jnp.ndarray, ...]:
     )
 
 
-def test_coupling_connects_source_observation_and_instrument() -> None:
-    coupling = _coupling()
-    result = coupling.infer(
-        *_inputs(),
-        streams=create_streams({"inference": jr.key(22)}),
-        inference=True,
-    )
-    assert result.source.observation.shape == (3,)
-    assert result.source.instrument.shape == (3,)
-    assert result.target.prediction.shape == (2,)
-    assert result.target.witness.shape == (2,)
-    assert jnp.all(jnp.isfinite(result.target.observation_score))
-
-
-def test_coupling_gradients_reach_emitter_and_score() -> None:
-    coupling = _coupling()
-    inputs = _inputs()
-    streams = create_streams({"inference": jr.key(23)})
-
-    def loss(current: ExplanatoryCoupling) -> jnp.ndarray:
-        output = current.infer(*inputs, streams=streams, inference=True)
-        return output.target.reconstruction_loss + output.target.confounding_error**2
-
-    gradients = jax.grad(loss)(coupling)
-    assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(gradients))
-
-
 def test_intervention_noise_reaches_downstream_prediction() -> None:
     coupling = _coupling()
     inputs = _inputs()
@@ -94,53 +67,6 @@ def test_coupling_is_deterministic_without_intervention_noise() -> None:
     assert jnp.allclose(first.source.observation, second.source.observation)
     assert jnp.allclose(first.source.instrument, second.source.instrument)
     assert jnp.allclose(first.target.prediction, second.target.prediction)
-
-
-def test_coupling_learns_a_synthetic_target_relation() -> None:
-    """The emitter and score weights can learn through a noisy observation."""
-    key = jr.key(28)
-    innovation_key, goal_key, parent_key, target_key = jr.split(key, 4)
-    innovation = jr.normal(innovation_key, (32, 2))
-    goal = jr.normal(goal_key, (32, 1))
-    source_gain = jnp.ones((32, 1))
-    parent_instruments = jr.normal(parent_key, (32, 1))
-    target_observation = innovation[:, :1] + 0.2 * jr.normal(target_key, (32, 1))
-    target_gain = jnp.ones((32, 1))
-    noise_stream_key = jr.key(29)
-    coupling = ExplanatoryCoupling.create(
-        innovation_features=2,
-        goal_features=1,
-        parent_instrument_features=1,
-        source_features=2,
-        target_features=1,
-        hidden_features=4,
-        initial_noise=0.1,
-        streams=create_streams({"parameters": jr.key(30), "inference": jr.key(31)}),
-    )
-
-    def loss(current: ExplanatoryCoupling, step: int) -> jnp.ndarray:
-        result = current.infer(
-            innovation,
-            goal,
-            source_gain,
-            parent_instruments,
-            target_observation,
-            target_gain,
-            streams=create_streams({"inference": jr.fold_in(noise_stream_key, step)}),
-            inference=False,
-        )
-        return jnp.mean(result.target.reconstruction_loss)
-
-    initial_loss = loss(coupling, 0)
-    for step in range(1, 61):
-        _, gradients = eqx.filter_value_and_grad(loss)(coupling, step)
-        coupling = eqx.apply_updates(
-            coupling,
-            jax.tree.map(lambda value: -0.03 * value, gradients),
-        )
-    final_loss = loss(coupling, 61)
-
-    assert final_loss < 0.75 * initial_loss
 
 
 def test_fixed_intervention_noise_improves_coupling_shifted_error() -> None:

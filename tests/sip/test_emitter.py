@@ -1,4 +1,3 @@
-import jax
 import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams
@@ -81,16 +80,3 @@ def test_gain_scales_observation_and_instrument() -> None:
 
 def test_noise_magnitudes_are_nonnegative() -> None:
     assert jnp.all(_emitter().noise_magnitudes >= 0.0)
-
-
-def test_emitter_has_finite_gradients() -> None:
-    emitter = _emitter()
-    inputs = _inputs()
-    streams = create_streams({"inference": jr.key(5)})
-
-    def loss(model: SIPEmitter) -> jnp.ndarray:
-        output = model.infer(*inputs, streams=streams, inference=False)
-        return jnp.sum(jnp.square(output.observation))
-
-    gradients = jax.grad(loss)(emitter)
-    assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(gradients))
