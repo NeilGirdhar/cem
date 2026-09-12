@@ -2,7 +2,9 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 import jax._src.xla_bridge as xb  # ruff:ignore[import-private-name]
-import numpy as np
+
+# Load NumPy's BLAS before ThreadpoolController snapshots loaded libraries.
+import numpy as np  # ruff: ignore[unused-import]
 from jax import (
     enable_custom_prng,
     enable_x64,
@@ -13,7 +15,6 @@ from jax import (
 from jax.experimental.compilation_cache import compilation_cache as cc
 from threadpoolctl import ThreadpoolController
 
-assert np  # Required for ThreadpoolController.
 tc = ThreadpoolController()
 
 
