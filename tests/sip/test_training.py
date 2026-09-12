@@ -13,6 +13,13 @@ from cem.sip import (
 
 
 def test_adversarial_training_reduces_instrument_conditioned_residual() -> None:
+    """Purification removes residual structure explained by the instrument.
+
+    The predictor receives a noisy instrument-free feature and a more accurate feature
+    contaminated by the instrument. Compared with reconstruction-only training,
+    adversarial witness training must reduce the squared mean score-instrument product.
+    This statistic is an unnormalized cross-moment, not a normalized correlation.
+    """
     count = 64
     signal = jr.normal(jr.key(61), (count,))
     clean_noise = jr.normal(jr.key(62), (count,))
@@ -65,6 +72,13 @@ def test_adversarial_training_reduces_instrument_conditioned_residual() -> None:
 
 
 def test_explanatory_coupling_purification_survives_shifted_confounding() -> None:
+    """Purification improves an explanatory coupling under shifted confounding.
+
+    The source contains a stable noisy feature and an instrument-contaminated nuisance
+    feature that becomes independent noise at evaluation. A coupling trained with the
+    witness and confounding objective must have lower shifted reconstruction loss than
+    one trained for reconstruction alone.
+    """
     count = 32
     signal = jr.normal(jr.key(1), (count,))
     clean_noise = jr.normal(jr.key(2), (count,))
@@ -129,6 +143,12 @@ def test_explanatory_coupling_purification_survives_shifted_confounding() -> Non
 
 
 def test_coupling_witness_update_does_not_change_predictor_path() -> None:
+    """Witness-only learning leaves the emitter and prediction map unchanged.
+
+    The witness learning rate is positive and the predictor learning rate is zero.
+    This checks gradient isolation between witness maximization and prediction
+    purification. It does not verify that the witness parameters actually change.
+    """
     count = 8
     innovation = jr.normal(jr.key(76), (count, 2))
     goal = jnp.zeros((count, 1))

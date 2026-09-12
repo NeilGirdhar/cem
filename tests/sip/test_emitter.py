@@ -27,6 +27,12 @@ def _inputs() -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
 
 
 def test_inference_disables_local_noise() -> None:
+    """Inference omits local noise but retains both gain-scaled base channels.
+
+    The emitter has nonzero configured noise. In inference mode, its injected noise
+    must be zero, while its observation and instrument must equal the gain-scaled raw
+    observation and inherited instrument.
+    """
     emitter = _emitter()
     inputs = _inputs()
     result = emitter.infer(
@@ -40,6 +46,11 @@ def test_inference_disables_local_noise() -> None:
 
 
 def test_training_adds_the_same_noise_to_both_channels() -> None:
+    """Training adds the same sampled noise to the observation and instrument.
+
+    Removing each channel's gain-scaled base value must leave equal residuals. This
+    equality makes the injected noise in the observation its own instrument.
+    """
     emitter = _emitter()
     inputs = _inputs()
     result = emitter.infer(
@@ -55,6 +66,11 @@ def test_training_adds_the_same_noise_to_both_channels() -> None:
 
 
 def test_gain_scales_observation_and_instrument() -> None:
+    """Gain scales the emitter's observation and instrument together.
+
+    In deterministic inference, halving gain must halve both outputs. A suppressed
+    feature therefore cannot retain a full-strength instrument.
+    """
     emitter = _emitter()
     innovation, goal, _gain, instruments = _inputs()
     streams = create_streams({"inference": jr.key(4)})
@@ -79,4 +95,8 @@ def test_gain_scales_observation_and_instrument() -> None:
 
 
 def test_noise_magnitudes_are_nonnegative() -> None:
+    """A newly constructed emitter exposes only nonnegative noise magnitudes.
+
+    This checks initialization, not whether optimization preserves nonnegativity.
+    """
     assert jnp.all(_emitter().noise_magnitudes >= 0.0)

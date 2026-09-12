@@ -25,6 +25,13 @@ def _inputs() -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
 
 
 def test_score_outputs_reconstruction_and_confounding_terms() -> None:
+    """The score circuit derives its two errors from the score and witness.
+
+    Prediction, observation score, and witness must have the observation dimension.
+    Reconstruction loss must be half the squared score norm, and confounding error
+    must be the score-witness inner product. This does not independently verify how
+    the circuit calculates the observation score.
+    """
     score = _score()
     output = score.infer(
         *_inputs(),
@@ -44,6 +51,12 @@ def test_score_outputs_reconstruction_and_confounding_terms() -> None:
 
 
 def test_gain_scales_prediction_and_witness() -> None:
+    """Gain scales the prediction and confounding witness equally.
+
+    Halving gain must halve both quantities, placing them in the same gain-scaled
+    space as the emitter's observation and instrument. This test does not constrain
+    the resulting score or errors.
+    """
     score = _score()
     observation, predictor_observations, predictor_instruments, _ = _inputs()
     streams = create_streams({"inference": jr.key(13)})
@@ -68,6 +81,12 @@ def test_gain_scales_prediction_and_witness() -> None:
 
 
 def test_witness_is_normalized_before_gain() -> None:
+    """At unit gain, the confounding witness has unit mean-square magnitude.
+
+    The norm constraint prevents witness learning from increasing confounding error
+    merely by increasing witness magnitude. Unit gain makes the emitted witness equal
+    to its normalized pre-gain value.
+    """
     score = _score()
     output = score.infer(
         *_inputs()[:3],

@@ -31,7 +31,13 @@ def _inputs() -> tuple[jnp.ndarray, ...]:
     )
 
 
-def test_intervention_noise_reaches_downstream_prediction() -> None:
+def test_injected_noise_reaches_downstream_prediction() -> None:
+    """Injected source noise reaches the target score's prediction.
+
+    With fixed inputs and parameters, different runtime keys must produce different
+    injected noise, source observations, and downstream predictions. The test does
+    not inspect propagation through the instrument or witness path.
+    """
     coupling = _coupling()
     inputs = _inputs()
     first = coupling.infer(
@@ -50,7 +56,13 @@ def test_intervention_noise_reaches_downstream_prediction() -> None:
     assert not jnp.allclose(first.target.prediction, second.target.prediction)
 
 
-def test_coupling_is_deterministic_without_intervention_noise() -> None:
+def test_coupling_is_deterministic_without_injected_noise() -> None:
+    """Inference is deterministic when the source injects no local noise.
+
+    Different runtime keys must produce identical source observations, source
+    instruments, and target predictions. Together with the preceding test, this
+    localizes the coupling's stochasticity to training-time noise injection.
+    """
     coupling = _coupling()
     inputs = _inputs()
     first = coupling.infer(
@@ -69,8 +81,15 @@ def test_coupling_is_deterministic_without_intervention_noise() -> None:
     assert jnp.allclose(first.target.prediction, second.target.prediction)
 
 
-def test_fixed_intervention_noise_improves_coupling_shifted_error() -> None:
-    """A fixed SIP intervention can improve coupling robustness under a shift."""
+def test_fixed_injected_noise_improves_coupling_shifted_error() -> None:
+    """Fixed injected noise can improve robustness to a predictor shift.
+
+    Training provides a stable noisy feature and an accurate nuisance feature that
+    becomes independent noise at evaluation. A coupling trained with fixed injected
+    noise must then outperform one trained with nearly zero noise. Because training
+    uses reconstruction loss alone, this tests noise regularization, not witness-based
+    purification.
+    """
     key = jr.key(37)
     signal_key, stable_key, nuisance_key, shift_key = jr.split(key, 4)
     count = 32
