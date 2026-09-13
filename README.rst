@@ -60,6 +60,17 @@ Running
 
      uv run visualize afp-synthetic-iv --display
 
+- Generate the supervised missing-input comparison used by the thesis:
+
+  .. code:: bash
+
+     uv run supervised-missingness --output ../typst/supervised-missingness.json
+
+  The command compares the capacity-matched Gaussian NPN and mask-aware MLP on four datasets with
+  50% independent input omission. It writes the mean distributional loss, every seed loss, and one
+  standard deviation for the thesis error bars. The default three matched seeds reproduce the thesis
+  configuration.
+
 - Optimize:
 
   - Using one thread:
