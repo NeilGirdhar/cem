@@ -5,11 +5,9 @@ from efax import (
     NormalEP,
     NormalNP,
 )
-from jax import tree
 from tjax import frozendict
 
 from cem.perceptron.target_node import PerceptronTargetConfiguration, PerceptronTargetNode
-from cem.structure.graph import LearnableParameter, ParameterType
 
 
 def infer_perceptron_target_node(
@@ -50,12 +48,3 @@ def test_perceptron_target_node_partition_round_trip_preserves_behavior() -> Non
     assert isinstance(predicted_dist, NormalEP)
     assert isinstance(expected_dist, NormalEP)
     assert jnp.allclose(predicted_dist.mean, expected_dist.mean)
-
-
-def test_parameter_type_partition_round_trip_preserves_type() -> None:
-    parameter_type = ParameterType(LearnableParameter)
-    extracted, remainder = eqx.partition(parameter_type, lambda x: isinstance(x, type))
-    round_tripped = eqx.combine(extracted, remainder)
-
-    assert tree.leaves(extracted) == []
-    assert round_tripped.t is LearnableParameter

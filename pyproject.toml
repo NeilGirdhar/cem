@@ -80,7 +80,6 @@ project-includes = [
 [tool.pytest]
 addopts = ["--disable-warnings"]
 testpaths = ["tests"]
-norecursedirs = ["tests/experimental"]
 
 [tool.ruff]
 line-length = 100
