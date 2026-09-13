@@ -6,7 +6,6 @@ from optuna.distributions import CategoricalDistribution
 
 from cem import tuned_defaults
 from cem.demos.supervised.demo import supervised_bike_sharing_demand_demo
-from cem.experimental.afp.demo import afp_synthetic_iv_demo
 
 _TUNED_HIDDEN_SIZE = 42
 _DEFAULT_LEARNING_RATE = 0.01
@@ -80,7 +79,7 @@ def test_demo_default_hyperparameters_overlay_tuned_defaults(
         json.dumps(
             {
                 supervised_bike_sharing_demand_demo.name: {
-                    "phasor.hidden_size": _TUNED_HIDDEN_SIZE,
+                    "natural_parameter.hidden_size": _TUNED_HIDDEN_SIZE,
                 }
             }
         )
@@ -89,8 +88,8 @@ def test_demo_default_hyperparameters_overlay_tuned_defaults(
 
     defaults = supervised_bike_sharing_demand_demo.default_hyperparameters()
 
-    assert defaults["phasor.hidden_size"] == _TUNED_HIDDEN_SIZE
-    assert defaults["phasor.learning_rate"] == _DEFAULT_LEARNING_RATE
+    assert defaults["natural_parameter.hidden_size"] == _TUNED_HIDDEN_SIZE
+    assert defaults["natural_parameter.learning_rate"] == _DEFAULT_LEARNING_RATE
 
 
 def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
@@ -98,8 +97,6 @@ def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
 
     perceptron_hidden_size = hyperparameters["perceptron.hidden_size"]
     natural_parameter_hidden_size = hyperparameters["natural_parameter.hidden_size"]
-    phasor_hidden_size = hyperparameters["phasor.hidden_size"]
-    phase_activated_hidden_size = hyperparameters["phase_activated.hidden_size"]
 
     assert isinstance(perceptron_hidden_size, CategoricalDistribution)
     assert perceptron_hidden_size.choices == (
@@ -131,21 +128,5 @@ def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
         220,
         256,
     )
-    assert isinstance(phasor_hidden_size, CategoricalDistribution)
-    assert phasor_hidden_size.choices == perceptron_hidden_size.choices
     assert isinstance(natural_parameter_hidden_size, CategoricalDistribution)
     assert natural_parameter_hidden_size.choices == perceptron_hidden_size.choices
-    assert isinstance(phase_activated_hidden_size, CategoricalDistribution)
-    assert phase_activated_hidden_size.choices == perceptron_hidden_size.choices
-
-
-def test_afp_shape_hyperparameters_use_hardware_friendly_choices() -> None:
-    hyperparameters = afp_synthetic_iv_demo.create_hyperparameters()
-
-    endo_latent = hyperparameters["endo_latent"]
-    exo_latent = hyperparameters["exo_latent"]
-
-    assert isinstance(endo_latent, CategoricalDistribution)
-    assert endo_latent.choices == (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)
-    assert isinstance(exo_latent, CategoricalDistribution)
-    assert exo_latent.choices == (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)

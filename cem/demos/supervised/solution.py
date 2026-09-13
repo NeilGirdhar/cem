@@ -10,23 +10,17 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from efax import NormalNP, UnitVarianceNormalNP
-from jax.lax import stop_gradient
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
-from tjax import JaxRealArray, RngStream, copy_cotangent, frozendict
+from tjax import JaxRealArray, RngStream, frozendict
 from tjax.gradient import Adam
 
 from cem.experimental.gaussian_npn import GaussianNPN
-from cem.experimental.phasor.gated_projection import GatedProjection
-from cem.experimental.phasor.mobius_summation import MobiusPresenceRule
-from cem.experimental.phasor.phase_activated_projection import PhaseActivatedProjection
-from cem.experimental.phasor.target_node import PhasorTargetNode
 from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
 from cem.structure.graph import (
     DisGradientTransformation,
     FixedParameter,
     LearnableParameter,
-    MetaParameter,
     Model,
     ModelResult,
     ParameterType,
@@ -35,7 +29,6 @@ from cem.structure.graph import (
 from cem.structure.graph.node import TargetConfiguration
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, bool_field, float_field, hardware_friendly_ints, int_field
-from cem.transforms import ArctangentPhaseMap
 
 from .problem import (
     SupervisedProblem,
@@ -47,7 +40,6 @@ from .problem import (
 _SUPERVISED_HIDDEN_SIZES = tuple(
     sorted({*hardware_friendly_ints(2, 256), 20, 27, 73, 85, 98, 128, 139, 220})
 )
-_TWO_LAYER_DEPTH = 2
 
 
 # This has to be a cached function to avoid initializing JAX before training.
@@ -81,38 +73,6 @@ class DatasetKind(Enum):
 class LinkKind(Enum):
     perceptron = "perceptron"
     natural_parameter = "natural_parameter"
-    phasor = "phasor"
-    phase_activated = "phase_activated"
-    gated_two_layer = "gated_two_layer"
-    phase_activated_two_layer = "phase_activated_two_layer"
-    phase_activated_no_parallel = "phase_activated_no_parallel"
-    phase_activated_participation_only = "phase_activated_participation_only"
-
-
-_PHASE_ACTIVATED_LINK_KINDS = frozenset(
-    {
-        LinkKind.phase_activated,
-        LinkKind.phase_activated_two_layer,
-        LinkKind.phase_activated_no_parallel,
-        LinkKind.phase_activated_participation_only,
-    }
-)
-
-_TWO_LAYER_LINK_KINDS = frozenset(
-    {
-        LinkKind.gated_two_layer,
-        LinkKind.phase_activated_two_layer,
-    }
-)
-
-_MOBIUS_PRESENCE_RULES = {
-    LinkKind.phasor: MobiusPresenceRule.parallel,
-    LinkKind.phase_activated: MobiusPresenceRule.parallel,
-    LinkKind.gated_two_layer: MobiusPresenceRule.participation,
-    LinkKind.phase_activated_two_layer: MobiusPresenceRule.parallel,
-    LinkKind.phase_activated_no_parallel: MobiusPresenceRule.participation,
-    LinkKind.phase_activated_participation_only: MobiusPresenceRule.participation_only,
-}
 
 
 _HF_TABULAR_REGRESSION_CONFIGS: dict[DatasetKind, str] = {
@@ -301,110 +261,8 @@ class GaussianNPNSupervisedModel(Model):
         )
 
 
-class PhasorSupervisedModel(Model):
-    """Supervised model with one observation phasor per scalar feature."""
-
-    input_phase_map: ArctangentPhaseMap
-    links: tuple[GatedProjection | PhaseActivatedProjection, ...]
-    target: PhasorTargetNode
-    phase_map_fisher_weight: float = eqx.field(static=True)
-    phase_map_adversarial: bool = eqx.field(static=True)
-    phase_map_translation: bool = eqx.field(static=True)
-
-    @classmethod
-    def create(  # ruff: ignore[too-many-arguments]
-        cls,
-        sup: SupervisedProblem,
-        hidden_size: int,
-        *,
-        phase_activation: bool = False,
-        depth: int = 1,
-        mobius_presence_rule: MobiusPresenceRule = MobiusPresenceRule.parallel,
-        phase_map_fisher_weight: float = 0.0,
-        phase_map_adversarial: bool = True,
-        phase_map_translation: bool = True,
-        streams: Mapping[str, RngStream],
-    ) -> Self:
-        if depth not in {1, _TWO_LAYER_DEPTH}:
-            msg = f"depth must be 1 or 2, got {depth}"
-            raise ValueError(msg)
-        projection = PhaseActivatedProjection if phase_activation else GatedProjection
-        if depth == 1:
-            layer_shapes = ((sup.n_features, sup.n_targets),)
-        else:
-            layer_shapes = (
-                (sup.n_features, hidden_size),
-                (hidden_size, sup.n_targets),
-            )
-        input_phase_map = ArctangentPhaseMap.create_learned(sup.n_features)
-        if not phase_map_translation:
-            input_phase_map = eqx.tree_at(
-                lambda phase_map: phase_map.centres,
-                input_phase_map,
-                FixedParameter(jnp.zeros(sup.n_features)),
-            )
-        return cls(
-            input_phase_map=input_phase_map,
-            links=tuple(
-                projection.create(
-                    in_features,
-                    out_features,
-                    mid_features=hidden_size,
-                    mobius_presence_rule=mobius_presence_rule,
-                    streams=streams,
-                )
-                for in_features, out_features in layer_shapes
-            ),
-            target=PhasorTargetNode.create(_y_fields(sup.n_targets)),
-            phase_map_fisher_weight=phase_map_fisher_weight,
-            phase_map_adversarial=phase_map_adversarial,
-            phase_map_translation=phase_map_translation,
-        )
-
-    @override
-    def infer(
-        self,
-        observation: object,
-        state: object,
-        *,
-        streams: Mapping[str, RngStream],
-        inference: bool,
-    ) -> ModelResult:
-        del state
-        assert isinstance(observation, SupervisedProblemState)
-        if self.phase_map_adversarial:
-            x_phasors = self.input_phase_map.encode_with_reversed_phase_gradient(
-                jnp.ones_like(observation.x), observation.x
-            )
-        else:
-            x_phasors = self.input_phase_map.encode(jnp.ones_like(observation.x), observation.x)
-        prediction = x_phasors
-        mobius_diagnostics = []
-        for link in self.links:
-            prediction, diagnostics = link.infer_with_diagnostics(
-                prediction,
-                streams=streams,
-                inference=inference,
-            )
-            mobius_diagnostics.append(diagnostics)
-        target = self.target.infer(_y_flat_observed(observation.y), prediction)
-        target_loss = target.total_loss()
-        fisher_loss = self.input_phase_map.fisher_equalization_loss(observation.x)
-        configurations = {"mobius": mobius_diagnostics[-1], "target": target}
-        if len(mobius_diagnostics) > 1:
-            configurations["mobius_input"] = mobius_diagnostics[0]
-        return ModelResult(
-            loss=copy_cotangent(
-                stop_gradient(target_loss),
-                target_loss + self.phase_map_fisher_weight * fisher_loss,
-            ),
-            configurations=frozendict(configurations),
-            state=None,
-        )
-
-
 class SupervisedSolver(Solver[SupervisedProblem]):
-    """Solver for perceptron, Gaussian NPN, and phasor supervised models."""
+    """Solver for perceptron and Gaussian NPN supervised models."""
 
     _: KW_ONLY
     dataset_kind: DatasetKind = eqx.field(static=True)
@@ -429,18 +287,6 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         domain=CategoricalDistribution(_SUPERVISED_HIDDEN_SIZES),
         optimize=True,
     )
-    phase_map_learning_rate_scale: float = float_field(
-        default=1.0,
-        domain=FloatDistribution(1e-4, 1.0, log=True),
-        optimize=False,
-    )
-    phase_map_fisher_weight: float = float_field(
-        default=0.0,
-        domain=FloatDistribution(0.0, 1.0),
-        optimize=False,
-    )
-    phase_map_adversarial: bool = bool_field(default=True, optimize=False)
-    phase_map_translation: bool = bool_field(default=True, optimize=False)
     missing_probability: float = float_field(
         default=0.0,
         domain=FloatDistribution(0.0, 0.95),
@@ -450,14 +296,9 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     include_missingness_mask: bool = bool_field(default=False, optimize=False)
 
     def gradient_transformations(self) -> DisGradientTransformation:
-        """Use a slower optimizer for adaptive input phase-map scales."""
         return DisGradientTransformation(
             [
                 (ParameterType(FixedParameter), None),
-                (
-                    ParameterType(MetaParameter),
-                    Adam[Model](self.phase_map_learning_rate_scale * self.learning_rate),
-                ),
                 (ParameterType(LearnableParameter), Adam[Model](self.learning_rate)),
             ]
         )
@@ -472,7 +313,6 @@ class SupervisedSolver(Solver[SupervisedProblem]):
             self.dataset_kind,
             self.link_kind,
             self.hidden_size,
-            phase_map_translation=self.phase_map_translation,
             include_missingness_mask=self.include_missingness_mask,
         )
 
@@ -504,22 +344,10 @@ class SupervisedSolver(Solver[SupervisedProblem]):
                 include_missingness_mask=self.include_missingness_mask,
                 streams=streams,
             )
-        if self.link_kind == LinkKind.natural_parameter:
-            return GaussianNPNSupervisedModel.create(
-                problem,
-                self.hidden_size,
-                missing_probability=self.missing_probability,
-                streams=streams,
-            )
-        return PhasorSupervisedModel.create(
+        return GaussianNPNSupervisedModel.create(
             problem,
             self.hidden_size,
-            phase_activation=self.link_kind in _PHASE_ACTIVATED_LINK_KINDS,
-            depth=_TWO_LAYER_DEPTH if self.link_kind in _TWO_LAYER_LINK_KINDS else 1,
-            mobius_presence_rule=_MOBIUS_PRESENCE_RULES[self.link_kind],
-            phase_map_fisher_weight=self.phase_map_fisher_weight,
-            phase_map_adversarial=self.phase_map_adversarial,
-            phase_map_translation=self.phase_map_translation,
+            missing_probability=self.missing_probability,
             streams=streams,
         )
 
@@ -530,14 +358,12 @@ def _supervised_parameter_count(
     link_kind: LinkKind,
     hidden_size: int,
     *,
-    phase_map_translation: bool,
     include_missingness_mask: bool,
 ) -> int:
     solver = SupervisedSolver(
         dataset_kind=dataset_kind,
         link_kind=link_kind,
         hidden_size=hidden_size,
-        phase_map_translation=phase_map_translation,
         include_missingness_mask=include_missingness_mask,
     )
     learnable_model = solver.solution().solution_state.dis_learnable_parameters.assembled()

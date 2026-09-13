@@ -17,7 +17,6 @@ from .solution import (
     LinkKind,
     SupervisedSolver,
 )
-from .telemetry import MobiusSummationTelemetry, PhaseDomainTelemetry
 
 _COMPUTE_WEIGHT = 0.1
 
@@ -48,15 +47,7 @@ class SupervisedVariant(Variant):
 
     @override
     def extra_telemetries(self) -> Telemetries:
-        if self.link_kind in {LinkKind.perceptron, LinkKind.natural_parameter}:
-            return Telemetries()
-        telemetries = [MobiusSummationTelemetry(), PhaseDomainTelemetry()]
-        if self.link_kind in {
-            LinkKind.gated_two_layer,
-            LinkKind.phase_activated_two_layer,
-        }:
-            telemetries.append(MobiusSummationTelemetry(selected_node="mobius_input"))
-        return Telemetries(tuple(telemetries))
+        return Telemetries()
 
     @override
     def shared_hyperparameter_names(self) -> frozenset[str]:
@@ -110,8 +101,6 @@ supervised_iris_demo = SupervisedDemo(
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.perceptron),
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.natural_parameter),
-        SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.phasor),
-        SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.phase_activated),
     ],
 )
 
@@ -126,14 +115,6 @@ supervised_bike_sharing_demand_demo = SupervisedDemo(
             dataset_kind=DatasetKind.bike_sharing_demand,
             link_kind=LinkKind.natural_parameter,
         ),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.bike_sharing_demand,
-            link_kind=LinkKind.phasor,
-        ),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.bike_sharing_demand,
-            link_kind=LinkKind.phase_activated,
-        ),
     ],
 )
 
@@ -145,24 +126,6 @@ supervised_elevators_demo = SupervisedDemo(
             dataset_kind=DatasetKind.elevators,
             link_kind=LinkKind.natural_parameter,
         ),
-        SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.phasor),
-        SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.phase_activated),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.elevators,
-            link_kind=LinkKind.gated_two_layer,
-        ),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.elevators,
-            link_kind=LinkKind.phase_activated_two_layer,
-        ),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.elevators,
-            link_kind=LinkKind.phase_activated_no_parallel,
-        ),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.elevators,
-            link_kind=LinkKind.phase_activated_participation_only,
-        ),
     ],
 )
 
@@ -173,11 +136,6 @@ supervised_cpu_activity_demo = SupervisedDemo(
         SupervisedVariant(
             dataset_kind=DatasetKind.cpu_activity,
             link_kind=LinkKind.natural_parameter,
-        ),
-        SupervisedVariant(dataset_kind=DatasetKind.cpu_activity, link_kind=LinkKind.phasor),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.cpu_activity,
-            link_kind=LinkKind.phase_activated,
         ),
     ],
 )
