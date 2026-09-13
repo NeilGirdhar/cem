@@ -14,7 +14,7 @@ from optuna.distributions import CategoricalDistribution, FloatDistribution, Int
 from tjax import JaxRealArray, RngStream, frozendict
 from tjax.gradient import Adam
 
-from cem.experimental.gaussian_npn import GaussianNPN
+from cem.npn.gaussian import GaussianNPN
 from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
 from cem.structure.graph import (

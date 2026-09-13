@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from efax import NormalVP
 from tjax import RngStream
 
-from cem.experimental.gaussian_npn import (
+from cem.npn.gaussian import (
     GaussianNPN,
     GaussianNPNInputPool,
     GaussianNPNLinear,
