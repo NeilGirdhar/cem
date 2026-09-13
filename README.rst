@@ -31,13 +31,13 @@ Running
 
   .. code:: bash
 
-     uv run visualize afp-synthetic-iv
+     uv run visualize supervised-elevators
 
   - Re-render saved JSON data directly with Typst and Lilaq:
 
   .. code:: bash
 
-     typst compile --input source=afp-synthetic-iv.json typst/render.typ typst/afp-synthetic-iv.pdf
+     typst compile --input source=supervised-elevators.json typst/render.typ typst/supervised-elevators.pdf
 
   - Import one chart into another Typst document:
 
@@ -47,18 +47,18 @@ Running
 
      #figure(
        chart-from-json(
-         "afp-synthetic-iv.json",
-         "afp-losses",
+         "supervised-elevators.json",
+         "elevators-losses",
          width: 85%,
        ),
-       caption: [AFP loss diagnostics],
+       caption: [Elevators loss diagnostics],
      )
 
   - Open the compiled PDF in Zathura:
 
   .. code:: bash
 
-     uv run visualize afp-synthetic-iv --display
+     uv run visualize supervised-elevators --display
 
 - Generate the supervised missing-input comparison used by the thesis:
 
@@ -77,13 +77,13 @@ Running
 
   .. code:: bash
 
-     uv run optimize afp-synthetic-iv single --trials 30
+     uv run optimize supervised-elevators single --trials 30
 
   - Using 8 threads:
 
   .. code:: bash
 
-     uv run optimize afp-synthetic-iv multi --trials 30 --jobs 8
+     uv run optimize supervised-elevators multi --trials 30 --jobs 8
 
 Architecture
 ============
