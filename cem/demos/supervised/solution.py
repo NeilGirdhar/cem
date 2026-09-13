@@ -8,12 +8,14 @@ from typing import Self, override
 
 import equinox as eqx
 import jax.numpy as jnp
-from efax import UnitVarianceNormalNP
+import jax.random as jr
+from efax import NormalNP, UnitVarianceNormalNP
 from jax.lax import stop_gradient
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream, copy_cotangent, frozendict
 from tjax.gradient import Adam
 
+from cem.experimental.gaussian_npn import GaussianNPN
 from cem.experimental.phasor.gated_projection import GatedProjection
 from cem.experimental.phasor.mobius_summation import MobiusPresenceRule
 from cem.experimental.phasor.phase_activated_projection import PhaseActivatedProjection
@@ -30,6 +32,7 @@ from cem.structure.graph import (
     ParameterType,
     count_real_learnable_parameters,
 )
+from cem.structure.graph.node import TargetConfiguration
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, bool_field, float_field, hardware_friendly_ints, int_field
 from cem.transforms import ArctangentPhaseMap
@@ -77,6 +80,7 @@ class DatasetKind(Enum):
 
 class LinkKind(Enum):
     perceptron = "perceptron"
+    natural_parameter = "natural_parameter"
     phasor = "phasor"
     phase_activated = "phase_activated"
     gated_two_layer = "gated_two_layer"
@@ -120,11 +124,29 @@ _HF_TABULAR_REGRESSION_CONFIGS: dict[DatasetKind, str] = {
 SUPERVISED_MIN_TRAINING_EXAMPLES = 4
 
 
+def _sample_input_presence(
+    values: JaxRealArray,
+    missing_probability: float,
+    *,
+    streams: Mapping[str, RngStream],
+) -> JaxRealArray:
+    if missing_probability == 0:
+        return jnp.ones_like(values)
+    return jr.bernoulli(
+        streams["inference"].key(),
+        1 - missing_probability,
+        shape=values.shape,
+    ).astype(values.dtype)
+
+
 class PerceptronSupervisedModel(Model):
     """Supervised model: flat-encoded features to MLP to target node."""
 
     link: MLP
     target: PerceptronTargetNode
+    missing_probability: float = eqx.field(static=True)
+    random_missing_values: bool = eqx.field(static=True)
+    include_missingness_mask: bool = eqx.field(static=True)
 
     @classmethod
     def create(
@@ -132,16 +154,22 @@ class PerceptronSupervisedModel(Model):
         sup: SupervisedProblem,
         hidden_size: int,
         *,
+        missing_probability: float = 0.0,
+        random_missing_values: bool = True,
+        include_missingness_mask: bool = False,
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
             link=MLP.create(
-                sup.n_features,
+                sup.n_features * (2 if include_missingness_mask else 1),
                 sup.n_targets,
                 hidden_features=hidden_size,
                 streams=streams,
             ),
             target=PerceptronTargetNode.create(_y_fields(sup.n_targets)),
+            missing_probability=missing_probability,
+            random_missing_values=random_missing_values,
+            include_missingness_mask=include_missingness_mask,
         )
 
     @override
@@ -154,8 +182,118 @@ class PerceptronSupervisedModel(Model):
         inference: bool,
     ) -> ModelResult:
         assert isinstance(observation, SupervisedProblemState)
-        y_hat = self.link.infer(observation.x, streams=streams, inference=inference)
+        presence = _sample_input_presence(
+            observation.x,
+            self.missing_probability,
+            streams=streams,
+        )
+        if self.random_missing_values and self.missing_probability > 0:
+            replacement = jr.normal(
+                streams["inference"].key(),
+                shape=observation.x.shape,
+            )
+        else:
+            replacement = jnp.zeros_like(observation.x)
+        x = jnp.where(presence > 0, observation.x, replacement)
+        if self.include_missingness_mask:
+            x = jnp.concatenate((x, presence), axis=-1)
+        y_hat = self.link.infer(x, streams=streams, inference=inference)
         config = self.target.infer(_y_flat_observed(observation.y), y_hat)
+        return ModelResult(
+            loss=config.total_loss(),
+            configurations=frozendict({"target": config}),
+            state=state,
+        )
+
+
+class GaussianNPNTargetConfiguration(TargetConfiguration):
+    """Gaussian NPN targets, keyed by scalar field name."""
+
+
+class GaussianNPNTarget(eqx.Module):
+    """Compare Gaussian NPN predictions with unit-presence observations."""
+
+    field_names: tuple[str, ...] = eqx.field(static=True)
+
+    @classmethod
+    def create(cls, n_targets: int) -> Self:
+        return cls(field_names=tuple(_y_fields(n_targets)))
+
+    def infer(
+        self,
+        flat_observed: frozendict[str, JaxRealArray],
+        prediction: NormalNP,
+    ) -> GaussianNPNTargetConfiguration:
+        losses = {}
+        observed_distributions = {}
+        predicted_distributions = {}
+        for index, field_name in enumerate(self.field_names):
+            observed_mean = flat_observed[field_name]
+            observed = NormalNP(
+                mean_times_precision=observed_mean,
+                negative_half_precision=-0.5 * jnp.ones_like(observed_mean),
+            )
+            predicted = NormalNP(
+                mean_times_precision=prediction.mean_times_precision[..., index : index + 1],
+                negative_half_precision=prediction.negative_half_precision[..., index : index + 1],
+            )
+            observed_exp = observed.to_exp()
+            predicted_exp = predicted.to_exp()
+            losses[field_name] = observed_exp.kl_divergence(predicted, self_nat=observed)
+            observed_distributions[field_name] = observed_exp
+            predicted_distributions[field_name] = predicted_exp
+        return GaussianNPNTargetConfiguration(
+            loss=frozendict(losses),
+            observed_distributions=frozendict(observed_distributions),
+            predicted_distributions=frozendict(predicted_distributions),
+        )
+
+
+class GaussianNPNSupervisedModel(Model):
+    """Supervised Gaussian natural-parameter network."""
+
+    link: GaussianNPN
+    target: GaussianNPNTarget
+    missing_probability: float = eqx.field(static=True)
+
+    @classmethod
+    def create(
+        cls,
+        sup: SupervisedProblem,
+        hidden_size: int,
+        *,
+        missing_probability: float = 0.0,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        return cls(
+            link=GaussianNPN.create(
+                sup.n_features,
+                sup.n_targets,
+                hidden_features=hidden_size,
+                streams=streams,
+            ),
+            target=GaussianNPNTarget.create(sup.n_targets),
+            missing_probability=missing_probability,
+        )
+
+    @override
+    def infer(
+        self,
+        observation: object,
+        state: object,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> ModelResult:
+        del inference
+        assert isinstance(observation, SupervisedProblemState)
+        presence = _sample_input_presence(
+            observation.x,
+            self.missing_probability,
+            streams=streams,
+        )
+        prediction = self.link.infer(observation.x, presence)
+        config = self.target.infer(_y_flat_observed(observation.y), prediction)
         return ModelResult(
             loss=config.total_loss(),
             configurations=frozendict({"target": config}),
@@ -266,7 +404,7 @@ class PhasorSupervisedModel(Model):
 
 
 class SupervisedSolver(Solver[SupervisedProblem]):
-    """Solver for perceptron and one-phasor supervised models."""
+    """Solver for perceptron, Gaussian NPN, and phasor supervised models."""
 
     _: KW_ONLY
     dataset_kind: DatasetKind = eqx.field(static=True)
@@ -303,6 +441,13 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     )
     phase_map_adversarial: bool = bool_field(default=True, optimize=False)
     phase_map_translation: bool = bool_field(default=True, optimize=False)
+    missing_probability: float = float_field(
+        default=0.0,
+        domain=FloatDistribution(0.0, 0.95),
+        optimize=False,
+    )
+    random_missing_values: bool = bool_field(default=True, optimize=False)
+    include_missingness_mask: bool = bool_field(default=False, optimize=False)
 
     def gradient_transformations(self) -> DisGradientTransformation:
         """Use a slower optimizer for adaptive input phase-map scales."""
@@ -328,6 +473,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
             self.link_kind,
             self.hidden_size,
             phase_map_translation=self.phase_map_translation,
+            include_missingness_mask=self.include_missingness_mask,
         )
 
     @override
@@ -350,7 +496,21 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         del data_source
         assert isinstance(problem, SupervisedProblem)
         if self.link_kind == LinkKind.perceptron:
-            return PerceptronSupervisedModel.create(problem, self.hidden_size, streams=streams)
+            return PerceptronSupervisedModel.create(
+                problem,
+                self.hidden_size,
+                missing_probability=self.missing_probability,
+                random_missing_values=self.random_missing_values,
+                include_missingness_mask=self.include_missingness_mask,
+                streams=streams,
+            )
+        if self.link_kind == LinkKind.natural_parameter:
+            return GaussianNPNSupervisedModel.create(
+                problem,
+                self.hidden_size,
+                missing_probability=self.missing_probability,
+                streams=streams,
+            )
         return PhasorSupervisedModel.create(
             problem,
             self.hidden_size,
@@ -371,12 +531,14 @@ def _supervised_parameter_count(
     hidden_size: int,
     *,
     phase_map_translation: bool,
+    include_missingness_mask: bool,
 ) -> int:
     solver = SupervisedSolver(
         dataset_kind=dataset_kind,
         link_kind=link_kind,
         hidden_size=hidden_size,
         phase_map_translation=phase_map_translation,
+        include_missingness_mask=include_missingness_mask,
     )
     learnable_model = solver.solution().solution_state.dis_learnable_parameters.assembled()
     return count_real_learnable_parameters(learnable_model)

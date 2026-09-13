@@ -39,6 +39,7 @@ class SupervisedTrainingLossPlotter(_SupervisedLossPlotter):
     def line_plot_titles(self, label: str) -> LinePlotTitles:
         prefix = {
             "perceptron": "Perceptron",
+            "natural_parameter": "Gaussian Natural-Parameter Network",
             "phasor": "Gated Phasor",
             "phase_activated": "Phase-Activated Phasor",
             "gated_two_layer": "Two-Layer Gated Phasor",

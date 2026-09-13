@@ -48,7 +48,7 @@ class SupervisedVariant(Variant):
 
     @override
     def extra_telemetries(self) -> Telemetries:
-        if self.link_kind == LinkKind.perceptron:
+        if self.link_kind in {LinkKind.perceptron, LinkKind.natural_parameter}:
             return Telemetries()
         telemetries = [MobiusSummationTelemetry(), PhaseDomainTelemetry()]
         if self.link_kind in {
@@ -109,6 +109,7 @@ supervised_iris_demo = SupervisedDemo(
     name="supervised-iris",
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.perceptron),
+        SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.natural_parameter),
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.phasor),
         SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.phase_activated),
     ],
@@ -120,6 +121,10 @@ supervised_bike_sharing_demand_demo = SupervisedDemo(
         SupervisedVariant(
             dataset_kind=DatasetKind.bike_sharing_demand,
             link_kind=LinkKind.perceptron,
+        ),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.bike_sharing_demand,
+            link_kind=LinkKind.natural_parameter,
         ),
         SupervisedVariant(
             dataset_kind=DatasetKind.bike_sharing_demand,
@@ -136,6 +141,10 @@ supervised_elevators_demo = SupervisedDemo(
     name="supervised-elevators",
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.perceptron),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.elevators,
+            link_kind=LinkKind.natural_parameter,
+        ),
         SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.phasor),
         SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.phase_activated),
         SupervisedVariant(
@@ -161,6 +170,10 @@ supervised_cpu_activity_demo = SupervisedDemo(
     name="supervised-cpu-activity",
     variants=[
         SupervisedVariant(dataset_kind=DatasetKind.cpu_activity, link_kind=LinkKind.perceptron),
+        SupervisedVariant(
+            dataset_kind=DatasetKind.cpu_activity,
+            link_kind=LinkKind.natural_parameter,
+        ),
         SupervisedVariant(dataset_kind=DatasetKind.cpu_activity, link_kind=LinkKind.phasor),
         SupervisedVariant(
             dataset_kind=DatasetKind.cpu_activity,

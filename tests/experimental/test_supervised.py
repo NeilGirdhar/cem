@@ -21,6 +21,9 @@ from cem.demos.supervised.demo import (
 from cem.demos.supervised.problem import SupervisedProblem
 from cem.demos.supervised.solution import (
     DatasetKind,
+    GaussianNPNSupervisedModel,
+    GaussianNPNTargetConfiguration,
+    LinkKind,
     PerceptronSupervisedModel,
     PhasorSupervisedModel,
     SupervisedSolver,
@@ -96,6 +99,73 @@ def test_phasor_supervised_multi_target_infer_splits_target_fields(
     assert isinstance(config, PhasorTargetConfiguration)
     assert tuple(config.loss) == ("y_0", "y_1")
     assert config.score.shape == (problem.n_targets,)
+    assert jnp.isfinite(result.loss)
+
+
+def test_gaussian_npn_supervised_multi_target_infer_splits_target_fields(
+    streams: Mapping[str, RngStream],
+) -> None:
+    problem = _small_multi_target_problem()
+    model = GaussianNPNSupervisedModel.create(problem, hidden_size=8, streams=streams)
+    observation = problem.create_data_source().initial_problem_state(jr.key(0))
+
+    result = model.infer(observation, None, streams=streams, inference=True)
+    config = result.configurations["target"]
+
+    assert isinstance(config, GaussianNPNTargetConfiguration)
+    assert tuple(config.loss) == ("y_0", "y_1")
+    assert jnp.isfinite(result.loss)
+
+
+@pytest.mark.parametrize("link_kind", [LinkKind.perceptron, LinkKind.natural_parameter])
+def test_supervised_models_train_with_all_inputs_missing(
+    link_kind: LinkKind,
+    streams: Mapping[str, RngStream],
+) -> None:
+    """Missingness changes inputs while leaving observed targets available."""
+    problem = _small_multi_target_problem()
+    if link_kind == LinkKind.perceptron:
+        model = PerceptronSupervisedModel.create(
+            problem,
+            hidden_size=8,
+            missing_probability=1.0,
+            streams=streams,
+        )
+    else:
+        model = GaussianNPNSupervisedModel.create(
+            problem,
+            hidden_size=8,
+            missing_probability=1.0,
+            streams=streams,
+        )
+    observation = problem.create_data_source().initial_problem_state(jr.key(0))
+
+    result = model.infer(observation, None, streams=streams, inference=False)
+    config = result.configurations["target"]
+
+    assert isinstance(config, (PerceptronTargetConfiguration, GaussianNPNTargetConfiguration))
+    assert tuple(config.observed_distributions) == ("y_0", "y_1")
+    assert jnp.isfinite(result.loss)
+
+
+def test_mask_aware_perceptron_receives_values_and_presence(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """The mask-aware baseline adds one presence input per observed value."""
+    problem = _small_multi_target_problem()
+    model = PerceptronSupervisedModel.create(
+        problem,
+        hidden_size=8,
+        missing_probability=0.5,
+        random_missing_values=False,
+        include_missingness_mask=True,
+        streams=streams,
+    )
+
+    assert model.link.layers[0].weight.value.shape == (8, 2 * problem.n_features)
+
+    observation = problem.create_data_source().initial_problem_state(jr.key(0))
+    result = model.infer(observation, None, streams=streams, inference=False)
     assert jnp.isfinite(result.loss)
 
 
@@ -209,6 +279,7 @@ def test_hf_supervised_demo_registry_and_variants(demo: Demo, enum_value: DemoEn
     assert demo_registry[enum_value] is demo
     expected = [
         "perceptron",
+        "natural_parameter",
         "phasor",
         "phase_activated",
     ]
@@ -258,7 +329,7 @@ def test_hf_supervised_solver_short_training_is_finite(
     assert jnp.all(jnp.isfinite(losses))
 
 
-@pytest.mark.parametrize("variant_index", [1, 2])
+@pytest.mark.parametrize("variant_index", [2, 3])
 def test_phasor_supervised_solver_short_training_is_finite(
     variant_index: int,
     monkeypatch: pytest.MonkeyPatch,
@@ -274,6 +345,31 @@ def test_phasor_supervised_solver_short_training_is_finite(
     assert isinstance(variant_solver, SupervisedSolver)
     solver = replace(
         variant_solver,
+        training_examples=2,
+        training_batch_size=4,
+        hidden_size=8,
+    )
+
+    training_results = solver.training_results(packet=packet)
+    losses = training_results.telemetries[telemetry]
+
+    assert losses.shape == (solver.training_examples,)
+    assert jnp.all(jnp.isfinite(losses))
+
+
+def test_gaussian_npn_supervised_solver_short_training_is_finite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        supervised_solution,
+        "load_hf_tabular_regression",
+        lambda _config: _small_supervised_problem(),
+    )
+    telemetry = LossTelemetry(selected_node="target")
+    packet = ExecutionPacket(telemetries=Telemetries((telemetry,)))
+    solver = SupervisedSolver(
+        dataset_kind=DatasetKind.bike_sharing_demand,
+        link_kind=supervised_solution.LinkKind.natural_parameter,
         training_examples=2,
         training_batch_size=4,
         hidden_size=8,

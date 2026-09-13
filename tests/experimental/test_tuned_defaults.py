@@ -97,6 +97,7 @@ def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
     hyperparameters = supervised_bike_sharing_demand_demo.create_hyperparameters()
 
     perceptron_hidden_size = hyperparameters["perceptron.hidden_size"]
+    natural_parameter_hidden_size = hyperparameters["natural_parameter.hidden_size"]
     phasor_hidden_size = hyperparameters["phasor.hidden_size"]
     phase_activated_hidden_size = hyperparameters["phase_activated.hidden_size"]
 
@@ -132,6 +133,8 @@ def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
     )
     assert isinstance(phasor_hidden_size, CategoricalDistribution)
     assert phasor_hidden_size.choices == perceptron_hidden_size.choices
+    assert isinstance(natural_parameter_hidden_size, CategoricalDistribution)
+    assert natural_parameter_hidden_size.choices == perceptron_hidden_size.choices
     assert isinstance(phase_activated_hidden_size, CategoricalDistribution)
     assert phase_activated_hidden_size.choices == perceptron_hidden_size.choices
 
