@@ -40,12 +40,6 @@ class SupervisedTrainingLossPlotter(_SupervisedLossPlotter):
         prefix = {
             "perceptron": "Perceptron",
             "natural_parameter": "Gaussian Natural-Parameter Network",
-            "phasor": "Gated Phasor",
-            "phase_activated": "Phase-Activated Phasor",
-            "gated_two_layer": "Two-Layer Gated Phasor",
-            "phase_activated_two_layer": "Two-Layer Phase-Activated Phasor",
-            "phase_activated_no_parallel": "Phase-Activated, No Parallel Penalty",
-            "phase_activated_participation_only": "Phase-Activated, Participation Only",
         }.get(label, label.title())
         prefix = f"{prefix} " if prefix else ""
         return {

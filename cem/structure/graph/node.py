@@ -31,8 +31,8 @@ class TargetConfiguration(NodeConfiguration):
 class TargetNode(eqx.Module):
     """Base for nodes that compute cross-entropy loss against observed distributions.
 
-    Holds the per-field flatteners and field sizes used by both perceptron and phasor
-    target nodes.  Subclasses provide ``infer`` with their specific prediction type.
+    Holds the per-field flatteners and field sizes used by the perceptron target node.
+    Subclasses provide ``infer`` with their specific prediction type.
 
     Attributes:
         _flatteners: Per-field Flattener (``mapped_to_plane=True``) used to reconstruct
