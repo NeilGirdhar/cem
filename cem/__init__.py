@@ -1,1 +1,1 @@
-"""The Causal Evidence Model: instrument discovery via adversarial factor purification."""
+"""The Causal Evidence Model: causal instrument discovery via self-instrumental purification."""

@@ -9,7 +9,7 @@ Causal Evidence Model
     :language: python
 
 This repository implements the Causal Evidence Model (CEM), which is a model for causal instrument
-discovery via adversarial factor purification with phasor-based evidence tracking.
+discovery via self-instrumental purification.
 
 Running
 =======

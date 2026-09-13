@@ -17,7 +17,7 @@ dev = [
 [project]
 name = "cem"
 version = "0.1"
-description = "The Causal Evidence Model: Instrument Discovery via Adversarial Factor Purification with Evidence Phasors"
+description = "The Causal Evidence Model: Causal Instrument Discovery via Self-Instrumental Purification"
 readme = "README.rst"
 requires-python = ">=3.14, <3.15"
 authors = [{name = "Neil Girdhar", email = "mistersheik@gmail.com"}]
@@ -32,7 +32,7 @@ keywords = [
   "instrumental-variables",
   "jax",
   "machine-learning",
-  "phasors"
+  "self-instrumental-purification"
 ]
 classifiers = [
   "Development Status :: 1 - Planning",
