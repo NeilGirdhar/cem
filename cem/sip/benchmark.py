@@ -288,3 +288,58 @@ def run_injected_action_noise_benchmark(
             key=jr.key(seed + 4),
         )
     return results
+
+
+def run_inherited_instrument_benchmark(
+    *,
+    count: int = 128,
+    steps: int = 300,
+    seed: int = 300,
+) -> dict[str, CausalBenchmarkResult]:
+    """Use an action instrument to identify a downstream sensation effect."""
+    action_policy_gain = 0.8
+    action_to_future_effect = 1.3
+    past_to_future_effect = 0.5
+    future_to_subsequent_effect = 1.7
+    past_to_subsequent_effect = 2.2
+    past_sensation = jr.normal(jr.key(seed), (count,))
+    injected_noise = jr.normal(jr.key(seed + 1), (count,))
+    subsequent_noise = 0.1 * jr.normal(jr.key(seed + 2), (count,))
+    conditions = {
+        "inactive": (False, False),
+        "policy": (True, False),
+        "injected": (True, True),
+    }
+    results: dict[str, CausalBenchmarkResult] = {}
+    for name, (use_policy, use_noise) in conditions.items():
+        action_instrument = injected_noise if use_noise else jnp.zeros_like(injected_noise)
+        policy_action = (
+            action_policy_gain * past_sensation if use_policy else jnp.zeros_like(past_sensation)
+        )
+        action = policy_action + action_instrument
+        future_sensation = action_to_future_effect * action + past_to_future_effect * past_sensation
+        future_instrument = action_to_future_effect * action_instrument
+        subsequent_sensation = (
+            future_to_subsequent_effect * future_sensation
+            + past_to_subsequent_effect * past_sensation
+            + subsequent_noise
+        )[:, jnp.newaxis]
+        observations = jnp.stack((past_sensation, future_sensation), axis=-1)
+        instruments = future_instrument[:, jnp.newaxis]
+        score, _ = _fit_causal_score(
+            observations,
+            instruments,
+            subsequent_sensation,
+            key=jr.key(seed + 3),
+            steps=steps,
+        )
+        results[name] = _causal_result(
+            score,
+            observations,
+            instruments,
+            subsequent_sensation,
+            action_index=1,
+            true_effect=future_to_subsequent_effect,
+            key=jr.key(seed + 4),
+        )
+    return results
