@@ -4,7 +4,7 @@ from cem.sip.benchmark import (
     CausalBenchmarkResult,
     SIPBenchmarkResult,
     run_action_sensation_benchmark,
-    run_confounded_action_benchmark,
+    run_injected_action_noise_benchmark,
     run_synthetic_sip_benchmark,
 )
 from cem.sip.emitter import EmitterOutput, SIPEmitter
@@ -29,7 +29,7 @@ __all__ = [
     "ScoreOutput",
     "purification_loss",
     "run_action_sensation_benchmark",
-    "run_confounded_action_benchmark",
+    "run_injected_action_noise_benchmark",
     "run_synthetic_sip_benchmark",
     "train_explanatory_coupling_adversarial",
     "train_score_adversarial",

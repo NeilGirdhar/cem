@@ -252,36 +252,39 @@ def run_action_sensation_benchmark(
     )
 
 
-def run_confounded_action_benchmark(
+def run_injected_action_noise_benchmark(
     *,
     count: int = 128,
     steps: int = 300,
     seed: int = 200,
-) -> CausalBenchmarkResult:
-    """Identify an action effect when past sensation confounds action and target."""
+) -> dict[str, CausalBenchmarkResult]:
+    """Compare causal-effect recovery with zero and random injected action noise."""
     beta = 1.7
     gamma = 2.2
     past_sensation = jr.normal(jr.key(seed), (count,))
-    instrument = jr.normal(jr.key(seed + 1), (count,))
-    action = 0.9 * past_sensation + instrument + 0.1 * jr.normal(jr.key(seed + 2), (count,))
-    target = (beta * action + gamma * past_sensation + 0.1 * jr.normal(jr.key(seed + 3), (count,)))[
-        :, jnp.newaxis
-    ]
-    observations = jnp.stack((past_sensation, action), axis=-1)
-    instruments = instrument[:, jnp.newaxis]
-    score, _ = _fit_causal_score(
-        observations,
-        instruments,
-        target,
-        key=jr.key(seed + 4),
-        steps=steps,
-    )
-    return _causal_result(
-        score,
-        observations,
-        instruments,
-        target,
-        action_index=1,
-        true_effect=beta,
-        key=jr.key(seed + 5),
-    )
+    injected_noise = jr.normal(jr.key(seed + 1), (count,))
+    sensation_noise = 0.1 * jr.normal(jr.key(seed + 2), (count,))
+    results: dict[str, CausalBenchmarkResult] = {}
+    for name, noise_magnitude in {"zero": 0.0, "random": 1.0}.items():
+        instrument = noise_magnitude * injected_noise
+        action = 0.9 * past_sensation + instrument
+        target = (beta * action + gamma * past_sensation + sensation_noise)[:, jnp.newaxis]
+        observations = jnp.stack((past_sensation, action), axis=-1)
+        instruments = instrument[:, jnp.newaxis]
+        score, _ = _fit_causal_score(
+            observations,
+            instruments,
+            target,
+            key=jr.key(seed + 3),
+            steps=steps,
+        )
+        results[name] = _causal_result(
+            score,
+            observations,
+            instruments,
+            target,
+            action_index=1,
+            true_effect=beta,
+            key=jr.key(seed + 4),
+        )
+    return results
