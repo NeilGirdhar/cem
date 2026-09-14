@@ -124,6 +124,17 @@ class SIPEmitter(eqx.Module):
         magnitudes = jax.nn.softplus(self.noise_logits.value)
         return magnitudes if self.learn_noise else stop_gradient(magnitudes)
 
+    def infer_inherited_instrument(
+        self,
+        predictor_instruments: JaxRealArray,
+    ) -> JaxRealArray:
+        """Predict the observation component explained by parent instruments."""
+        predictor_instruments = self._feature_vector(
+            predictor_instruments,
+            self.predictor_instrument_features,
+        )
+        return self.instrument_map.project(predictor_instruments)
+
     @staticmethod
     def _feature_vector(value: JaxRealArray, expected_features: int) -> JaxRealArray:
         if value.ndim == 0:
@@ -162,7 +173,7 @@ class SIPEmitter(eqx.Module):
             streams=streams,
             inference=inference,
         )
-        inherited_instrument = self.instrument_map.project(predictor_instruments)
+        inherited_instrument = self.infer_inherited_instrument(predictor_instruments)
         noise = jnp.zeros_like(raw_observation)
         if not inference:
             noise_magnitudes = jnp.reshape(

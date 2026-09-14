@@ -6,11 +6,13 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams
 
+from cem.sip.emitter import SIPEmitter
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.score import SIPScore
 from cem.sip.training import (
     SIPTrainingHistory,
     train_explanatory_coupling_adversarial,
+    train_instrument_map,
     train_score_adversarial,
 )
 
@@ -34,6 +36,9 @@ class CausalBenchmarkResult:
     estimated_effect: float
     residual_instrument_covariance: float
     reconstruction_loss: float
+    true_first_stage_effect: float | None = None
+    estimated_first_stage_effect: float | None = None
+    first_stage_residual_covariance: float | None = None
 
 
 def _data(count: int, *, key: jnp.ndarray) -> tuple[jnp.ndarray, ...]:
@@ -188,7 +193,7 @@ def _causal_result(
     instruments: jnp.ndarray,
     target: jnp.ndarray,
     *,
-    action_index: int,
+    source_index: int,
     true_effect: float,
     key: jnp.ndarray,
 ) -> CausalBenchmarkResult:
@@ -201,7 +206,7 @@ def _causal_result(
         streams=create_streams({"inference": key}),
         inference=True,
     )
-    shifted = predictor_observations.at[:, action_index].add(1.0)
+    shifted = predictor_observations.at[:, source_index].add(1.0)
     shifted_output = score.infer(
         target,
         shifted,
@@ -220,71 +225,77 @@ def _causal_result(
     )
 
 
-def run_action_sensation_benchmark(
+def run_intention_sensation_benchmark(
     *,
     count: int = 128,
     steps: int = 200,
     seed: int = 100,
 ) -> CausalBenchmarkResult:
-    """Identify an action-to-sensation effect with an exogenous action instrument."""
+    """Identify an unconfounded intention-to-sensation effect with instrument(A)."""
     beta = 1.7
     base = jr.normal(jr.key(seed), (count,))
-    instrument = jr.normal(jr.key(seed + 1), (count,))
-    action = base + instrument
-    target = (beta * action + 0.1 * jr.normal(jr.key(seed + 2), (count,)))[:, jnp.newaxis]
-    observations = action[:, jnp.newaxis]
-    instruments = instrument[:, jnp.newaxis]
+    instrument_a = jr.normal(jr.key(seed + 1), (count,))
+    intention_a = base + instrument_a
+    observation_y = (beta * intention_a + 0.1 * jr.normal(jr.key(seed + 2), (count,)))[
+        :, jnp.newaxis
+    ]
+    predictor_observations = intention_a[:, jnp.newaxis]
+    predictor_instruments = instrument_a[:, jnp.newaxis]
     score, _ = _fit_causal_score(
-        observations,
-        instruments,
-        target,
+        predictor_observations,
+        predictor_instruments,
+        observation_y,
         key=jr.key(seed + 3),
         steps=steps,
     )
     return _causal_result(
         score,
-        observations,
-        instruments,
-        target,
-        action_index=0,
+        predictor_observations,
+        predictor_instruments,
+        observation_y,
+        source_index=0,
         true_effect=beta,
         key=jr.key(seed + 4),
     )
 
 
-def run_injected_action_noise_benchmark(
+def run_direct_injection_benchmark(
     *,
     count: int = 128,
     steps: int = 300,
     seed: int = 200,
 ) -> dict[str, CausalBenchmarkResult]:
-    """Compare causal-effect recovery with zero and random injected action noise."""
-    beta = 1.7
-    gamma = 2.2
-    past_sensation = jr.normal(jr.key(seed), (count,))
+    """Compare intention-effect recovery with zero and random injected noise."""
+    intention_to_future_effect = 1.7
+    past_to_future_effect = 2.2
+    observation_x = jr.normal(jr.key(seed), (count,))
     injected_noise = jr.normal(jr.key(seed + 1), (count,))
-    sensation_noise = 0.1 * jr.normal(jr.key(seed + 2), (count,))
+    observation_noise_y = 0.1 * jr.normal(jr.key(seed + 2), (count,))
     results: dict[str, CausalBenchmarkResult] = {}
     for name, noise_magnitude in {"zero": 0.0, "random": 1.0}.items():
-        instrument = noise_magnitude * injected_noise
-        action = 0.9 * past_sensation + instrument
-        target = (beta * action + gamma * past_sensation + sensation_noise)[:, jnp.newaxis]
-        observations = jnp.stack((past_sensation, action), axis=-1)
-        instruments = instrument[:, jnp.newaxis]
+        instrument_a = noise_magnitude * injected_noise
+        intention_a = 0.9 * observation_x + instrument_a
+        observation_y = (
+            intention_to_future_effect * intention_a
+            + past_to_future_effect * observation_x
+            + observation_noise_y
+        )[:, jnp.newaxis]
+        predictor_observations = jnp.stack((observation_x, intention_a), axis=-1)
+        predictor_instruments = instrument_a[:, jnp.newaxis]
         score, _ = _fit_causal_score(
-            observations,
-            instruments,
-            target,
+            predictor_observations,
+            predictor_instruments,
+            observation_y,
             key=jr.key(seed + 3),
             steps=steps,
         )
         results[name] = _causal_result(
             score,
-            observations,
-            instruments,
-            target,
-            action_index=1,
-            true_effect=beta,
+            predictor_observations,
+            predictor_instruments,
+            observation_y,
+            source_index=1,
+            true_effect=intention_to_future_effect,
             key=jr.key(seed + 4),
         )
     return results
@@ -296,13 +307,13 @@ def run_inherited_instrument_benchmark(
     steps: int = 300,
     seed: int = 300,
 ) -> dict[str, CausalBenchmarkResult]:
-    """Use an action instrument to identify a downstream sensation effect."""
-    action_policy_gain = 0.8
-    action_to_future_effect = 1.3
+    """Learn instrument(Y) and use it to identify Y's effect on Z."""
+    intention_policy_gain = 0.8
+    intention_to_future_effect = 1.3
     past_to_future_effect = 0.5
     future_to_subsequent_effect = 1.7
     past_to_subsequent_effect = 2.2
-    past_sensation = jr.normal(jr.key(seed), (count,))
+    observation_x = jr.normal(jr.key(seed), (count,))
     injected_noise = jr.normal(jr.key(seed + 1), (count,))
     subsequent_noise = 0.1 * jr.normal(jr.key(seed + 2), (count,))
     conditions = {
@@ -312,34 +323,72 @@ def run_inherited_instrument_benchmark(
     }
     results: dict[str, CausalBenchmarkResult] = {}
     for name, (use_policy, use_noise) in conditions.items():
-        action_instrument = injected_noise if use_noise else jnp.zeros_like(injected_noise)
-        policy_action = (
-            action_policy_gain * past_sensation if use_policy else jnp.zeros_like(past_sensation)
+        instrument_a = injected_noise if use_noise else jnp.zeros_like(injected_noise)
+        policy_intention = (
+            intention_policy_gain * observation_x if use_policy else jnp.zeros_like(observation_x)
         )
-        action = policy_action + action_instrument
-        future_sensation = action_to_future_effect * action + past_to_future_effect * past_sensation
-        future_instrument = action_to_future_effect * action_instrument
-        subsequent_sensation = (
-            future_to_subsequent_effect * future_sensation
-            + past_to_subsequent_effect * past_sensation
+        intention_a = policy_intention + instrument_a
+        observation_y = (
+            intention_to_future_effect * intention_a + past_to_future_effect * observation_x
+        )[:, jnp.newaxis]
+        instrument_a = instrument_a[:, jnp.newaxis]
+        future_emitter = SIPEmitter.create(
+            innovation_features=1,
+            goal_features=1,
+            predictor_instrument_features=1,
+            observation_features=1,
+            hidden_features=(),
+            initial_noise=1e-6,
+            learn_noise=False,
+            streams=create_streams(
+                {
+                    "parameters": jr.fold_in(jr.key(seed + 5), 0),
+                    "inference": jr.fold_in(jr.key(seed + 5), 1),
+                }
+            ),
+        )
+        future_emitter, _ = train_instrument_map(
+            future_emitter,
+            observation_y,
+            instrument_a,
+            steps=steps,
+            learning_rate=0.01,
+        )
+        instrument_y = future_emitter.infer_inherited_instrument(instrument_a)
+        observation_z = (
+            future_to_subsequent_effect * observation_y[:, 0]
+            + past_to_subsequent_effect * observation_x
             + subsequent_noise
         )[:, jnp.newaxis]
-        observations = jnp.stack((past_sensation, future_sensation), axis=-1)
-        instruments = future_instrument[:, jnp.newaxis]
+        predictor_observations = jnp.stack((observation_x, observation_y[:, 0]), axis=-1)
         score, _ = _fit_causal_score(
-            observations,
-            instruments,
-            subsequent_sensation,
+            predictor_observations,
+            instrument_y,
+            observation_z,
             key=jr.key(seed + 3),
             steps=steps,
         )
-        results[name] = _causal_result(
+        causal_result = _causal_result(
             score,
-            observations,
-            instruments,
-            subsequent_sensation,
-            action_index=1,
+            predictor_observations,
+            instrument_y,
+            observation_z,
+            source_index=1,
             true_effect=future_to_subsequent_effect,
             key=jr.key(seed + 4),
+        )
+        first_stage_score = instrument_y - observation_y
+        results[name] = CausalBenchmarkResult(
+            true_effect=causal_result.true_effect,
+            estimated_effect=causal_result.estimated_effect,
+            residual_instrument_covariance=causal_result.residual_instrument_covariance,
+            reconstruction_loss=causal_result.reconstruction_loss,
+            true_first_stage_effect=intention_to_future_effect if use_noise else None,
+            estimated_first_stage_effect=(
+                float(future_emitter.instrument_map.weight.value[0, 0]) if use_noise else None
+            ),
+            first_stage_residual_covariance=(
+                float(jnp.mean(first_stage_score[:, 0] * instrument_a[:, 0])) if use_noise else None
+            ),
         )
     return results

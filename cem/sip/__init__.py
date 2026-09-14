@@ -3,9 +3,9 @@
 from cem.sip.benchmark import (
     CausalBenchmarkResult,
     SIPBenchmarkResult,
-    run_action_sensation_benchmark,
+    run_direct_injection_benchmark,
     run_inherited_instrument_benchmark,
-    run_injected_action_noise_benchmark,
+    run_intention_sensation_benchmark,
     run_synthetic_sip_benchmark,
 )
 from cem.sip.emitter import EmitterOutput, SIPEmitter
@@ -15,6 +15,7 @@ from cem.sip.score import ScoreOutput, SIPScore
 from cem.sip.training import (
     SIPTrainingHistory,
     train_explanatory_coupling_adversarial,
+    train_instrument_map,
     train_score_adversarial,
 )
 
@@ -29,11 +30,12 @@ __all__ = [
     "SIPTrainingHistory",
     "ScoreOutput",
     "purification_loss",
-    "run_action_sensation_benchmark",
+    "run_direct_injection_benchmark",
     "run_inherited_instrument_benchmark",
-    "run_injected_action_noise_benchmark",
+    "run_intention_sensation_benchmark",
     "run_synthetic_sip_benchmark",
     "train_explanatory_coupling_adversarial",
+    "train_instrument_map",
     "train_score_adversarial",
     "witness_loss",
 ]

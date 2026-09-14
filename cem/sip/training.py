@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 from tjax import JaxRealArray, RngStream
 
+from cem.sip.emitter import SIPEmitter
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.objectives import purification_loss, witness_loss
 from cem.sip.score import SIPScore
@@ -24,6 +25,51 @@ def _zero_tree(value: object) -> object:
         lambda leaf: jnp.zeros_like(leaf) if eqx.is_array(leaf) else leaf,
         value,
     )
+
+
+def train_instrument_map(
+    emitter: SIPEmitter,
+    observation: JaxRealArray,
+    predictor_instruments: JaxRealArray,
+    *,
+    steps: int,
+    learning_rate: float,
+) -> tuple[SIPEmitter, JaxRealArray]:
+    """Train an emitter's instrument map against its observed value.
+
+    The instrument score compares the inherited instrument with the observation. Its
+    suppressing cotangent updates only the instrument map, implementing the emitter's
+    first-stage regression from parent instruments to its observation.
+    """
+    if steps < 1:
+        msg = "steps must be positive"
+        raise ValueError(msg)
+    if learning_rate < 0.0:
+        msg = "learning_rate must be nonnegative"
+        raise ValueError(msg)
+    if observation.shape[-1] != emitter.observation_features:
+        msg = "observation dimensions do not match the emitter"
+        raise ValueError(msg)
+    if predictor_instruments.shape[-1] != emitter.predictor_instrument_features:
+        msg = "predictor instrument dimensions do not match the emitter"
+        raise ValueError(msg)
+
+    losses: list[JaxRealArray] = []
+    for _ in range(steps):
+
+        def objective(current: SIPEmitter) -> JaxRealArray:
+            prediction = current.infer_inherited_instrument(predictor_instruments)
+            score = prediction - observation
+            return 0.5 * jnp.mean(jnp.sum(jnp.square(score), axis=-1))
+
+        loss, gradients = eqx.filter_value_and_grad(objective)(emitter)
+        emitter = eqx.apply_updates(
+            emitter,
+            jax.tree.map(lambda value: -learning_rate * value, gradients),
+        )
+        losses.append(loss)
+
+    return emitter, jnp.stack(losses)
 
 
 def train_score_adversarial(  # ruff: ignore[too-many-arguments]

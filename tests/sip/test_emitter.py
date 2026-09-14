@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams
 
-from cem.sip import SIPEmitter
+from cem.sip import SIPEmitter, train_instrument_map
 
 
 def _emitter() -> SIPEmitter:
@@ -100,3 +100,34 @@ def test_noise_magnitudes_are_nonnegative() -> None:
     This checks initialization, not whether optimization preserves nonnegativity.
     """
     assert jnp.all(_emitter().noise_magnitudes >= 0.0)
+
+
+def test_instrument_score_trains_emitter_instrument_map() -> None:
+    """An observed Y trains instrument(Y) from instrument(A)."""
+    count = 64
+    instrument_a = jr.normal(jr.key(81), (count, 1))
+    nuisance = jr.normal(jr.key(82), (count, 1))
+    observation_y = 1.3 * instrument_a + nuisance
+    emitter = SIPEmitter.create(
+        innovation_features=1,
+        goal_features=1,
+        predictor_instrument_features=1,
+        observation_features=1,
+        hidden_features=(),
+        streams=create_streams({"parameters": jr.key(83), "inference": jr.key(84)}),
+    )
+    initial_instrument_y = emitter.infer_inherited_instrument(instrument_a)
+    initial_covariance = jnp.mean((initial_instrument_y - observation_y) * instrument_a)
+
+    trained, losses = train_instrument_map(
+        emitter,
+        observation_y,
+        instrument_a,
+        steps=400,
+        learning_rate=0.01,
+    )
+    instrument_y = trained.infer_inherited_instrument(instrument_a)
+    final_covariance = jnp.mean((instrument_y - observation_y) * instrument_a)
+
+    assert losses[-1] < losses[0]
+    assert jnp.abs(final_covariance) < jnp.abs(initial_covariance)
