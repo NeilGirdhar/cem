@@ -32,20 +32,89 @@
 
 #let chart-colors(palette) = chart-color-keys.map(key => palette.at(key))
 
-#let chart(
-  plot-title,
-  plot-data,
-  width: 100%,
-  aspect-ratio: golden-ratio,
-  palette: none,
-) = {
-  let theme = if palette == none { default-palette } else { palette }
-  let colors = chart-colors(theme)
+#let line-chart-plots(plot-data, colors, theme) = {
   let xs = plot-data.at("iteration")
   let line-plots = plot-data.at("line plots")
   let line-styles = plot-data.at("line styles", default: (:))
   let line-colors = plot-data.at("line colors", default: (:))
   let series = line-plots.keys()
+  range(series.len()).map(i => {
+    let key = series.at(i)
+    lq.plot(
+      xs,
+      plot-data.at(key),
+      label: line-plots.at(key),
+      color: if key in line-colors {
+        theme.at(line-colors.at(key))
+      } else {
+        colors.at(calc.rem(i, colors.len()))
+      },
+      mark: none,
+      ..if key in line-styles {
+        (stroke: (dash: line-styles.at(key)),)
+      } else {
+        ()
+      },
+    )
+  })
+}
+
+#let bar-chart-plots(plot-data, colors) = {
+  let xs = plot-data.at("iteration")
+  let bar-plots = plot-data.at("bar plots")
+  let bar-errors = plot-data.at("bar errors", default: (:))
+  let series = bar-plots.keys()
+  let bar-width = 0.8 / series.len()
+  range(series.len())
+    .map(i => {
+      let key = series.at(i)
+      let offset = (i - (series.len() - 1) / 2) * bar-width
+      let color = colors.at(calc.rem(i, colors.len()))
+      let values = plot-data.at(key)
+      let bar = lq.bar(
+        xs,
+        values,
+        offset: offset,
+        width: bar-width,
+        fill: color,
+        label: bar-plots.at(key),
+      )
+      if key in bar-errors {
+        (
+          bar,
+          lq.plot(
+            xs.map(x => x + offset),
+            values,
+            yerr: bar-errors.at(key),
+            mark: none,
+            stroke: none,
+            label: none,
+          ),
+        )
+      } else {
+        (bar,)
+      }
+    })
+    .flatten()
+}
+
+#let chart(
+  plot-title,
+  plot-data,
+  width: 100%,
+  aspect-ratio: golden-ratio,
+  legend-position: top + right,
+  palette: none,
+) = {
+  let theme = if palette == none { default-palette } else { palette }
+  let colors = chart-colors(theme)
+  let is-bar-chart = "bar plots" in plot-data
+  let x-labels = plot-data.at("x labels", default: none)
+  let xaxis = if x-labels != none {
+    (subticks: none, ticks: plot-data.at("iteration").zip(x-labels))
+  } else {
+    (subticks: none, tick-args: (density: 60%))
+  }
 
   layout(size => {
     let chart-width = if type(width) == ratio {
@@ -68,31 +137,17 @@
         width: chart-width,
         height: chart-width / aspect-ratio,
         margin: 0%,
-        yscale: if plot-title.ends-with("-loss") { "log" } else { "linear" },
-        xaxis: (subticks: none, tick-args: (density: 60%)),
+        yscale: if not is-bar-chart and plot-title.ends-with("-loss") { "log" } else { "linear" },
+        xaxis: xaxis,
         yaxis: (subticks: none, tick-args: (density: 60%)),
-        legend: (position: top + right),
+        legend: (position: legend-position),
         grid: (:),
         fill: theme.base,
-        ..range(series.len()).map(i => {
-          let key = series.at(i)
-          lq.plot(
-            xs,
-            plot-data.at(key),
-            label: line-plots.at(key),
-            color: if key in line-colors {
-              theme.at(line-colors.at(key))
-            } else {
-              colors.at(calc.rem(i, colors.len()))
-            },
-            mark: none,
-            ..if key in line-styles {
-              (stroke: (dash: line-styles.at(key)),)
-            } else {
-              ()
-            },
-          )
-        }),
+        ..if is-bar-chart {
+          bar-chart-plots(plot-data, colors)
+        } else {
+          line-chart-plots(plot-data, colors, theme)
+        },
       )
     }
   })
@@ -103,6 +158,7 @@
   plot-key,
   width: 100%,
   aspect-ratio: golden-ratio,
+  legend-position: top + right,
   palette: none,
 ) = {
   let data = json(source)
@@ -111,11 +167,18 @@
     data.at(plot-key),
     width: width,
     aspect-ratio: aspect-ratio,
+    legend-position: legend-position,
     palette: palette,
   )
 }
 
-#let charts-from-json(source, width: 100%, aspect-ratio: golden-ratio, palette: none) = {
+#let charts-from-json(
+  source,
+  width: 100%,
+  aspect-ratio: golden-ratio,
+  legend-position: top + right,
+  palette: none,
+) = {
   let data = json(source)
   for plot-key in data.keys() [
     #align(
@@ -125,6 +188,7 @@
         data.at(plot-key),
         width: width,
         aspect-ratio: aspect-ratio,
+        legend-position: legend-position,
         palette: palette,
       ),
     )
