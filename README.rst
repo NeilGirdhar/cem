@@ -71,6 +71,16 @@ Running
   standard deviation for the thesis error bars. The default three matched seeds reproduce the thesis
   configuration.
 
+- Generate the two SIP identification benchmarks used by the thesis:
+
+  .. code:: bash
+
+     uv run sip-identification --output ../typst/sip-identification.json
+
+  The command runs the direct-injection and inherited-instrument experiments with the sample count,
+  training horizon, and random seeds used by the thesis. It writes every condition's estimated
+  causal effect, reconstruction loss, and instrument diagnostics as JSON.
+
 - Optimize:
 
   - Using one thread:

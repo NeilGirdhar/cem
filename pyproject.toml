@@ -63,6 +63,7 @@ dependencies = [
 
 [project.scripts]
 optimize = "cem.commands.optimize:app"
+sip-identification = "cem.commands.sip_identification:app"
 supervised-missingness = "cem.commands.supervised_missingness:app"
 visualize = "cem.commands.visualize:app"
 
