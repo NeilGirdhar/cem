@@ -43,6 +43,8 @@
   let colors = chart-colors(theme)
   let xs = plot-data.at("iteration")
   let line-plots = plot-data.at("line plots")
+  let line-styles = plot-data.at("line styles", default: (:))
+  let line-colors = plot-data.at("line colors", default: (:))
   let series = line-plots.keys()
 
   layout(size => {
@@ -78,8 +80,17 @@
             xs,
             plot-data.at(key),
             label: line-plots.at(key),
-            color: colors.at(calc.rem(i, colors.len())),
+            color: if key in line-colors {
+              theme.at(line-colors.at(key))
+            } else {
+              colors.at(calc.rem(i, colors.len()))
+            },
             mark: none,
+            ..if key in line-styles {
+              (stroke: (dash: line-styles.at(key)),)
+            } else {
+              ()
+            },
           )
         }),
       )
