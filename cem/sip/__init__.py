@@ -2,6 +2,7 @@
 
 from cem.sip.benchmark import (
     CausalBenchmarkResult,
+    CausalBenchmarkTrajectory,
     SIPBenchmarkResult,
     run_direct_injection_benchmark,
     run_inherited_instrument_benchmark,
@@ -21,6 +22,7 @@ from cem.sip.training import (
 
 __all__ = [
     "CausalBenchmarkResult",
+    "CausalBenchmarkTrajectory",
     "EmitterOutput",
     "ExplanatoryCoupling",
     "ExplanatoryCouplingOutput",

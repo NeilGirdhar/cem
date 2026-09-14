@@ -1,6 +1,7 @@
 """Reproducible synthetic benchmarks for real-valued SIP."""
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 
 import jax.numpy as jnp
 import jax.random as jr
@@ -29,6 +30,15 @@ class SIPBenchmarkResult:
 
 
 @dataclass(frozen=True)
+class CausalBenchmarkTrajectory:
+    """Causal-effect and reconstruction metrics recorded during training."""
+
+    training_examples: tuple[int, ...]
+    estimated_effects: tuple[float, ...]
+    reconstruction_losses: tuple[float, ...]
+
+
+@dataclass(frozen=True)
 class CausalBenchmarkResult:
     """Estimated causal effect and residual diagnostics for a SIP task."""
 
@@ -39,6 +49,7 @@ class CausalBenchmarkResult:
     true_first_stage_effect: float | None = None
     estimated_first_stage_effect: float | None = None
     first_stage_residual_covariance: float | None = None
+    trajectory: CausalBenchmarkTrajectory | None = None
 
 
 def _data(count: int, *, key: jnp.ndarray) -> tuple[jnp.ndarray, ...]:
@@ -164,7 +175,9 @@ def _fit_causal_score(
     *,
     key: jnp.ndarray,
     steps: int,
-) -> tuple[SIPScore, jnp.ndarray]:
+    checkpoint: Callable[[int, SIPScore], None] | None = None,
+    checkpoint_interval: int = 1,
+) -> SIPScore:
     score = SIPScore.create(
         predictor_observation_features=predictor_observations.shape[-1],
         predictor_instrument_features=instruments.shape[-1],
@@ -172,19 +185,45 @@ def _fit_causal_score(
         hidden_features=(),
         streams=create_streams({"parameters": jr.fold_in(key, 0), "inference": jr.fold_in(key, 1)}),
     )
-    score, _ = train_score_adversarial(
-        score,
-        target,
-        predictor_observations,
-        instruments,
-        jnp.ones((target.shape[0], 1)),
-        steps=steps,
-        predictor_learning_rate=0.005,
-        witness_learning_rate=0.005,
-        confounding_weight=1.0,
-        streams=create_streams({"inference": jr.fold_in(key, 2)}),
-    )
-    return score, jnp.ones((target.shape[0], 1))
+    gain = jnp.ones((target.shape[0], 1))
+    streams = create_streams({"inference": jr.fold_in(key, 2)})
+    if checkpoint is None:
+        score, _ = train_score_adversarial(
+            score,
+            target,
+            predictor_observations,
+            instruments,
+            gain,
+            steps=steps,
+            predictor_learning_rate=0.005,
+            witness_learning_rate=0.005,
+            confounding_weight=1.0,
+            streams=streams,
+        )
+        return score
+
+    if checkpoint_interval < 1:
+        msg = "checkpoint_interval must be positive"
+        raise ValueError(msg)
+    checkpoint(0, score)
+    completed_steps = 0
+    while completed_steps < steps:
+        chunk_steps = min(checkpoint_interval, steps - completed_steps)
+        score, _ = train_score_adversarial(
+            score,
+            target,
+            predictor_observations,
+            instruments,
+            gain,
+            steps=chunk_steps,
+            predictor_learning_rate=0.005,
+            witness_learning_rate=0.005,
+            confounding_weight=1.0,
+            streams=streams,
+        )
+        completed_steps += chunk_steps
+        checkpoint(completed_steps, score)
+    return score
 
 
 def _causal_result(
@@ -225,6 +264,41 @@ def _causal_result(
     )
 
 
+@dataclass
+class _CausalTrajectoryRecorder:
+    predictor_observations: jnp.ndarray
+    predictor_instruments: jnp.ndarray
+    observation: jnp.ndarray
+    source_index: int
+    true_effect: float
+    count: int
+    key: jnp.ndarray
+    training_examples: list[int] = field(default_factory=list)
+    estimated_effects: list[float] = field(default_factory=list)
+    reconstruction_losses: list[float] = field(default_factory=list)
+
+    def __call__(self, completed_steps: int, score: SIPScore) -> None:
+        result = _causal_result(
+            score,
+            self.predictor_observations,
+            self.predictor_instruments,
+            self.observation,
+            source_index=self.source_index,
+            true_effect=self.true_effect,
+            key=self.key,
+        )
+        self.training_examples.append(completed_steps * self.count)
+        self.estimated_effects.append(result.estimated_effect)
+        self.reconstruction_losses.append(result.reconstruction_loss)
+
+    def trajectory(self) -> CausalBenchmarkTrajectory:
+        return CausalBenchmarkTrajectory(
+            training_examples=tuple(self.training_examples),
+            estimated_effects=tuple(self.estimated_effects),
+            reconstruction_losses=tuple(self.reconstruction_losses),
+        )
+
+
 def run_intention_sensation_benchmark(
     *,
     count: int = 128,
@@ -241,7 +315,7 @@ def run_intention_sensation_benchmark(
     ]
     predictor_observations = intention_a[:, jnp.newaxis]
     predictor_instruments = instrument_a[:, jnp.newaxis]
-    score, _ = _fit_causal_score(
+    score = _fit_causal_score(
         predictor_observations,
         predictor_instruments,
         observation_y,
@@ -282,14 +356,26 @@ def run_direct_injection_benchmark(
         )[:, jnp.newaxis]
         predictor_observations = jnp.stack((observation_x, intention_a), axis=-1)
         predictor_instruments = instrument_a[:, jnp.newaxis]
-        score, _ = _fit_causal_score(
+        recorder = _CausalTrajectoryRecorder(
+            predictor_observations=predictor_observations,
+            predictor_instruments=predictor_instruments,
+            observation=observation_y,
+            source_index=1,
+            true_effect=intention_to_future_effect,
+            count=count,
+            key=jr.key(seed + 4),
+        )
+
+        score = _fit_causal_score(
             predictor_observations,
             predictor_instruments,
             observation_y,
             key=jr.key(seed + 3),
             steps=steps,
+            checkpoint=recorder,
+            checkpoint_interval=max(1, steps // 96),
         )
-        results[name] = _causal_result(
+        final_result = _causal_result(
             score,
             predictor_observations,
             predictor_instruments,
@@ -297,6 +383,10 @@ def run_direct_injection_benchmark(
             source_index=1,
             true_effect=intention_to_future_effect,
             key=jr.key(seed + 4),
+        )
+        results[name] = replace(
+            final_result,
+            trajectory=recorder.trajectory(),
         )
     return results
 
@@ -361,7 +451,7 @@ def run_inherited_instrument_benchmark(
             + subsequent_noise
         )[:, jnp.newaxis]
         predictor_observations = jnp.stack((observation_x, observation_y[:, 0]), axis=-1)
-        score, _ = _fit_causal_score(
+        score = _fit_causal_score(
             predictor_observations,
             instrument_y,
             observation_z,

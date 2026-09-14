@@ -8,6 +8,7 @@ import typer
 
 from cem.sip import (
     CausalBenchmarkResult,
+    CausalBenchmarkTrajectory,
     run_direct_injection_benchmark,
     run_inherited_instrument_benchmark,
 )
@@ -22,13 +23,59 @@ _INHERITED_SEED = 300
 
 def _conditions(
     results: dict[str, CausalBenchmarkResult],
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, object]]:
     conditions = {}
     for name, result in results.items():
-        values = {key: value for key, value in asdict(result).items() if value is not None}
+        values = {
+            key: value
+            for key, value in asdict(result).items()
+            if value is not None and key != "trajectory"
+        }
         values["effect_error"] = abs(result.estimated_effect - result.true_effect)
         conditions[name] = values
     return conditions
+
+
+def _trajectory(result: CausalBenchmarkResult) -> CausalBenchmarkTrajectory:
+    if result.trajectory is None:
+        msg = "the direct-injection benchmark did not record a training trajectory"
+        raise ValueError(msg)
+    return result.trajectory
+
+
+def _direct_charts(
+    results: dict[str, CausalBenchmarkResult],
+) -> dict[str, dict[str, object]]:
+    zero = results["zero"]
+    random = results["random"]
+    zero_trajectory = _trajectory(zero)
+    random_trajectory = _trajectory(random)
+    if zero_trajectory.training_examples != random_trajectory.training_examples:
+        msg = "direct-injection conditions recorded different training checkpoints"
+        raise ValueError(msg)
+    training_examples = zero_trajectory.training_examples
+    return {
+        "direct-injection-effect": {
+            "iteration": training_examples,
+            "line plots": {
+                "zero": "Noise magnitude 0",
+                "random": "Noise magnitude 1",
+                "true": "True effect",
+            },
+            "zero": zero_trajectory.estimated_effects,
+            "random": random_trajectory.estimated_effects,
+            "true": [random.true_effect] * len(training_examples),
+        },
+        "direct-injection-reconstruction-loss": {
+            "iteration": training_examples,
+            "line plots": {
+                "zero": "Noise magnitude 0",
+                "random": "Noise magnitude 1",
+            },
+            "zero": zero_trajectory.reconstruction_losses,
+            "random": random_trajectory.reconstruction_losses,
+        },
+    }
 
 
 @app.command()
@@ -66,6 +113,7 @@ def sip_identification(
             "inherited_seed": _INHERITED_SEED,
         },
         "direct-injection": _conditions(direct),
+        **_direct_charts(direct),
         "instrument-inheritance": _conditions(inherited),
     }
     output.parent.mkdir(parents=True, exist_ok=True)

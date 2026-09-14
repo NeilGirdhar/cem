@@ -32,6 +32,13 @@ def test_direct_injection_identifies_intention_effect() -> None:
     for result in results.values():
         assert result.reconstruction_loss < maximum_reconstruction_loss
         assert jnp.isfinite(result.residual_instrument_covariance)
+        assert result.trajectory is not None
+        assert result.trajectory.training_examples[0] == 0
+        assert result.trajectory.training_examples[-1] == 64 * 960
+        assert result.trajectory.estimated_effects[-1] == pytest.approx(result.estimated_effect)
+        assert result.trajectory.reconstruction_losses[-1] == pytest.approx(
+            result.reconstruction_loss
+        )
 
     # Without exogenous variation, the effect remains unidentified.
     assert zero_error > minimum_unidentified_error
