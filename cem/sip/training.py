@@ -1,6 +1,6 @@
 """Alternating optimization for real-valued SIP score circuits."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 import equinox as eqx
 import jax
@@ -34,6 +34,8 @@ def train_instrument_map(
     *,
     steps: int,
     learning_rate: float,
+    checkpoint: Callable[[int, SIPEmitter, JaxRealArray], None] | None = None,
+    checkpoint_interval: int = 1,
 ) -> tuple[SIPEmitter, JaxRealArray]:
     """Train an emitter's instrument map against its observed value.
 
@@ -53,21 +55,27 @@ def train_instrument_map(
     if predictor_instruments.shape[-1] != emitter.predictor_instrument_features:
         msg = "predictor instrument dimensions do not match the emitter"
         raise ValueError(msg)
+    if checkpoint_interval < 1:
+        msg = "checkpoint_interval must be positive"
+        raise ValueError(msg)
+
+    def objective(current: SIPEmitter) -> JaxRealArray:
+        prediction = current.infer_inherited_instrument(predictor_instruments)
+        score = prediction - observation
+        return 0.5 * jnp.mean(jnp.sum(jnp.square(score), axis=-1))
 
     losses: list[JaxRealArray] = []
-    for _ in range(steps):
-
-        def objective(current: SIPEmitter) -> JaxRealArray:
-            prediction = current.infer_inherited_instrument(predictor_instruments)
-            score = prediction - observation
-            return 0.5 * jnp.mean(jnp.sum(jnp.square(score), axis=-1))
-
+    if checkpoint is not None:
+        checkpoint(0, emitter, objective(emitter))
+    for step in range(steps):
         loss, gradients = eqx.filter_value_and_grad(objective)(emitter)
         emitter = eqx.apply_updates(
             emitter,
             jax.tree.map(lambda value: -learning_rate * value, gradients),
         )
         losses.append(loss)
+        if checkpoint is not None and ((step + 1) % checkpoint_interval == 0 or step + 1 == steps):
+            checkpoint(step + 1, emitter, loss)
 
     return emitter, jnp.stack(losses)
 

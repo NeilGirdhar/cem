@@ -36,6 +36,7 @@ class CausalBenchmarkTrajectory:
     training_examples: tuple[int, ...]
     estimated_effects: tuple[float, ...]
     reconstruction_losses: tuple[float, ...]
+    instrument_magnitudes: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -299,6 +300,22 @@ class _CausalTrajectoryRecorder:
         )
 
 
+@dataclass
+class _InstrumentTrajectoryRecorder:
+    predictor_instruments: jnp.ndarray
+    count: int
+    training_examples: list[int] = field(default_factory=list)
+    instrument_magnitudes: list[float] = field(default_factory=list)
+
+    def __call__(self, completed_steps: int, emitter: SIPEmitter, _loss: jnp.ndarray) -> None:
+        instrument = emitter.infer_inherited_instrument(self.predictor_instruments)
+        self.training_examples.append(completed_steps * self.count)
+        self.instrument_magnitudes.append(float(jnp.sqrt(jnp.mean(jnp.square(instrument)))))
+
+    def values(self) -> tuple[tuple[int, ...], tuple[float, ...]]:
+        return tuple(self.training_examples), tuple(self.instrument_magnitudes)
+
+
 def run_intention_sensation_benchmark(
     *,
     count: int = 128,
@@ -391,7 +408,7 @@ def run_direct_injection_benchmark(
     return results
 
 
-def run_inherited_instrument_benchmark(
+def run_inherited_instrument_benchmark(  # ruff: ignore[too-many-locals]
     *,
     count: int = 128,
     steps: int = 300,
@@ -407,7 +424,6 @@ def run_inherited_instrument_benchmark(
     injected_noise = jr.normal(jr.key(seed + 1), (count,))
     subsequent_noise = 0.1 * jr.normal(jr.key(seed + 2), (count,))
     conditions = {
-        "inactive": (False, False),
         "policy": (True, False),
         "injected": (True, True),
     }
@@ -437,12 +453,18 @@ def run_inherited_instrument_benchmark(
                 }
             ),
         )
+        instrument_recorder = _InstrumentTrajectoryRecorder(
+            predictor_instruments=instrument_a,
+            count=count,
+        )
         future_emitter, _ = train_instrument_map(
             future_emitter,
             observation_y,
             instrument_a,
             steps=steps,
             learning_rate=0.01,
+            checkpoint=instrument_recorder,
+            checkpoint_interval=max(1, steps // 96),
         )
         instrument_y = future_emitter.infer_inherited_instrument(instrument_a)
         observation_z = (
@@ -451,12 +473,23 @@ def run_inherited_instrument_benchmark(
             + subsequent_noise
         )[:, jnp.newaxis]
         predictor_observations = jnp.stack((observation_x, observation_y[:, 0]), axis=-1)
+        score_recorder = _CausalTrajectoryRecorder(
+            predictor_observations=predictor_observations,
+            predictor_instruments=instrument_y,
+            observation=observation_z,
+            source_index=1,
+            true_effect=future_to_subsequent_effect,
+            count=count,
+            key=jr.key(seed + 4),
+        )
         score = _fit_causal_score(
             predictor_observations,
             instrument_y,
             observation_z,
             key=jr.key(seed + 3),
             steps=steps,
+            checkpoint=score_recorder,
+            checkpoint_interval=max(1, steps // 96),
         )
         causal_result = _causal_result(
             score,
@@ -467,18 +500,24 @@ def run_inherited_instrument_benchmark(
             true_effect=future_to_subsequent_effect,
             key=jr.key(seed + 4),
         )
+        training_examples, instrument_magnitudes = instrument_recorder.values()
+        score_trajectory = score_recorder.trajectory()
+        if training_examples != score_trajectory.training_examples:
+            msg = "inherited benchmark stages recorded different training checkpoints"
+            raise ValueError(msg)
         first_stage_score = instrument_y - observation_y
-        results[name] = CausalBenchmarkResult(
-            true_effect=causal_result.true_effect,
-            estimated_effect=causal_result.estimated_effect,
-            residual_instrument_covariance=causal_result.residual_instrument_covariance,
-            reconstruction_loss=causal_result.reconstruction_loss,
+        results[name] = replace(
+            causal_result,
             true_first_stage_effect=intention_to_future_effect if use_noise else None,
             estimated_first_stage_effect=(
                 float(future_emitter.instrument_map.weight.value[0, 0]) if use_noise else None
             ),
             first_stage_residual_covariance=(
                 float(jnp.mean(first_stage_score[:, 0] * instrument_a[:, 0])) if use_noise else None
+            ),
+            trajectory=replace(
+                score_trajectory,
+                instrument_magnitudes=instrument_magnitudes,
             ),
         )
     return results

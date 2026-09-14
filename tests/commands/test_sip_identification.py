@@ -34,6 +34,24 @@ def test_sip_identification_cli_writes_json(
         true_first_stage_effect=1.3,
         estimated_first_stage_effect=1.2,
         first_stage_residual_covariance=0.001,
+        trajectory=CausalBenchmarkTrajectory(
+            (0, 32),
+            (0.0, 1.65),
+            (1.0, 0.03),
+            (0.1, 0.2),
+        ),
+    )
+    policy = CausalBenchmarkResult(
+        1.7,
+        1.9,
+        0.0,
+        0.03,
+        trajectory=CausalBenchmarkTrajectory(
+            (0, 32),
+            (0.0, 1.9),
+            (1.0, 0.03),
+            (0.0, 0.2),
+        ),
     )
     monkeypatch.setattr(
         command,
@@ -43,7 +61,7 @@ def test_sip_identification_cli_writes_json(
     monkeypatch.setattr(
         command,
         "run_inherited_instrument_benchmark",
-        lambda **_kwargs: {"injected": inherited},
+        lambda **_kwargs: {"policy": policy, "injected": inherited},
     )
     output = tmp_path / "sip-identification.json"
 
@@ -96,7 +114,48 @@ def test_sip_identification_cli_writes_json(
             "zero": [1.0, 0.02],
             "random": [1.0, 0.01],
         },
+        "inherited-instrument-effect": {
+            "iteration": [0, 32],
+            "line plots": {
+                "policy": "Policy",
+                "injected": "Injected",
+                "true": "True effect",
+                "instrument-y": "instrument(Y) magnitude",
+            },
+            "line styles": {"instrument-y": "dashed"},
+            "line colors": {
+                "policy": "dark-peach",
+                "injected": "dark-blue",
+                "true": "dark-green",
+                "instrument-y": "dark-blue",
+            },
+            "policy": [0.0, 1.9],
+            "injected": [0.0, 1.65],
+            "true": [1.7, 1.7],
+            "instrument-y": [0.1, 0.2],
+        },
+        "inherited-instrument-reconstruction-loss": {
+            "iteration": [0, 32],
+            "line plots": {
+                "policy": "Policy Z reconstruction",
+                "injected": "Injected Z reconstruction",
+            },
+            "line styles": {},
+            "line colors": {
+                "policy": "dark-peach",
+                "injected": "dark-blue",
+            },
+            "policy": [1.0, 0.03],
+            "injected": [1.0, 0.03],
+        },
         "instrument-inheritance": {
+            "policy": {
+                "true_effect": 1.7,
+                "estimated_effect": 1.9,
+                "residual_instrument_covariance": 0.0,
+                "reconstruction_loss": 0.03,
+                "effect_error": pytest.approx(0.2),
+            },
             "injected": {
                 "true_effect": 1.7,
                 "estimated_effect": 1.65,
@@ -106,6 +165,6 @@ def test_sip_identification_cli_writes_json(
                 "estimated_first_stage_effect": 1.2,
                 "first_stage_residual_covariance": 0.001,
                 "effect_error": pytest.approx(0.05),
-            }
+            },
         },
     }

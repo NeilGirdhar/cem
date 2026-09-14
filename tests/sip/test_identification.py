@@ -59,14 +59,12 @@ def test_inherited_instrument_identifies_sensation_effect() -> None:
     Y together with instrument(Y). Although Y is observed, its emitter must learn
     instrument(Y) from instrument(A). The target coefficient of Y in Z is 1.7.
 
-    The conditions share their samples and initial parameters. The inactive condition
-    sets A and instrument(A) to zero. The policy condition sets A = f(X) while keeping
-    instrument(A) zero. The injected condition adds noise to A and records it in
-    instrument(A), supplying variation that reaches Z through Y.
+    The conditions share their samples and initial parameters. The policy condition sets
+    A = f(X) while keeping instrument(A) zero. The injected condition adds noise to A and
+    records it in instrument(A), supplying variation that reaches Z through Y.
 
-    Every condition must reconstruct Z accurately. The first two must fail to separate
-    the effects of X and Y, while injection must learn instrument(Y) and recover Y's
-    causal effect on Z.
+    Every condition must reconstruct Z accurately. Policy must fail to separate the effects
+    of X and Y, while injection must learn instrument(Y) and recover Y's causal effect on Z.
     """
     maximum_reconstruction_loss = 0.01
     minimum_unidentified_error = 0.1
@@ -74,10 +72,8 @@ def test_inherited_instrument_identifies_sensation_effect() -> None:
     first_stage_effect_tolerance = 0.15
     first_stage_covariance_tolerance = 0.001
     results = run_inherited_instrument_benchmark(count=64, steps=960)
-    inactive = results["inactive"]
     policy = results["policy"]
     injected = results["injected"]
-    inactive_error = abs(inactive.estimated_effect - inactive.true_effect)
     policy_error = abs(policy.estimated_effect - policy.true_effect)
     injected_error = abs(injected.estimated_effect - injected.true_effect)
 
@@ -85,9 +81,13 @@ def test_inherited_instrument_identifies_sensation_effect() -> None:
     for result in results.values():
         assert result.reconstruction_loss < maximum_reconstruction_loss
         assert jnp.isfinite(result.residual_instrument_covariance)
+        assert result.trajectory is not None
+        assert result.trajectory.training_examples[0] == 0
+        assert result.trajectory.training_examples[-1] == 64 * 960
+        assert result.trajectory.instrument_magnitudes
+        assert result.trajectory.instrument_magnitudes
 
     # Accurate reconstruction alone cannot separate the effects of X and Y.
-    assert inactive_error > minimum_unidentified_error
     assert policy_error > minimum_unidentified_error
 
     # instrument(Y) identifies the effect of Y on Z.
@@ -95,7 +95,7 @@ def test_inherited_instrument_identifies_sensation_effect() -> None:
         injected.true_effect,
         abs=identified_effect_tolerance,
     )
-    assert injected_error < min(inactive_error, policy_error)
+    assert injected_error < policy_error
 
     # The first stage learns instrument(Y) from instrument(A).
     assert injected.true_first_stage_effect is not None

@@ -38,7 +38,7 @@ def _conditions(
 
 def _trajectory(result: CausalBenchmarkResult) -> CausalBenchmarkTrajectory:
     if result.trajectory is None:
-        msg = "the direct-injection benchmark did not record a training trajectory"
+        msg = "the benchmark did not record a training trajectory"
         raise ValueError(msg)
     return result.trajectory
 
@@ -74,6 +74,56 @@ def _direct_charts(
             },
             "zero": zero_trajectory.reconstruction_losses,
             "random": random_trajectory.reconstruction_losses,
+        },
+    }
+
+
+def _inherited_charts(
+    results: dict[str, CausalBenchmarkResult],
+) -> dict[str, dict[str, object]]:
+    policy = _trajectory(results["policy"])
+    injected = _trajectory(results["injected"])
+    if policy.training_examples != injected.training_examples:
+        msg = "inherited-instrument conditions recorded different training checkpoints"
+        raise ValueError(msg)
+    if not injected.instrument_magnitudes:
+        msg = "inherited-instrument benchmark did not record instrument metrics"
+        raise ValueError(msg)
+    training_examples = injected.training_examples
+    return {
+        "inherited-instrument-effect": {
+            "iteration": training_examples,
+            "line plots": {
+                "policy": "Policy",
+                "injected": "Injected",
+                "true": "True effect",
+                "instrument-y": "instrument(Y) magnitude",
+            },
+            "line styles": {"instrument-y": "dashed"},
+            "line colors": {
+                "policy": "dark-peach",
+                "injected": "dark-blue",
+                "true": "dark-green",
+                "instrument-y": "dark-blue",
+            },
+            "policy": policy.estimated_effects,
+            "injected": injected.estimated_effects,
+            "true": [results["injected"].true_effect] * len(training_examples),
+            "instrument-y": injected.instrument_magnitudes,
+        },
+        "inherited-instrument-reconstruction-loss": {
+            "iteration": training_examples,
+            "line plots": {
+                "policy": "Policy Z reconstruction",
+                "injected": "Injected Z reconstruction",
+            },
+            "line styles": {},
+            "line colors": {
+                "policy": "dark-peach",
+                "injected": "dark-blue",
+            },
+            "policy": policy.reconstruction_losses,
+            "injected": injected.reconstruction_losses,
         },
     }
 
@@ -114,6 +164,7 @@ def sip_identification(
         },
         "direct-injection": _conditions(direct),
         **_direct_charts(direct),
+        **_inherited_charts(inherited),
         "instrument-inheritance": _conditions(inherited),
     }
     output.parent.mkdir(parents=True, exist_ok=True)
