@@ -62,8 +62,8 @@ def _direct_charts(
         "direct-injection-effect": {
             "iteration": training_examples,
             "line plots": {
-                "zero": "Noise magnitude 0",
-                "random": "Noise magnitude 1",
+                "zero": "No instrument",
+                "random": "Injected instrument",
                 "true": "True effect",
             },
             "zero": zero_trajectory.estimated_effects,
@@ -73,8 +73,8 @@ def _direct_charts(
         "direct-injection-reconstruction-loss": {
             "iteration": training_examples,
             "line plots": {
-                "zero": "Noise magnitude 0",
-                "random": "Noise magnitude 1",
+                "zero": "No instrument",
+                "random": "Injected instrument",
             },
             "zero": zero_trajectory.reconstruction_losses,
             "random": random_trajectory.reconstruction_losses,
@@ -98,8 +98,8 @@ def _inherited_charts(
         "inherited-instrument-effect": {
             "iteration": training_examples,
             "line plots": {
-                "policy": "Policy",
-                "injected": "Injected",
+                "policy": "No instrument",
+                "injected": "Injected instrument",
                 "true": "True effect",
                 "instrument-y": "instrument(Y) magnitude",
             },
@@ -118,8 +118,8 @@ def _inherited_charts(
         "inherited-instrument-reconstruction-loss": {
             "iteration": training_examples,
             "line plots": {
-                "policy": "Policy Z reconstruction",
-                "injected": "Injected Z reconstruction",
+                "policy": "No instrument",
+                "injected": "Injected instrument",
             },
             "line styles": {},
             "line colors": {
