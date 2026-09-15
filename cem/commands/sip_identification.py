@@ -188,7 +188,7 @@ def _td_error_charts(
         },
         "td-error-mean-by-step": {
             "iteration": list(range(len(next(iter(checkpoints.values()))))),
-            "line plots": {str(example): f"{example} episodes" for example in (0, 256)},
+            "line plots": {"0": "Before training", "256": "After training"},
             **{
                 str(example): td_trajectory.td_error_mean_by_step[index]
                 for index, example in enumerate(training_examples)
