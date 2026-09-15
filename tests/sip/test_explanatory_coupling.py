@@ -275,8 +275,8 @@ def test_witness_only_update_leaves_predictor_path_unchanged() -> None:
     assert all(
         jnp.allclose(before, after)
         for before, after in zip(
-            jax.tree.leaves(initial.score.prediction_map),
-            jax.tree.leaves(trained.score.prediction_map),
+            jax.tree.leaves(initial.score.predictor.prediction_map),
+            jax.tree.leaves(trained.score.predictor.prediction_map),
             strict=True,
         )
         if eqx.is_array(before)

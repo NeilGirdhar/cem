@@ -5,7 +5,11 @@ import pytest
 from typer.testing import CliRunner
 
 import cem.commands.sip_identification as command
-from cem.sip import CausalBenchmarkResult, CausalBenchmarkTrajectory
+from cem.sip import (
+    CausalBenchmarkResult,
+    CausalBenchmarkTrajectory,
+    CreditBenchmarkResult,
+)
 
 
 def test_sip_identification_cli_writes_json(
@@ -63,6 +67,23 @@ def test_sip_identification_cli_writes_json(
         "run_inherited_instrument_benchmark",
         lambda **_kwargs: {"policy": policy, "injected": inherited},
     )
+    ordinary_credit = CreditBenchmarkResult(
+        1.7,
+        0.4,
+        0.05,
+        trajectory=CausalBenchmarkTrajectory((0, 32), (1.8, 0.4), (1.0, 0.05)),
+    )
+    td_credit = CreditBenchmarkResult(
+        1.7,
+        1.67,
+        0.1,
+        trajectory=CausalBenchmarkTrajectory((0, 32), (1.67, 1.67), (1.1, 0.1)),
+    )
+    monkeypatch.setattr(
+        command,
+        "run_td_error_benchmark",
+        lambda **_kwargs: {"ordinary": ordinary_credit, "td": td_credit},
+    )
     output = tmp_path / "sip-identification.json"
 
     result = CliRunner().invoke(
@@ -77,6 +98,7 @@ def test_sip_identification_cli_writes_json(
             "steps": 4,
             "direct_seed": 200,
             "inherited_seed": 300,
+            "td_error_seed": 400,
         },
         "direct-injection": {
             "zero": {
@@ -166,5 +188,39 @@ def test_sip_identification_cli_writes_json(
                 "first_stage_residual_covariance": 0.001,
                 "effect_error": pytest.approx(0.05),
             },
+        },
+        "td-error": {
+            "ordinary": {
+                "true_effect": 1.7,
+                "estimated_effect": 0.4,
+                "reconstruction_loss": 0.05,
+                "effect_error": pytest.approx(1.3),
+            },
+            "td": {
+                "true_effect": 1.7,
+                "estimated_effect": 1.67,
+                "reconstruction_loss": 0.1,
+                "effect_error": pytest.approx(0.03),
+            },
+        },
+        "td-error-credit": {
+            "iteration": [0, 32],
+            "line plots": {
+                "ordinary": "Ordinary score",
+                "td": "TD error",
+                "true": "True effect",
+            },
+            "ordinary": [1.8, 0.4],
+            "td": [1.67, 1.67],
+            "true": [1.7, 1.7],
+        },
+        "td-error-reconstruction-loss": {
+            "iteration": [0, 32],
+            "line plots": {
+                "ordinary": "Ordinary score",
+                "td": "TD error",
+            },
+            "ordinary": [1.0, 0.05],
+            "td": [1.1, 0.1],
         },
     }

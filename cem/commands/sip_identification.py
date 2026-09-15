@@ -9,8 +9,10 @@ import typer
 from cem.sip import (
     CausalBenchmarkResult,
     CausalBenchmarkTrajectory,
+    CreditBenchmarkResult,
     run_direct_injection_benchmark,
     run_inherited_instrument_benchmark,
+    run_td_error_benchmark,
 )
 from cem.structure import solver_context_manager
 
@@ -19,6 +21,7 @@ from .settings import jax_cache_dir
 app = typer.Typer(pretty_exceptions_enable=False)
 _DIRECT_SEED = 200
 _INHERITED_SEED = 300
+_TD_ERROR_SEED = 400
 
 
 def _conditions(
@@ -128,6 +131,59 @@ def _inherited_charts(
     }
 
 
+def _credit_conditions(
+    results: dict[str, CreditBenchmarkResult],
+) -> dict[str, dict[str, object]]:
+    conditions = {}
+    for name, result in results.items():
+        values = {
+            key: value
+            for key, value in asdict(result).items()
+            if value is not None and key != "trajectory"
+        }
+        values["effect_error"] = abs(result.estimated_effect - result.true_effect)
+        conditions[name] = values
+    return conditions
+
+
+def _td_error_charts(
+    results: dict[str, CreditBenchmarkResult],
+) -> dict[str, dict[str, object]]:
+    ordinary = results["ordinary"]
+    td = results["td"]
+    ordinary_trajectory = ordinary.trajectory
+    td_trajectory = td.trajectory
+    if ordinary_trajectory is None or td_trajectory is None:
+        msg = "the TD-error benchmark did not record a training trajectory"
+        raise ValueError(msg)
+    if ordinary_trajectory.training_examples != td_trajectory.training_examples:
+        msg = "TD-error benchmark conditions recorded different training checkpoints"
+        raise ValueError(msg)
+    training_examples = ordinary_trajectory.training_examples
+    return {
+        "td-error-credit": {
+            "iteration": training_examples,
+            "line plots": {
+                "ordinary": "Ordinary score",
+                "td": "TD error",
+                "true": "True effect",
+            },
+            "ordinary": ordinary_trajectory.estimated_effects,
+            "td": td_trajectory.estimated_effects,
+            "true": [td.true_effect] * len(training_examples),
+        },
+        "td-error-reconstruction-loss": {
+            "iteration": training_examples,
+            "line plots": {
+                "ordinary": "Ordinary score",
+                "td": "TD error",
+            },
+            "ordinary": ordinary_trajectory.reconstruction_losses,
+            "td": td_trajectory.reconstruction_losses,
+        },
+    }
+
+
 @app.command()
 def sip_identification(
     *,
@@ -154,6 +210,11 @@ def sip_identification(
             steps=steps,
             seed=_INHERITED_SEED,
         )
+        td_error = run_td_error_benchmark(
+            count=count,
+            steps=steps,
+            seed=_TD_ERROR_SEED,
+        )
 
     result = {
         "configuration": {
@@ -161,11 +222,14 @@ def sip_identification(
             "steps": steps,
             "direct_seed": _DIRECT_SEED,
             "inherited_seed": _INHERITED_SEED,
+            "td_error_seed": _TD_ERROR_SEED,
         },
         "direct-injection": _conditions(direct),
         **_direct_charts(direct),
         **_inherited_charts(inherited),
         "instrument-inheritance": _conditions(inherited),
+        "td-error": _credit_conditions(td_error),
+        **_td_error_charts(td_error),
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8") as file:

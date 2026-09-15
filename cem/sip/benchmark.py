@@ -10,11 +10,14 @@ from tjax import create_streams
 from cem.sip.emitter import SIPEmitter
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.score import SIPScore
+from cem.sip.td_error import SIPTDError
 from cem.sip.training import (
     SIPTrainingHistory,
+    rollout_td_error,
     train_explanatory_coupling_adversarial,
     train_instrument_map,
     train_score_adversarial,
+    train_td_error_adversarial,
 )
 
 
@@ -37,6 +40,16 @@ class CausalBenchmarkTrajectory:
     estimated_effects: tuple[float, ...]
     reconstruction_losses: tuple[float, ...]
     instrument_magnitudes: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True)
+class CreditBenchmarkResult:
+    """Score-based credit a training signal would send to a persistent cause."""
+
+    true_effect: float
+    estimated_effect: float
+    reconstruction_loss: float
+    trajectory: CausalBenchmarkTrajectory | None = None
 
 
 @dataclass(frozen=True)
@@ -521,3 +534,268 @@ def run_inherited_instrument_benchmark(  # ruff: ignore[too-many-locals]
             ),
         )
     return results
+
+
+def _credit_trajectory(
+    training_examples: list[int],
+    estimated_effects: list[float],
+    reconstruction_losses: list[float],
+    *,
+    true_effect: float,
+) -> CreditBenchmarkResult:
+    return CreditBenchmarkResult(
+        true_effect=true_effect,
+        estimated_effect=estimated_effects[-1],
+        reconstruction_loss=reconstruction_losses[-1],
+        trajectory=CausalBenchmarkTrajectory(
+            training_examples=tuple(training_examples),
+            estimated_effects=tuple(estimated_effects),
+            reconstruction_losses=tuple(reconstruction_losses),
+        ),
+    )
+
+
+def _train_ordinary_credit(
+    prospect_observation: jnp.ndarray,
+    prospect_instrument: jnp.ndarray,
+    target: jnp.ndarray,
+    *,
+    true_effect: float,
+    count: int,
+    steps: int,
+    key: jnp.ndarray,
+) -> CreditBenchmarkResult:
+    """Fit a one-shot predictor of the whole reward sequence from the prospect alone.
+
+    Because the predictor sees the prospect's observation directly, its prediction
+    can fit that observation's own effect on every reward. Subtracting that
+    prediction as an ordinary score then explains this effect away rather than
+    crediting it.
+    """
+    horizon = target.shape[-1]
+    predictor_observations = prospect_observation[:, jnp.newaxis]
+    predictor_instruments = prospect_instrument[:, jnp.newaxis]
+    gain = jnp.ones((count, 1))
+    score = SIPScore.create(
+        predictor_observation_features=1,
+        predictor_instrument_features=1,
+        observation_features=horizon,
+        hidden_features=(),
+        streams=create_streams({"parameters": jr.fold_in(key, 0), "inference": jr.fold_in(key, 1)}),
+    )
+    streams = create_streams({"inference": jr.fold_in(key, 2)})
+
+    def effect_and_loss(current: SIPScore) -> tuple[float, float]:
+        output = current.infer(
+            target,
+            predictor_observations,
+            predictor_instruments,
+            gain,
+            streams=create_streams({"inference": jr.fold_in(key, 3)}),
+            inference=True,
+        )
+        total_score = jnp.sum(output.observation_score, axis=-1)
+        effect = float(-jnp.mean(total_score * prospect_observation))
+        loss = float(jnp.mean(output.reconstruction_loss))
+        return effect, loss
+
+    checkpoint_interval = max(1, steps // 96)
+    training_examples: list[int] = [0]
+    effect, loss = effect_and_loss(score)
+    estimated_effects: list[float] = [effect]
+    reconstruction_losses: list[float] = [loss]
+
+    completed_steps = 0
+    while completed_steps < steps:
+        chunk_steps = min(checkpoint_interval, steps - completed_steps)
+        score, _ = train_score_adversarial(
+            score,
+            target,
+            predictor_observations,
+            predictor_instruments,
+            gain,
+            steps=chunk_steps,
+            predictor_learning_rate=0.005,
+            witness_learning_rate=0.0,
+            confounding_weight=0.0,
+            streams=streams,
+        )
+        completed_steps += chunk_steps
+        effect, loss = effect_and_loss(score)
+        training_examples.append(completed_steps * count)
+        estimated_effects.append(effect)
+        reconstruction_losses.append(loss)
+
+    return _credit_trajectory(
+        training_examples,
+        estimated_effects,
+        reconstruction_losses,
+        true_effect=true_effect,
+    )
+
+
+def _train_td_credit(
+    prospect_observation: jnp.ndarray,
+    prospect_instrument: jnp.ndarray,
+    rewards: jnp.ndarray,
+    *,
+    true_effect: float,
+    count: int,
+    steps: int,
+    key: jnp.ndarray,
+) -> CreditBenchmarkResult:
+    """Fit a TD-error circuit whose baseline predates the prospect it credits.
+
+    The delayed prediction at step 0 is drawn from a fixed state independent of the
+    prospect's observation, so it cannot explain away that observation's effect.
+    Its telescoped total credit across the episode therefore stays at the true
+    effect regardless of how well the intermediate predictions, which do see the
+    observation, come to fit.
+    """
+    horizon = rewards.shape[0]
+    live_state = prospect_observation[:, jnp.newaxis]
+    zero_state = jnp.zeros((count, 1))
+    live_instrument = prospect_instrument[:, jnp.newaxis]
+    zero_instrument = jnp.zeros((count, 1))
+    predictor_instruments = jnp.stack(
+        [live_instrument if step < horizon - 1 else zero_instrument for step in range(horizon)],
+        axis=0,
+    )
+    initial_state = zero_state
+    initial_instrument = zero_instrument
+    observations = rewards[:, :, jnp.newaxis]
+    predictor_observations = jnp.stack(
+        [live_state if step < horizon - 1 else zero_state for step in range(horizon)],
+        axis=0,
+    )
+    gains = jnp.stack(
+        [
+            jnp.ones((count, 1)) if step < horizon - 1 else jnp.zeros((count, 1))
+            for step in range(horizon)
+        ],
+        axis=0,
+    )
+
+    td_error = SIPTDError.create(
+        predictor_observation_features=1,
+        predictor_instrument_features=1,
+        observation_features=1,
+        discount=1.0,
+        hidden_features=(),
+        streams=create_streams({"parameters": jr.fold_in(key, 0), "inference": jr.fold_in(key, 1)}),
+    )
+    streams = create_streams({"inference": jr.fold_in(key, 2)})
+
+    def effect_and_loss(current: SIPTDError) -> tuple[float, float]:
+        outputs = rollout_td_error(
+            current,
+            observations,
+            predictor_observations,
+            predictor_instruments,
+            gains,
+            initial_state,
+            initial_instrument,
+            streams=create_streams({"inference": jr.fold_in(key, 3)}),
+            inference=True,
+        )
+        total_score = sum(output.observation_score[:, 0] for output in outputs)
+        effect = float(-jnp.mean(total_score * prospect_observation))
+        loss = float(jnp.mean(sum(output.reconstruction_loss for output in outputs)) / horizon)
+        return effect, loss
+
+    checkpoint_interval = max(1, steps // 96)
+    training_examples: list[int] = [0]
+    effect, loss = effect_and_loss(td_error)
+    estimated_effects: list[float] = [effect]
+    reconstruction_losses: list[float] = [loss]
+
+    completed_steps = 0
+    while completed_steps < steps:
+        chunk_steps = min(checkpoint_interval, steps - completed_steps)
+        td_error, _ = train_td_error_adversarial(
+            td_error,
+            observations,
+            predictor_observations,
+            predictor_instruments,
+            gains,
+            initial_state,
+            initial_instrument,
+            steps=chunk_steps,
+            predictor_learning_rate=0.005,
+            witness_learning_rate=0.0,
+            confounding_weight=0.0,
+            streams=streams,
+        )
+        completed_steps += chunk_steps
+        effect, loss = effect_and_loss(td_error)
+        training_examples.append(completed_steps * count)
+        estimated_effects.append(effect)
+        reconstruction_losses.append(loss)
+
+    return _credit_trajectory(
+        training_examples,
+        estimated_effects,
+        reconstruction_losses,
+        true_effect=true_effect,
+    )
+
+
+def run_td_error_benchmark(
+    *,
+    count: int = 128,
+    steps: int = 300,
+    seed: int = 400,
+) -> dict[str, CreditBenchmarkResult]:
+    """Compare an ordinary score's credit with a TD error's credit to a persistent cause.
+
+    A single prospect observation persists through a short episode and causes
+    reward at every step. An ordinary score predicts the whole reward sequence
+    directly from the observation and subtracts that prediction from the observed
+    rewards, so as the predictor fits, it explains the observation's own effect
+    away and its credit decays towards zero. A TD error instead baselines each step
+    with the delayed prediction carried from the step before, so its telescoped
+    total credit stays at the true effect regardless of how well the intermediate
+    predictions fit.
+
+    The prospect's observation and instrument are fixed directly here rather than
+    derived from an upstream intention: this test isolates credit preservation, not
+    identification, so nothing depends on where they come from.
+    """
+    if count < 1 or steps < 1:
+        msg = "count and steps must be positive"
+        raise ValueError(msg)
+    step_effects = (0.4, 0.5, 0.3, 0.5)
+    reward_noise = 0.1
+    true_effect = float(sum(step_effects))
+
+    prospect_observation = jr.normal(jr.key(seed), (count,))
+    prospect_instrument = jnp.zeros((count,))
+    rewards = jnp.stack(
+        [
+            step_effect * prospect_observation
+            + reward_noise * jr.normal(jr.key(seed + 1 + step), (count,))
+            for step, step_effect in enumerate(step_effects)
+        ],
+        axis=0,
+    )
+    target = jnp.moveaxis(rewards, 0, -1)
+
+    ordinary = _train_ordinary_credit(
+        prospect_observation,
+        prospect_instrument,
+        target,
+        true_effect=true_effect,
+        count=count,
+        steps=steps,
+        key=jr.key(seed + 10),
+    )
+    td = _train_td_credit(
+        prospect_observation,
+        prospect_instrument,
+        rewards,
+        true_effect=true_effect,
+        count=count,
+        steps=steps,
+        key=jr.key(seed + 20),
+    )
+    return {"ordinary": ordinary, "td": td}

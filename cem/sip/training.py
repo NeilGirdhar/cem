@@ -11,6 +11,7 @@ from cem.sip.emitter import SIPEmitter
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.objectives import purification_loss, witness_loss
 from cem.sip.score import SIPScore
+from cem.sip.td_error import SIPTDError, TDErrorOutput
 
 
 class SIPTrainingHistory(eqx.Module):
@@ -118,9 +119,9 @@ def train_score_adversarial(  # ruff: ignore[too-many-arguments]
 
         predictor_value, predictor_gradients = eqx.filter_value_and_grad(predictor_objective)(score)
         predictor_gradients = eqx.tree_at(
-            lambda gradients: gradients.witness_map,
+            lambda gradients: gradients.predictor.witness_map,
             predictor_gradients,
-            _zero_tree(predictor_gradients.witness_map),
+            _zero_tree(predictor_gradients.predictor.witness_map),
         )
         score = eqx.apply_updates(
             score,
@@ -143,9 +144,9 @@ def train_score_adversarial(  # ruff: ignore[too-many-arguments]
 
         witness_value, witness_gradients = eqx.filter_value_and_grad(witness_objective)(score)
         witness_gradients = eqx.tree_at(
-            lambda gradients: gradients.prediction_map,
+            lambda gradients: gradients.predictor.prediction_map,
             witness_gradients,
-            _zero_tree(witness_gradients.prediction_map),
+            _zero_tree(witness_gradients.predictor.prediction_map),
         )
         score = eqx.apply_updates(
             score,
@@ -207,9 +208,9 @@ def train_explanatory_coupling_adversarial(  # ruff: ignore[too-many-arguments]
             coupling
         )
         predictor_gradients = eqx.tree_at(
-            lambda gradients: gradients.score.witness_map,
+            lambda gradients: gradients.score.predictor.witness_map,
             predictor_gradients,
-            _zero_tree(predictor_gradients.score.witness_map),
+            _zero_tree(predictor_gradients.score.predictor.witness_map),
         )
         coupling = eqx.apply_updates(
             coupling,
@@ -239,9 +240,9 @@ def train_explanatory_coupling_adversarial(  # ruff: ignore[too-many-arguments]
             _zero_tree(witness_gradients.emitter),
         )
         witness_gradients = eqx.tree_at(
-            lambda gradients: gradients.score.prediction_map,
+            lambda gradients: gradients.score.predictor.prediction_map,
             witness_gradients,
-            _zero_tree(witness_gradients.score.prediction_map),
+            _zero_tree(witness_gradients.score.predictor.prediction_map),
         )
         coupling = eqx.apply_updates(
             coupling,
@@ -254,6 +255,150 @@ def train_explanatory_coupling_adversarial(  # ruff: ignore[too-many-arguments]
         witness_losses.append(witness_value)
 
     return coupling, SIPTrainingHistory(
+        purification_losses=jnp.stack(purification_losses),
+        witness_losses=jnp.stack(witness_losses),
+    )
+
+
+def rollout_td_error(  # ruff: ignore[too-many-arguments]
+    td_error: SIPTDError,
+    observations: JaxRealArray,
+    predictor_observations: JaxRealArray,
+    predictor_instruments: JaxRealArray,
+    gains: JaxRealArray,
+    initial_state: JaxRealArray,
+    initial_instrument: JaxRealArray,
+    *,
+    streams: Mapping[str, RngStream],
+    inference: bool,
+) -> tuple[TDErrorOutput, ...]:
+    """Unroll a TD-error circuit across a leading time axis, carrying its delay.
+
+    ``observations``, ``predictor_observations``, ``predictor_instruments``, and
+    ``gains`` each have a leading time axis of the episode's length. ``initial_state``
+    and ``initial_instrument`` produce the delayed prediction and witness fed to the
+    first step, playing the role of a stored baseline formed before the episode.
+    """
+    horizon = observations.shape[0]
+    unit_gain = jnp.ones_like(gains[0])
+    delayed_prediction = td_error.predictor.prediction(
+        initial_state,
+        unit_gain,
+        streams=streams,
+        inference=inference,
+    )
+    delayed_witness = td_error.predictor.witness(
+        initial_instrument,
+        unit_gain,
+        streams=streams,
+        inference=inference,
+    )
+    outputs: list[TDErrorOutput] = []
+    for step in range(horizon):
+        output = td_error.infer(
+            observations[step],
+            predictor_observations[step],
+            predictor_instruments[step],
+            gains[step],
+            delayed_prediction,
+            delayed_witness,
+            streams=streams,
+            inference=inference,
+        )
+        outputs.append(output)
+        delayed_prediction = output.delayed_prediction
+        delayed_witness = output.delayed_witness
+    return tuple(outputs)
+
+
+def train_td_error_adversarial(  # ruff: ignore[too-many-arguments]
+    td_error: SIPTDError,
+    observations: JaxRealArray,
+    predictor_observations: JaxRealArray,
+    predictor_instruments: JaxRealArray,
+    gains: JaxRealArray,
+    initial_state: JaxRealArray,
+    initial_instrument: JaxRealArray,
+    *,
+    steps: int,
+    predictor_learning_rate: float,
+    witness_learning_rate: float,
+    confounding_weight: float = 1.0,
+    streams: Mapping[str, RngStream],
+) -> tuple[SIPTDError, SIPTrainingHistory]:
+    """Train a TD-error circuit's predictor and witness paths across an episode."""
+    if steps < 1:
+        msg = "steps must be positive"
+        raise ValueError(msg)
+    if predictor_learning_rate < 0.0 or witness_learning_rate < 0.0:
+        msg = "learning rates must be nonnegative"
+        raise ValueError(msg)
+
+    def _rollout(current: SIPTDError) -> tuple[TDErrorOutput, ...]:
+        return rollout_td_error(
+            current,
+            observations,
+            predictor_observations,
+            predictor_instruments,
+            gains,
+            initial_state,
+            initial_instrument,
+            streams=streams,
+            inference=True,
+        )
+
+    purification_losses: list[JaxRealArray] = []
+    witness_losses: list[JaxRealArray] = []
+    for _ in range(steps):
+
+        def predictor_objective(current: SIPTDError) -> JaxRealArray:
+            outputs = _rollout(current)
+            losses = jnp.stack(
+                [
+                    purification_loss(output, confounding_weight=confounding_weight)
+                    for output in outputs
+                ]
+            )
+            return jnp.mean(losses)
+
+        predictor_value, predictor_gradients = eqx.filter_value_and_grad(predictor_objective)(
+            td_error
+        )
+        predictor_gradients = eqx.tree_at(
+            lambda gradients: gradients.predictor.witness_map,
+            predictor_gradients,
+            _zero_tree(predictor_gradients.predictor.witness_map),
+        )
+        td_error = eqx.apply_updates(
+            td_error,
+            jax.tree.map(
+                lambda value: -predictor_learning_rate * value,
+                predictor_gradients,
+            ),
+        )
+
+        def witness_objective(current: SIPTDError) -> JaxRealArray:
+            outputs = _rollout(current)
+            losses = jnp.stack([witness_loss(output) for output in outputs])
+            return jnp.mean(losses)
+
+        witness_value, witness_gradients = eqx.filter_value_and_grad(witness_objective)(td_error)
+        witness_gradients = eqx.tree_at(
+            lambda gradients: gradients.predictor.prediction_map,
+            witness_gradients,
+            _zero_tree(witness_gradients.predictor.prediction_map),
+        )
+        td_error = eqx.apply_updates(
+            td_error,
+            jax.tree.map(
+                lambda value: -witness_learning_rate * value,
+                witness_gradients,
+            ),
+        )
+        purification_losses.append(predictor_value)
+        witness_losses.append(witness_value)
+
+    return td_error, SIPTrainingHistory(
         purification_losses=jnp.stack(purification_losses),
         witness_losses=jnp.stack(witness_losses),
     )

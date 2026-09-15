@@ -7,7 +7,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from tjax import JaxRealArray, RngStream
 
-from cem.perceptron.mlp import MLP
+from cem.sip.predictor_witness import PredictorWitnessPair, feature_vector
 
 
 class ScoreOutput(eqx.Module):
@@ -33,8 +33,7 @@ class SIPScore(eqx.Module):
     SIP component.
     """
 
-    prediction_map: MLP
-    witness_map: MLP
+    predictor: PredictorWitnessPair
     observation_features: int = eqx.field(static=True)
     predictor_observation_features: int = eqx.field(static=True)
     predictor_instrument_features: int = eqx.field(static=True)
@@ -49,39 +48,19 @@ class SIPScore(eqx.Module):
         hidden_features: int | tuple[int, ...] = (),
         streams: Mapping[str, RngStream],
     ) -> Self:
-        dimensions = (
+        predictor = PredictorWitnessPair.create(
             predictor_observation_features,
             predictor_instrument_features,
             observation_features,
+            hidden_features=hidden_features,
+            streams=streams,
         )
-        if any(dimension < 1 for dimension in dimensions):
-            msg = "all score feature dimensions must be positive"
-            raise ValueError(msg)
         return cls(
-            prediction_map=MLP.create(
-                predictor_observation_features,
-                observation_features,
-                hidden_features=hidden_features,
-                streams=streams,
-            ),
-            witness_map=MLP.create(
-                predictor_instrument_features,
-                observation_features,
-                hidden_features=hidden_features,
-                streams=streams,
-            ),
+            predictor=predictor,
             observation_features=observation_features,
             predictor_observation_features=predictor_observation_features,
             predictor_instrument_features=predictor_instrument_features,
         )
-
-    @staticmethod
-    def _feature_vector(value: JaxRealArray, expected_features: int) -> JaxRealArray:
-        if value.ndim == 0:
-            return value[jnp.newaxis]
-        if value.ndim == 1 and value.shape[-1] != expected_features:
-            return value[..., jnp.newaxis]
-        return value
 
     def infer(
         self,
@@ -94,35 +73,19 @@ class SIPScore(eqx.Module):
         inference: bool,
     ) -> ScoreOutput:
         """Score one observation or a batch of observations."""
-        observation = self._feature_vector(observation, self.observation_features)
-        predictor_observations = self._feature_vector(
+        observation = feature_vector(observation, self.observation_features)
+        prediction = self.predictor.prediction(
             predictor_observations,
-            self.predictor_observation_features,
-        )
-        predictor_instruments = self._feature_vector(
-            predictor_instruments,
-            self.predictor_instrument_features,
-        )
-        gain = self._feature_vector(gain, 1)
-        if gain.shape[-1] != 1:
-            msg = f"gain must have one feature, got {gain.shape[-1]}"
-            raise ValueError(msg)
-
-        raw_prediction = self.prediction_map.infer(
-            predictor_observations,
+            gain,
             streams=streams,
             inference=inference,
         )
-        raw_witness = self.witness_map.infer(
+        witness = self.predictor.witness(
             predictor_instruments,
+            gain,
             streams=streams,
             inference=inference,
         )
-        witness_norm = jnp.sqrt(jnp.mean(jnp.square(raw_witness), axis=-1, keepdims=True) + 1e-8)
-        normalized_witness = raw_witness / witness_norm
-        gain = jnp.broadcast_to(gain, (*raw_prediction.shape[:-1], 1))
-        prediction = gain * raw_prediction
-        witness = gain * normalized_witness
         observation_score = prediction - observation
         reconstruction_loss = 0.5 * jnp.sum(jnp.square(observation_score), axis=-1)
         confounding_error = jnp.sum(observation_score * witness, axis=-1)

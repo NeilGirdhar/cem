@@ -1,10 +1,18 @@
 """Alternating objectives for real-valued SIP score circuits."""
 
+from typing import Protocol
+
 import jax.numpy as jnp
 from jax.lax import stop_gradient
 from tjax import JaxRealArray
 
-from cem.sip.score import ScoreOutput
+
+class PurifiableOutput(Protocol):
+    """The fields ScoreOutput and TDErrorOutput share, needed to purify either one."""
+
+    observation_score: JaxRealArray
+    reconstruction_loss: JaxRealArray
+    witness: JaxRealArray
 
 
 def _confounding_moment(
@@ -21,7 +29,7 @@ def _confounding_moment(
 
 
 def purification_loss(
-    output: ScoreOutput,
+    output: PurifiableOutput,
     *,
     confounding_weight: float = 1.0,
 ) -> JaxRealArray:
@@ -36,7 +44,7 @@ def purification_loss(
     return jnp.mean(output.reconstruction_loss) + confounding_weight * confounding
 
 
-def witness_loss(output: ScoreOutput) -> JaxRealArray:
+def witness_loss(output: PurifiableOutput) -> JaxRealArray:
     """Train the witness to expose predictable residual structure."""
     confounding = _confounding_moment(
         stop_gradient(output.observation_score),
