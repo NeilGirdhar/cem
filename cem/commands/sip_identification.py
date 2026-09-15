@@ -27,9 +27,9 @@ _TD_ERROR_SEED = 400
 def _conditions(
     results: dict[str, CausalBenchmarkResult],
 ) -> dict[str, dict[str, object]]:
-    conditions = {}
+    conditions: dict[str, dict[str, object]] = {}
     for name, result in results.items():
-        values = {
+        values: dict[str, object] = {
             key: value
             for key, value in asdict(result).items()
             if value is not None and key != "trajectory"
@@ -134,9 +134,9 @@ def _inherited_charts(
 def _credit_conditions(
     results: dict[str, CreditBenchmarkResult],
 ) -> dict[str, dict[str, object]]:
-    conditions = {}
+    conditions: dict[str, dict[str, object]] = {}
     for name, result in results.items():
-        values = {
+        values: dict[str, object] = {
             key: value
             for key, value in asdict(result).items()
             if value is not None and key != "trajectory"
