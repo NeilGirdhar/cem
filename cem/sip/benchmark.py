@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams
@@ -40,6 +41,10 @@ class CausalBenchmarkTrajectory:
     estimated_effects: tuple[float, ...]
     reconstruction_losses: tuple[float, ...]
     instrument_magnitudes: tuple[float, ...] = ()
+    link_strengths: tuple[float, ...] = ()
+    expected_td_errors: tuple[float, ...] = ()
+    td_error_by_step: tuple[tuple[float, ...], ...] = ()
+    td_error_mean_by_step: tuple[tuple[float, ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,37 @@ class CausalBenchmarkResult:
     estimated_first_stage_effect: float | None = None
     first_stage_residual_covariance: float | None = None
     trajectory: CausalBenchmarkTrajectory | None = None
+
+
+def simulate_remaining_food(
+    *,
+    count: int = 8,
+    n: int = 10,
+    variance: float = 0.01,
+    seed: int = 400,
+) -> jnp.ndarray:
+    """Simulate zero-mean OU paths for the remaining food reward.
+
+    The process starts at one unit and mean-reverts toward zero. Each Euler step
+    combines the restoring drift with Gaussian innovation of the requested
+    variance. The balance is unrestricted, so negative values represent reward
+    debt. The returned array has shape ``(count, n + 1)`` and includes the initial
+    balance in its first column.
+    """
+    if count < 1 or n < 1:
+        msg = "count and n must be positive"
+        raise ValueError(msg)
+    if variance < 0.0:
+        msg = "variance must be nonnegative"
+        raise ValueError(msg)
+    noises = jr.normal(jr.key(seed), (n, count))
+    balance = jnp.ones((count,))
+    trajectories = [balance]
+    for step in range(n):
+        sigma = jnp.sqrt(variance) * jnp.exp(-step / 4.0)
+        balance += -0.2 * balance + sigma * noises[step]
+        trajectories.append(balance)
+    return jnp.stack(trajectories, axis=1)
 
 
 def _data(count: int, *, key: jnp.ndarray) -> tuple[jnp.ndarray, ...]:
@@ -634,7 +670,7 @@ def _train_ordinary_credit(
     )
 
 
-def _train_td_credit(
+def _train_td_credit(  # ruff: ignore[too-many-locals,too-many-statements]
     prospect_observation: jnp.ndarray,
     prospect_instrument: jnp.ndarray,
     rewards: jnp.ndarray,
@@ -653,28 +689,23 @@ def _train_td_credit(
     observation, come to fit.
     """
     horizon = rewards.shape[0]
-    live_state = prospect_observation[:, jnp.newaxis]
-    zero_state = jnp.zeros((count, 1))
+    balance_before = 1.0 - jnp.cumsum(
+        jnp.concatenate((jnp.zeros((1, count)), rewards[:-1]), axis=0), axis=0
+    )
+    live_state = balance_before[..., jnp.newaxis]
     live_instrument = prospect_instrument[:, jnp.newaxis]
     zero_instrument = jnp.zeros((count, 1))
     predictor_instruments = jnp.stack(
         [live_instrument if step < horizon - 1 else zero_instrument for step in range(horizon)],
         axis=0,
     )
-    initial_state = zero_state
+    initial_state = live_state[0]
     initial_instrument = zero_instrument
     observations = rewards[:, :, jnp.newaxis]
-    predictor_observations = jnp.stack(
-        [live_state if step < horizon - 1 else zero_state for step in range(horizon)],
-        axis=0,
-    )
-    gains = jnp.stack(
-        [
-            jnp.ones((count, 1)) if step < horizon - 1 else jnp.zeros((count, 1))
-            for step in range(horizon)
-        ],
-        axis=0,
-    )
+    predictor_observations = live_state
+    horizon = observations.shape[0]
+    gains = jnp.ones((horizon, count, 1))
+    initial_gain = jnp.zeros((count, 1))
 
     td_error = SIPTDError.create(
         predictor_observation_features=1,
@@ -683,6 +714,13 @@ def _train_td_credit(
         discount=1.0,
         hidden_features=(),
         streams=create_streams({"parameters": jr.fold_in(key, 0), "inference": jr.fold_in(key, 1)}),
+    )
+    # Start with no P-to-R prediction so the plotted link strength has a clear
+    # zero baseline; the hidden representation remains randomly initialized.
+    td_error = eqx.tree_at(
+        lambda model: model.predictor.prediction_map.layers[-1].weight.value,
+        td_error,
+        jnp.zeros_like(td_error.predictor.prediction_map.layers[-1].weight.value),
     )
     streams = create_streams({"inference": jr.fold_in(key, 2)})
 
@@ -695,6 +733,7 @@ def _train_td_credit(
             gains,
             initial_state,
             initial_instrument,
+            initial_gain,
             streams=create_streams({"inference": jr.fold_in(key, 3)}),
             inference=True,
         )
@@ -703,11 +742,56 @@ def _train_td_credit(
         loss = float(jnp.mean(sum(output.reconstruction_loss for output in outputs)) / horizon)
         return effect, loss
 
-    checkpoint_interval = max(1, steps // 96)
+    def link_and_error(
+        current: SIPTDError,
+    ) -> tuple[float, float, tuple[float, ...], tuple[float, ...]]:
+        outputs = rollout_td_error(
+            current,
+            observations,
+            predictor_observations,
+            predictor_instruments,
+            gains,
+            initial_state,
+            initial_instrument,
+            initial_gain,
+            streams=create_streams({"inference": jr.fold_in(key, 3)}),
+            inference=True,
+        )
+        # The first score consumes the externally supplied pseudo-reward and its
+        # zero delayed baseline, so it is not a learned TD-error prediction.
+        interior_outputs = outputs
+        step_errors = tuple(
+            float(jnp.mean(jnp.abs(output.observation_score[:, 0]))) for output in interior_outputs
+        )
+        step_means = tuple(
+            float(-jnp.mean(output.observation_score[:, 0])) for output in interior_outputs
+        )
+        td_values = jnp.asarray(step_errors)
+        td_magnitude = float(jnp.mean(jnp.abs(td_values)))
+        link_input = predictor_observations[..., 0].reshape(-1)
+        prediction = current.predictor.prediction(
+            predictor_observations.reshape(-1, 1),
+            jnp.ones((link_input.shape[0], 1)),
+            streams=create_streams({"inference": jr.fold_in(key, 4)}),
+            inference=True,
+        )[:, 0]
+        centred = link_input - jnp.mean(link_input)
+        link_strength = float(
+            jnp.mean(centred * (prediction - jnp.mean(prediction)))
+            / (jnp.mean(jnp.square(centred)) + 1e-8)
+        )
+        return link_strength, td_magnitude, step_errors, step_means
+
+    checkpoint_interval = max(1, steps // 4)
     training_examples: list[int] = [0]
     effect, loss = effect_and_loss(td_error)
+    link_strength, td_magnitude, step_errors, step_means = link_and_error(td_error)
     estimated_effects: list[float] = [effect]
     reconstruction_losses: list[float] = [loss]
+    link_strengths: list[float] = [link_strength]
+    expected_td_errors: list[float] = [td_magnitude]
+    td_error_by_step: list[tuple[float, ...]] = [step_errors]
+    td_error_mean_by_step: list[tuple[float, ...]] = [step_means]
 
     completed_steps = 0
     while completed_steps < steps:
@@ -720,23 +804,40 @@ def _train_td_credit(
             gains,
             initial_state,
             initial_instrument,
+            initial_gain,
             steps=chunk_steps,
-            predictor_learning_rate=0.005,
+            predictor_learning_rate=0.4,
             witness_learning_rate=0.0,
             confounding_weight=0.0,
             streams=streams,
         )
         completed_steps += chunk_steps
         effect, loss = effect_and_loss(td_error)
-        training_examples.append(completed_steps * count)
+        link_strength, td_magnitude, step_errors, step_means = link_and_error(td_error)
+        training_examples.append(completed_steps)
         estimated_effects.append(effect)
         reconstruction_losses.append(loss)
+        link_strengths.append(link_strength)
+        expected_td_errors.append(td_magnitude)
+        td_error_by_step.append(step_errors)
+        td_error_mean_by_step.append(step_means)
 
-    return _credit_trajectory(
+    result = _credit_trajectory(
         training_examples,
         estimated_effects,
         reconstruction_losses,
         true_effect=true_effect,
+    )
+    assert result.trajectory is not None
+    return replace(
+        result,
+        trajectory=replace(
+            result.trajectory,
+            link_strengths=tuple(link_strengths),
+            expected_td_errors=tuple(expected_td_errors),
+            td_error_by_step=tuple(td_error_by_step),
+            td_error_mean_by_step=tuple(td_error_mean_by_step),
+        ),
     )
 
 
@@ -746,38 +847,15 @@ def run_td_error_benchmark(
     steps: int = 300,
     seed: int = 400,
 ) -> dict[str, CreditBenchmarkResult]:
-    """Compare an ordinary score's credit with a TD error's credit to a persistent cause.
-
-    A single prospect observation persists through a short episode and causes
-    reward at every step. An ordinary score predicts the whole reward sequence
-    directly from the observation and subtracts that prediction from the observed
-    rewards, so as the predictor fits, it explains the observation's own effect
-    away and its credit decays towards zero. A TD error instead baselines each step
-    with the delayed prediction carried from the step before, so its telescoped
-    total credit stays at the true effect regardless of how well the intermediate
-    predictions fit.
-
-    The prospect's observation and instrument are fixed directly here rather than
-    derived from an upstream intention: this test isolates credit preservation, not
-    identification, so nothing depends on where they come from.
-    """
+    """Train ordinary and TD baselines on a sequential remaining-food process."""
     if count < 1 or steps < 1:
         msg = "count and steps must be positive"
         raise ValueError(msg)
-    step_effects = (0.4, 0.5, 0.3, 0.5)
-    reward_noise = 0.1
-    true_effect = float(sum(step_effects))
-
-    prospect_observation = jr.normal(jr.key(seed), (count,))
+    balance = simulate_remaining_food(count=count, n=16, variance=0.01, seed=seed)
+    prospect_observation = balance[:, 0]
     prospect_instrument = jnp.zeros((count,))
-    rewards = jnp.stack(
-        [
-            step_effect * prospect_observation
-            + reward_noise * jr.normal(jr.key(seed + 1 + step), (count,))
-            for step, step_effect in enumerate(step_effects)
-        ],
-        axis=0,
-    )
+    rewards = jnp.moveaxis(balance[:, :-1] - balance[:, 1:], 0, 1)
+    true_effect = 0.0
     target = jnp.moveaxis(rewards, 0, -1)
 
     ordinary = _train_ordinary_credit(

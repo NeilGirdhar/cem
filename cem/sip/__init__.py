@@ -10,6 +10,7 @@ from cem.sip.benchmark import (
     run_intention_sensation_benchmark,
     run_synthetic_sip_benchmark,
     run_td_error_benchmark,
+    simulate_remaining_food,
 )
 from cem.sip.emitter import EmitterOutput, SIPEmitter
 from cem.sip.explanatory_coupling import ExplanatoryCoupling, ExplanatoryCouplingOutput
@@ -48,6 +49,7 @@ __all__ = [
     "run_intention_sensation_benchmark",
     "run_synthetic_sip_benchmark",
     "run_td_error_benchmark",
+    "simulate_remaining_food",
     "train_explanatory_coupling_adversarial",
     "train_instrument_map",
     "train_score_adversarial",

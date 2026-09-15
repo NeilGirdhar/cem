@@ -77,7 +77,15 @@ def test_sip_identification_cli_writes_json(
         1.7,
         1.67,
         0.1,
-        trajectory=CausalBenchmarkTrajectory((0, 32), (1.67, 1.67), (1.1, 0.1)),
+        trajectory=CausalBenchmarkTrajectory(
+            (0, 64, 128, 192, 256),
+            (1.67,) * 5,
+            (0.1,) * 5,
+            link_strengths=(0.0,) * 5,
+            expected_td_errors=(1.0,) * 5,
+            td_error_by_step=((1.0, 0.9),) * 5,
+            td_error_mean_by_step=((-0.1, 0.1),) * 5,
+        ),
     )
     monkeypatch.setattr(
         command,
@@ -92,7 +100,15 @@ def test_sip_identification_cli_writes_json(
     )
 
     assert result.exit_code == 0
-    assert json.loads(output.read_text()) == {
+    payload = json.loads(output.read_text())
+    balance = payload.pop("td-error-balance")
+    trajectory_count = 8
+    trajectory_steps = 16
+    assert balance["iteration"] == list(range(trajectory_steps + 1))
+    assert len(balance["line plots"]) == trajectory_count
+    assert all(len(balance[name]) == trajectory_steps + 1 for name in balance["line plots"])
+    assert all(balance[name][0] == pytest.approx(1.0) for name in balance["line plots"])
+    assert payload == {
         "configuration": {
             "count": 8,
             "steps": 4,
@@ -203,24 +219,38 @@ def test_sip_identification_cli_writes_json(
                 "effect_error": pytest.approx(0.03),
             },
         },
-        "td-error-credit": {
-            "iteration": [0, 32],
+        "td-error-link-strength": {
+            "iteration": [0, 100, 200, 300, 400, 500, 600],
             "line plots": {
-                "ordinary": "Ordinary score",
-                "td": "TD error",
-                "true": "True effect",
+                "td": "P to R link strength",
             },
-            "ordinary": [1.8, 0.4],
-            "td": [1.67, 1.67],
-            "true": [1.7, 1.7],
+            "td": [0.0] * 7,
         },
-        "td-error-reconstruction-loss": {
-            "iteration": [0, 32],
+        "td-error-expected-error": {
+            "iteration": [0, 100, 200, 300, 400, 500, 600],
             "line plots": {
-                "ordinary": "Ordinary score",
-                "td": "TD error",
+                "td": "Expected TD-error magnitude",
             },
-            "ordinary": [1.0, 0.05],
-            "td": [1.1, 0.1],
+            "td": [1.0] * 7,
+        },
+        "td-error-by-step": {
+            "iteration": [1, 2],
+            "line plots": {
+                "0": "0 episodes",
+                "100": "100 episodes",
+                "200": "200 episodes",
+                "300": "300 episodes",
+                "400": "400 episodes",
+                "500": "500 episodes",
+                "600": "600 episodes",
+            },
+            **{str(example): [1.0, 0.9] for example in (0, 100, 200, 300, 400, 500, 600)},
+        },
+        "td-error-mean-by-step": {
+            "iteration": [1, 2],
+            "line plots": {
+                str(example): f"{example} episodes" for example in (0, 100, 200, 300, 400, 500, 600)
+            },
+            **{str(example): [-0.1, 0.1] for example in (0, 100, 200, 300, 400, 500, 600)},
         },
     }

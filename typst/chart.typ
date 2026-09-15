@@ -104,6 +104,7 @@
   width: 100%,
   aspect-ratio: golden-ratio,
   legend-position: top + right,
+  show-legend: true,
   palette: none,
 ) = {
   let theme = if palette == none { default-palette } else { palette }
@@ -140,7 +141,7 @@
         yscale: if not is-bar-chart and plot-title.ends-with("-loss") { "log" } else { "linear" },
         xaxis: xaxis,
         yaxis: (subticks: none, tick-args: (density: 60%)),
-        legend: (position: legend-position),
+        legend: if show-legend { (position: legend-position) } else { none },
         grid: (:),
         fill: theme.base,
         ..if is-bar-chart {

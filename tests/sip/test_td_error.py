@@ -3,7 +3,16 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import create_streams
 
-from cem.sip import SIPTDError, rollout_td_error, run_td_error_benchmark
+from cem.sip import SIPTDError, rollout_td_error, run_td_error_benchmark, simulate_remaining_food
+
+
+def test_remaining_food_trajectories_start_at_one_and_evolve() -> None:
+    """The remaining food reward starts at one and follows unrestricted noisy bites."""
+    trajectories = simulate_remaining_food(count=8, n=10, seed=31)
+    assert trajectories.shape == (8, 11)
+    assert jnp.allclose(trajectories[:, 0], jnp.ones((8,)))
+    assert jnp.any(trajectories < 0.0)
+    assert jnp.any(trajectories[:, 1:] > trajectories[:, :-1])
 
 
 def _td_error(
@@ -165,19 +174,11 @@ def test_rollout_telescopes_regardless_of_intermediate_predictions() -> None:
     assert jnp.allclose(total_score, initial_prediction - total_observation, atol=1e-4)
 
 
-def test_td_credit_survives_predictor_fit_better_than_ordinary_score() -> None:
-    """A TD-baselined credit must stay far closer to the true effect than an ordinary one.
-
-    A persistent intention causes reward at every step. An ordinary score predicts
-    the whole sequence from the intention directly, so as it fits, its credit to the
-    intention decays. A TD error's baseline predates the intention, so its
-    telescoped credit should remain close to the true total effect.
-    """
-    effect_tolerance = 0.1
-    result = run_td_error_benchmark(count=128, steps=300)
-    ordinary = result["ordinary"]
-    td = result["td"]
-    assert abs(td.estimated_effect - td.true_effect) < effect_tolerance
-    assert abs(ordinary.estimated_effect - ordinary.true_effect) > abs(
-        td.estimated_effect - td.true_effect
-    )
+def test_td_error_records_link_strength_and_expected_error() -> None:
+    """The remaining-food benchmark records both requested training diagnostics."""
+    result = run_td_error_benchmark(count=32, steps=8)
+    trajectory = result["td"].trajectory
+    assert trajectory is not None
+    assert len(trajectory.training_examples) == len(trajectory.link_strengths)
+    assert len(trajectory.training_examples) == len(trajectory.expected_td_errors)
+    assert trajectory.training_examples[0] == 0

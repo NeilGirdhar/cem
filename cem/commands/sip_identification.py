@@ -13,6 +13,7 @@ from cem.sip import (
     run_direct_injection_benchmark,
     run_inherited_instrument_benchmark,
     run_td_error_benchmark,
+    simulate_remaining_food,
 )
 from cem.structure import solver_context_manager
 
@@ -156,30 +157,54 @@ def _td_error_charts(
     if ordinary_trajectory is None or td_trajectory is None:
         msg = "the TD-error benchmark did not record a training trajectory"
         raise ValueError(msg)
-    if ordinary_trajectory.training_examples != td_trajectory.training_examples:
-        msg = "TD-error benchmark conditions recorded different training checkpoints"
+    training_examples = td_trajectory.training_examples
+    balance = simulate_remaining_food(count=8, n=16, seed=_TD_ERROR_SEED)
+    if not td_trajectory.link_strengths or not td_trajectory.expected_td_errors:
+        msg = "TD-error benchmark did not record link and error metrics"
         raise ValueError(msg)
-    training_examples = ordinary_trajectory.training_examples
+    requested = (0, 64, 128, 192, 256)
+    checkpoints = {
+        example: td_trajectory.td_error_by_step[index]
+        for index, example in enumerate(training_examples)
+        if example in requested and index < len(td_trajectory.td_error_by_step)
+    }
+    if len(checkpoints) != len(requested):
+        msg = "TD-error benchmark did not record the requested training checkpoints"
+        raise ValueError(msg)
     return {
-        "td-error-credit": {
+        "td-error-link-strength": {
             "iteration": training_examples,
             "line plots": {
-                "ordinary": "Ordinary score",
-                "td": "TD error",
-                "true": "True effect",
+                "td": "P to R link strength",
             },
-            "ordinary": ordinary_trajectory.estimated_effects,
-            "td": td_trajectory.estimated_effects,
-            "true": [td.true_effect] * len(training_examples),
+            "td": td_trajectory.link_strengths,
         },
-        "td-error-reconstruction-loss": {
+        "td-error-expected-error": {
             "iteration": training_examples,
             "line plots": {
-                "ordinary": "Ordinary score",
-                "td": "TD error",
+                "td": "Expected TD-error magnitude",
             },
-            "ordinary": ordinary_trajectory.reconstruction_losses,
-            "td": td_trajectory.reconstruction_losses,
+            "td": td_trajectory.expected_td_errors,
+        },
+        "td-error-mean-by-step": {
+            "iteration": list(range(len(next(iter(checkpoints.values()))))),
+            "line plots": {str(example): f"{example} episodes" for example in (0, 256)},
+            **{
+                str(example): td_trajectory.td_error_mean_by_step[index]
+                for index, example in enumerate(training_examples)
+                if example in {0, 256}
+            },
+        },
+        "td-error-balance": {
+            "iteration": list(range(balance.shape[1])),
+            "line plots": {
+                f"trajectory-{index + 1}": f"Trajectory {index + 1}"
+                for index in range(balance.shape[0])
+            },
+            **{
+                f"trajectory-{index + 1}": balance[index].tolist()
+                for index in range(balance.shape[0])
+            },
         },
     }
 
@@ -189,7 +214,7 @@ def sip_identification(
     *,
     output: Path = Path("typst/sip-identification.json"),
     count: int = 64,
-    steps: int = 960,
+    steps: int = 256,
 ) -> None:
     """Run the direct-injection and inherited-instrument thesis benchmarks."""
     if count < 1:

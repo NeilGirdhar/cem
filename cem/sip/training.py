@@ -268,6 +268,7 @@ def rollout_td_error(  # ruff: ignore[too-many-arguments]
     gains: JaxRealArray,
     initial_state: JaxRealArray,
     initial_instrument: JaxRealArray,
+    initial_gain: JaxRealArray | None = None,
     *,
     streams: Mapping[str, RngStream],
     inference: bool,
@@ -280,7 +281,7 @@ def rollout_td_error(  # ruff: ignore[too-many-arguments]
     first step, playing the role of a stored baseline formed before the episode.
     """
     horizon = observations.shape[0]
-    unit_gain = jnp.ones_like(gains[0])
+    unit_gain = jnp.ones_like(gains[0]) if initial_gain is None else initial_gain
     delayed_prediction = td_error.predictor.prediction(
         initial_state,
         unit_gain,
@@ -319,6 +320,7 @@ def train_td_error_adversarial(  # ruff: ignore[too-many-arguments]
     gains: JaxRealArray,
     initial_state: JaxRealArray,
     initial_instrument: JaxRealArray,
+    initial_gain: JaxRealArray | None = None,
     *,
     steps: int,
     predictor_learning_rate: float,
@@ -343,6 +345,7 @@ def train_td_error_adversarial(  # ruff: ignore[too-many-arguments]
             gains,
             initial_state,
             initial_instrument,
+            initial_gain,
             streams=streams,
             inference=True,
         )
