@@ -2,8 +2,8 @@
 *.pyc
 
 # Generated figures
-typst/*.pdf
-typst/*.json
+results/*.pdf
+results/*.json
 
 # SLURM
 *.log

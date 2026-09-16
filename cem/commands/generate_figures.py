@@ -8,8 +8,8 @@ from typing import Any
 from cem.structure import Demo
 from cem.structure.solution import InferenceResults, TrainingResults
 
-_TYPST_DIR = Path("typst")
-_TYPST_SOURCE = _TYPST_DIR / "render.typ"
+_RESULTS_DIR = Path("results")
+_TYPST_SOURCE = _RESULTS_DIR / "render.typ"
 
 
 def generate_figures(
@@ -34,8 +34,8 @@ def generate_figures(
         plot_data["line plots"] = line_plots
         result[plot_key] = plot_data
 
-    json_path = _TYPST_DIR / f"{demo.name}.json"
-    pdf_path = _TYPST_DIR / f"{demo.name}.pdf"
+    json_path = _RESULTS_DIR / f"{demo.name}.json"
+    pdf_path = _RESULTS_DIR / f"{demo.name}.pdf"
     json_path.parent.mkdir(exist_ok=True)
     with json_path.open("w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)

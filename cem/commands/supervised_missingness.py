@@ -17,7 +17,7 @@ _MINIMUM_SEED_COUNT = 2
 @app.command()
 def supervised_missingness(
     *,
-    output: Path = Path("typst/supervised-missingness.json"),
+    output: Path = Path("results/supervised-missingness.json"),
     seeds: int = 3,
 ) -> None:
     """Compare Gaussian NPN and mask-aware MLP missing-input performance."""

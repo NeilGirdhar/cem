@@ -27,7 +27,7 @@ Running
 
 - Visualize:
 
-  - Save plotted data under ``typst/`` and compile a PDF with Typst/Lilaq:
+  - Save plotted data under ``results/`` and compile a PDF with Typst/Lilaq:
 
   .. code:: bash
 
@@ -37,13 +37,13 @@ Running
 
   .. code:: bash
 
-     typst compile --input source=supervised-elevators.json typst/render.typ typst/supervised-elevators.pdf
+     typst compile --input source=supervised-elevators.json results/render.typ results/supervised-elevators.pdf
 
   - Import one chart into another Typst document:
 
   .. code:: typst
 
-     #import "typst/chart.typ": chart-from-json
+     #import "results/chart.typ": chart-from-json
 
      #figure(
        chart-from-json(

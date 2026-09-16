@@ -212,7 +212,7 @@ def _td_error_charts(
 @app.command()
 def sip_identification(
     *,
-    output: Path = Path("typst/sip-identification.json"),
+    output: Path = Path("results/sip-identification.json"),
     count: int = 64,
     steps: int = 256,
 ) -> None:
