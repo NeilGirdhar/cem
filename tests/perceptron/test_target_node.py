@@ -5,7 +5,6 @@ from efax import (
     NormalEP,
     NormalNP,
 )
-from tjax import frozendict
 
 from cem.perceptron.target_node import PerceptronTargetConfiguration, PerceptronTargetNode
 

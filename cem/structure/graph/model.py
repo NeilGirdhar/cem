@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import equinox as eqx
-from tjax import JaxAbstractClass, JaxArray, RngStream, frozendict
+from tjax import JaxAbstractClass, JaxArray, RngStream
 
 from .node import NodeConfiguration
 

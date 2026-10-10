@@ -1,7 +1,5 @@
 from typing import Any
 
-from tjax import frozendict
-
 from cem.structure.graph.model import Model
 from cem.structure.graph.node import NodeConfiguration
 from cem.structure.problem.data_source import ProblemState

@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from efax import NormalNP, UnitVarianceNormalNP
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
-from tjax import JaxRealArray, RngStream, frozendict
+from tjax import JaxRealArray, RngStream
 from tjax.gradient import Adam
 
 from cem.npn.gaussian import GaussianNPN

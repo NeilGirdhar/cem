@@ -7,7 +7,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from jax import grad, tree, vmap
-from tjax import JaxAbstractClass, JaxArray, KeyArray, create_streams, frozendict
+from tjax import JaxAbstractClass, JaxArray, KeyArray, create_streams
 
 from cem.structure.graph.disassembled import DisGradientState, DisGradientTransformation, DisModel
 from cem.structure.graph.model import Model

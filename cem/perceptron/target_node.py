@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from typing import Any, Self
 
 from efax import ExpectationParametrization, HasEntropyEP, NaturalParametrization
-from tjax import JaxArray, JaxRealArray, frozendict
+from tjax import JaxArray, JaxRealArray
 
 from cem.perceptron.input_node import PerceptronInputConfiguration
 from cem.structure.graph.node import TargetConfiguration, TargetNode

@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from equinox.internal import while_loop
 from jax.lax import stop_gradient
-from tjax import JaxArray, JaxBooleanArray, JaxIntegralArray, KeyArray, frozendict
+from tjax import JaxArray, JaxBooleanArray, JaxIntegralArray, KeyArray
 
 from cem.structure.graph.model import Model
 from cem.structure.graph.node import NodeConfiguration

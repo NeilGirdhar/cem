@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import _MISSING_TYPE, MISSING
+from dataclasses import MISSING
 from typing import TYPE_CHECKING
 
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
@@ -123,7 +123,7 @@ def float_field(
 
 def chooser_field[T: int | float | str | None](
     *,
-    default: T | _MISSING_TYPE = MISSING,
+    default: T | MISSING = MISSING,  # ty: ignore[invalid-type-form]
     static: bool = True,
     options: tuple[T, ...],
     optimize: bool = False,
@@ -138,6 +138,6 @@ def chooser_field[T: int | float | str | None](
     """
     domain = CategoricalDistribution(options)
     metadata = {"domain": domain, "optimize": optimize}
-    if default == MISSING:
+    if default is MISSING:
         return field(static=True, kw_only=True, metadata=metadata)
     return field(static=True, kw_only=True, default=default, metadata=metadata)

@@ -4,7 +4,7 @@ from typing import Any
 import equinox as eqx
 import jax.numpy as jnp
 from efax import ExpectationParametrization, Flattener, HasEntropyEP, NaturalParametrization
-from tjax import JaxArray, JaxRealArray, frozendict
+from tjax import JaxArray, JaxRealArray
 
 from cem.structure.graph.parameters import FixedParameter
 

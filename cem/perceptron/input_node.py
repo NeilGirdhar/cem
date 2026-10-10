@@ -1,4 +1,4 @@
-from tjax import JaxRealArray, frozendict
+from tjax import JaxRealArray
 
 from cem.structure.graph.node import NodeConfiguration
 
