@@ -1,12 +1,10 @@
 from collections.abc import Callable
 from dataclasses import MISSING
-from typing import TYPE_CHECKING
 
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
 from tjax.dataclasses import field
 
-if TYPE_CHECKING:
-    from cem.structure.solver.solver import Solver
+lazy from cem.structure.solver.solver import Solver
 
 type IntHyperparameterDistribution = IntDistribution | CategoricalDistribution
 

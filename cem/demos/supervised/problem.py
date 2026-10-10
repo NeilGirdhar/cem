@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from datasets import load_dataset
 from efax import UnitVarianceNormalNP
+from jax import vmap
 from tjax import JaxRealArray, KeyArray
 
 from cem.structure.problem import Problem
@@ -130,8 +131,6 @@ def _encode_dataset(
     inference_y_jax = jnp.asarray(inference_y)
 
     # Vectorise over samples.
-    from jax import vmap  # ruff:ignore[import-outside-top-level]
-
     training_x_flat = vmap(encode_flat)(training_x_jax)
     training_y_flat = vmap(encode_flat)(training_y_jax)
     inference_x_flat = vmap(encode_flat)(inference_x_jax)
