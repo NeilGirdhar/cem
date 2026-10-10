@@ -37,7 +37,7 @@ def generate_figures(
     json_path = _RESULTS_DIR / f"{demo.name}.json"
     pdf_path = _RESULTS_DIR / f"{demo.name}.pdf"
     json_path.parent.mkdir(exist_ok=True)
-    with json_path.open("w", encoding="utf-8") as f:
+    with json_path.open("w") as f:
         json.dump(result, f, indent=2)
         f.write("\n")
 

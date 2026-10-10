@@ -117,6 +117,7 @@ ignore = [
   "undocumented-public-init",
   "undocumented-public-method",
   "undocumented-public-module",
+  "unspecified-encoding",
   "unused-class-method-argument",
   "unused-function-argument",
   "unused-method-argument",

@@ -33,7 +33,7 @@ def supervised_missingness(
         result = run_missingness_comparison(seed_count=seeds, report=report)
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8") as file:
+    with output.open("w") as file:
         json.dump(result, file, indent=2)
         file.write("\n")
     typer.echo(output)
