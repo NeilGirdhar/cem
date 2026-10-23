@@ -5,7 +5,7 @@ Built with JAX + Equinox on Python 3.14.
 
 ## Architecture
 
-Read `README.rst` before making structural changes — it documents the full `cem/structure/`
+Read `README.md` before making structural changes — it documents the full `cem/structure/`
 design: `Problem`/`DataSource`, `Model`/`ModelResult`/`NodeConfiguration`, the parameter
 system, `DisModel`/`DisGradientTransformation`, `Solver`, and `Telemetry`/`Plotter`.
 
