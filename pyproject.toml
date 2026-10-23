@@ -1,31 +1,12 @@
 [build-system]
-requires = ["uv_build>=0.13.0,<0.14"]
 build-backend = "uv_build"
-
-[dependency-groups]
-dev = [
-  "jupyter>=1.1.1",
-  "lefthook>=2",
-  "pyproject-fmt>=2.30",
-  "pyrefly>=1.0",
-  "pytest>=8.3.4",
-  "ruff>=0.16.5",
-  "rumdl>=0.3",
-  "taplo>=0.9",
-  "ty>=0.0.80",
-  "vulture>=2.14",
-]
+requires = [ "uv-build>=0.13,<0.14" ]
 
 [project]
 name = "cem"
 version = "0.1"
 description = "The Causal Evidence Model: Causal Instrument Discovery via Self-Instrumental Purification"
 readme = "README.md"
-requires-python = ">=3.15, <3.16"
-authors = [{ name = "Neil Girdhar", email = "mistersheik@gmail.com" }]
-maintainers = [{ name = "Neil Girdhar", email = "mistersheik@gmail.com" }]
-license = "LicenseRef-Proprietary"
-license-files = ["LICENSE"]
 keywords = [
   "adversarial-learning",
   "causal-discovery",
@@ -36,61 +17,67 @@ keywords = [
   "machine-learning",
   "self-instrumental-purification"
 ]
+license = "LicenseRef-Proprietary"
+license-files = [ "LICENSE" ]
+maintainers = [ { name = "Neil Girdhar", email = "mistersheik@gmail.com" } ]
+authors = [ { name = "Neil Girdhar", email = "mistersheik@gmail.com" } ]
+requires-python = ">=3.15,<3.16"
 classifiers = [
   "Development Status :: 1 - Planning",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "Operating System :: OS Independent",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.14",
   "Programming Language :: Python",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.15",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
-  "Typing :: Typed"
+  "Typing :: Typed",
 ]
 dependencies = [
-  "array-api-extra>=0.6.0",
-  "datasets>=3.2.0",
-  "efax>=2.4.0",
+  "array-api-extra>=0.6",
+  "datasets>=3.2",
+  "efax>=2.4",
   "equinox>=0.13.7",
   "jax[cuda]>=0.9",
-  "more-itertools>=10.6.0",
-  "optuna>=4.2.0",
+  "more-itertools>=10.6",
+  "optuna>=4.2",
   "rich>=13.9.4",
   "scipy>=1.16",
-  "threadpoolctl>=3.5.0",
+  "threadpoolctl>=3.5",
   "tjax>=1.5.2",
   "typer>=0.15.1",
   "wandb>=0.19.4"
 ]
+urls.Documentation = "https://github.com/NeilGirdhar/cem#readme"
+urls.Issues = "https://github.com/NeilGirdhar/cem/issues"
+urls.Source = "https://github.com/NeilGirdhar/cem"
+scripts.optimize = "cem.commands.optimize:app"
+scripts.sip-identification = "cem.commands.sip_identification:app"
+scripts.supervised-missingness = "cem.commands.supervised_missingness:app"
+scripts.visualize = "cem.commands.visualize:app"
 
-[project.scripts]
-optimize = "cem.commands.optimize:app"
-sip-identification = "cem.commands.sip_identification:app"
-supervised-missingness = "cem.commands.supervised_missingness:app"
-visualize = "cem.commands.visualize:app"
-
-[project.urls]
-Documentation = "https://github.com/NeilGirdhar/cem#readme"
-Issues = "https://github.com/NeilGirdhar/cem/issues"
-Source = "https://github.com/NeilGirdhar/cem"
-
-[tool.pyrefly]
-project-includes = [
-  "**/*.ipynb",
-  "**/*.py*"
+[dependency-groups]
+dev = [
+  "jupyter>=1.1.1",
+  "lefthook>=2",
+  "pyproject-fmt>=2.30",
+  "pyrefly>=1",
+  "pytest>=8.3.4",
+  "ruff>=0.16.5",
+  "rumdl>=0.3",
+  "taplo>=0.9",
+  "ty>=0.0.80",
+  "vulture>=2.14",
 ]
 
-[tool.pytest]
-addopts = ["--disable-warnings"]
-testpaths = ["tests"]
+[tool.uv]
+environments = [ "sys_platform == 'linux'" ]
+build-backend.module-root = ""
 
 [tool.ruff]
 line-length = 100
-
-[tool.ruff.lint]
-preview = true
-select = ["ALL"]
-ignore = [
+lint.select = [ "ALL" ]
+lint.ignore = [
   "ambiguous-unicode-character-comment",
   "ambiguous-unicode-character-docstring",
   "assert",
@@ -125,46 +112,38 @@ ignore = [
   "unused-method-argument",
   "unused-static-method-argument"
 ]
-
-[tool.ruff.lint.flake8-errmsg]
-max-string-length = 40
-
-[tool.ruff.lint.flake8-import-conventions.extend-aliases]
-"array_api_extra" = "xpx"
-"ctypes" = "ct"
-"datetime" = "dt"
-"equinox" = "eqx"
-"itertools" = "it"
-"jax.numpy" = "jnp"
-"jax.random" = "jr"
-"jax.scipy.special" = "jss"
-"networkx" = "nx"
-"numpy.typing" = "npt"
-"optimistix" = "optx"
-"optype" = "op"
-"optype.numpy" = "onp"
-"optype.numpy.compat" = "npc"
-"optype.typing" = "opt"
-"pyqtgraph" = "pg"
-"scipy.special" = "sc"
-"seaborn" = "sns"
-
-[tool.ruff.lint.isort]
-combine-as-imports = true
-
-[tool.ruff.lint.pydocstyle]
-convention = "google"
-
-[tool.ruff.lint.pylint]
-max-args = 8
-max-locals = 25
-
-[tool.uv]
-environments = ["sys_platform == 'linux'"]
-
-[tool.uv.build-backend]
-module-root = ""
+lint.flake8-errmsg.max-string-length = 40
+lint.flake8-import-conventions.extend-aliases."jax.numpy" = "jnp"
+lint.flake8-import-conventions.extend-aliases."jax.random" = "jr"
+lint.flake8-import-conventions.extend-aliases."jax.scipy.special" = "jss"
+lint.flake8-import-conventions.extend-aliases."numpy.typing" = "npt"
+lint.flake8-import-conventions.extend-aliases."optype.numpy" = "onp"
+lint.flake8-import-conventions.extend-aliases."optype.numpy.compat" = "npc"
+lint.flake8-import-conventions.extend-aliases."optype.typing" = "opt"
+lint.flake8-import-conventions.extend-aliases."scipy.special" = "sc"
+lint.flake8-import-conventions.extend-aliases.array_api_extra = "xpx"
+lint.flake8-import-conventions.extend-aliases.ctypes = "ct"
+lint.flake8-import-conventions.extend-aliases.datetime = "dt"
+lint.flake8-import-conventions.extend-aliases.equinox = "eqx"
+lint.flake8-import-conventions.extend-aliases.itertools = "it"
+lint.flake8-import-conventions.extend-aliases.networkx = "nx"
+lint.flake8-import-conventions.extend-aliases.optimistix = "optx"
+lint.flake8-import-conventions.extend-aliases.optype = "op"
+lint.flake8-import-conventions.extend-aliases.pyqtgraph = "pg"
+lint.flake8-import-conventions.extend-aliases.seaborn = "sns"
+lint.isort.combine-as-imports = true
+lint.pydocstyle.convention = "google"
+lint.pylint.max-args = 8
+lint.pylint.max-locals = 25
+lint.preview = true
 
 [tool.vulture]
-ignore_decorators = ["@cli.command", "@pytest.fixture"]
+ignore_decorators = [ "@cli.command", "@pytest.fixture" ]
 sort_by_size = true
+
+[tool.pyrefly]
+project-includes = [ "**/*.ipynb", "**/*.py*" ]
+
+[tool.pytest]
+addopts = [ "--disable-warnings" ]
+testpaths = [ "tests" ]
