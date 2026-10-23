@@ -9,6 +9,7 @@ dev = [
   "pyrefly>=1.0",
   "pytest>=8.3.4",
   "ruff>=0.16.5",
+  "rumdl>=0.3",
   "toml-sort>=0.24",
   "ty>=0.0.80",
   "vulture>=2.14"

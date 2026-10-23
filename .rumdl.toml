@@ -1,0 +1,13 @@
+[MD007]
+indent = 4
+
+[MD013]
+reflow = true
+
+[global]
+editorconfig = true
+exclude = [".claude"]
+force_exclude = true
+
+[per-file-ignores]
+"CLAUDE.md" = ["MD041"]
