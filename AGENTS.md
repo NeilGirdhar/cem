@@ -17,48 +17,13 @@ enforces this at model-creation time.
 
 ## Stable facts
 
-- Run all project commands with `uv run`; add dependencies with `uv add <package>` rather than
-  hand-editing `pyproject.toml`.
+- Install with `uv sync --all-extras`.
 - Primary references: `~/src/typst/thesis.typ`, `~/src/typst/architecture-figures.typ`.
 - Prior implementation: `~/backup/cem`.
 - Shared test fixtures (`streams`, `np_rng`, `log`) live in `tests/conftest.py`.
 
 ## Working discipline
 
-- Prefer targeted reads (known path → `Read`, known symbol → `Grep`) over broad scans.
-- Reuse established context instead of re-reading files or rediscovering completed steps.
 - On an unrelated new task: clear working context and rebuild only from this file, the user's
   request, and the specific files needed.
 - In long sessions (~10 turns): compress context to current task, relevant files, decisions, next step.
-
-## Common commands
-
-```bash
-uv sync --all-extras
-uv run pytest
-uv run ruff check --fix
-uv run ruff format
-uv run ty check
-uv run lefthook run pre-commit
-```
-
-## Style
-
-- Line length: 100
-- Google docstrings
-- Do not move imports into `TYPE_CHECKING` blocks
-
-## Import aliases (enforced by ruff)
-
-`equinox` → `eqx`, `jax.numpy` → `jnp`, `jax.random` → `jr`, `numpy.typing` → `npt`,
-`itertools` → `it`, `datetime` → `dt`, `numpy` → `np` (inferred by ruff, not in alias list)
-
-## Git commit messages
-
-- Separate the subject from the body with a blank line.
-- Wrap the subject at 72 characters.
-- Capitalize the subject line.
-- Omit the trailing period on the subject line.
-- Use the imperative mood in the subject ("Fix bug", not "Fixed bug" or "Fixes bug").
-- Hard-wrap the body at 72 characters per line.
-- Focus the body on why the change was made, not how — the diff already shows how.
