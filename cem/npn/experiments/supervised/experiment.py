@@ -33,17 +33,15 @@ class SupervisedExperiment(OptimizableExperiment):
         hyperparameters: Mapping[str, Any],
     ) -> float:
         telemetry = LossTelemetry(selected_node="target")
-        variant_by_label = {variant.label: variant for variant in self.variants}
         penalized_losses: list[jnp.ndarray] = []
         for run in runs:
             if run.inference_results.count < 1:
                 msg = "supervised experiment scoring requires inference results"
                 raise ValueError(msg)
-            variant = variant_by_label[run.variant_label]
-            variant_hyperparameters = self.variant_hyperparameters(variant, hyperparameters)
-            default_solver = variant.solver
+            default_solver = self.variant_for(run).solver
+            solver = self.solver_for(run, hyperparameters)
             assert isinstance(default_solver, SupervisedSolver)
-            solver = default_solver.populate_from_hyperparameters(variant_hyperparameters)
+            assert isinstance(solver, SupervisedSolver)
             compute_penalty = _COMPUTE_WEIGHT * (
                 solver.compute_proxy() / default_solver.compute_proxy()
             )

@@ -156,6 +156,18 @@ class Experiment:
             self.variant_hyperparameters(variant, hyperparameters)
         )
 
+    def variant_for(self, run: Run) -> Variant:
+        """Return the variant that produced ``run``."""
+        for variant in self.variants:
+            if variant.label == run.variant_label:
+                return variant
+        msg = f"no variant with label {run.variant_label!r} in experiment {self.name!r}"
+        raise KeyError(msg)
+
+    def solver_for(self, run: Run, hyperparameters: Mapping[str, Any]) -> Solver[Any]:
+        """Return the solver that was used to produce ``run``."""
+        return self.resolve_solver(self.variant_for(run), run.sweep_entry, hyperparameters)
+
     def runs(
         self,
         hyperparameters: Mapping[str, Any],
