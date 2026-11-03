@@ -6,11 +6,11 @@ from operator import itemgetter
 from pathlib import Path
 from typing import Any
 
-TUNED_DEFAULTS_PATH = Path(__file__).resolve().parent / "demos" / "tuned_defaults.json"
+TUNED_DEFAULTS_PATH = Path(__file__).resolve().parent / "tuned_defaults.json"
 
 
 def load_tuned_defaults() -> dict[str, dict[str, Any]]:
-    """Load committed best-known hyperparameter defaults by demo name."""
+    """Load committed best-known hyperparameter defaults by experiment name."""
     if not TUNED_DEFAULTS_PATH.exists():
         return {}
     with TUNED_DEFAULTS_PATH.open() as f:
@@ -18,18 +18,20 @@ def load_tuned_defaults() -> dict[str, dict[str, Any]]:
     if not isinstance(data, dict):
         msg = f"{TUNED_DEFAULTS_PATH} must contain a JSON object"
         raise TypeError(msg)
-    return {str(k): _validate_hyperparameter_map(v, demo_name=str(k)) for k, v in data.items()}
+    return {
+        str(k): _validate_hyperparameter_map(v, experiment_name=str(k)) for k, v in data.items()
+    }
 
 
-def tuned_defaults_for_demo(demo_name: str) -> dict[str, Any]:
-    """Return committed best-known hyperparameter defaults for one demo."""
-    return load_tuned_defaults().get(demo_name, {})
+def tuned_defaults_for_experiment(experiment_name: str) -> dict[str, Any]:
+    """Return committed best-known hyperparameter defaults for one experiment."""
+    return load_tuned_defaults().get(experiment_name, {})
 
 
-def update_tuned_defaults(demo_name: str, hyperparameters: Mapping[str, Any]) -> None:
-    """Persist best-known hyperparameter defaults for one demo."""
+def update_tuned_defaults(experiment_name: str, hyperparameters: Mapping[str, Any]) -> None:
+    """Persist best-known hyperparameter defaults for one experiment."""
     data = load_tuned_defaults()
-    data[demo_name] = {
+    data[experiment_name] = {
         str(k): _json_scalar(v) for k, v in sorted(hyperparameters.items(), key=itemgetter(0))
     }
     _write_tuned_defaults(data)
@@ -53,9 +55,9 @@ def _write_tuned_defaults(data: Mapping[str, Mapping[str, Any]]) -> None:
         raise
 
 
-def _validate_hyperparameter_map(value: object, *, demo_name: str) -> dict[str, Any]:
+def _validate_hyperparameter_map(value: object, *, experiment_name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
-        msg = f"{TUNED_DEFAULTS_PATH} entry for {demo_name!r} must be a JSON object"
+        msg = f"{TUNED_DEFAULTS_PATH} entry for {experiment_name!r} must be a JSON object"
         raise TypeError(msg)
     return {str(k): _json_scalar(v) for k, v in value.items()}
 

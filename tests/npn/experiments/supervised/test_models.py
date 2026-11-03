@@ -6,9 +6,9 @@ import jax.random as jr
 import pytest
 from tjax import RngStream
 
-from cem.npn.experiments.supervised.bike_sharing import supervised_bike_sharing_demand_demo
+from cem.npn.experiments.supervised.bike_sharing import supervised_bike_sharing_demand_experiment
 from cem.npn.experiments.supervised.datasets import SupervisedDataSource, SupervisedProblem
-from cem.npn.experiments.supervised.iris import supervised_iris_demo
+from cem.npn.experiments.supervised.iris import supervised_iris_experiment
 from cem.npn.experiments.supervised.models import (
     DatasetKind,
     GaussianNPNSupervisedModel,
@@ -122,7 +122,7 @@ def test_hf_supervised_solver_short_training_is_finite(
     monkeypatch.setattr(_LOAD_HF_PATH, lambda _config: small_supervised_problem())
     telemetry = LossTelemetry(selected_node="target")
     packet = ExecutionPacket(telemetries=Telemetries((telemetry,)))
-    variant_solver = supervised_bike_sharing_demand_demo.variants[0].solver
+    variant_solver = supervised_bike_sharing_demand_experiment.variants[0].solver
     assert isinstance(variant_solver, SupervisedSolver)
     solver = replace(
         variant_solver,
@@ -177,7 +177,7 @@ def test_supervised_training_and_inference_support_non_divisible_scan_chunks(
     monkeypatch.setattr(_LOAD_HF_PATH, lambda _config: small_supervised_problem())
     telemetry = LossTelemetry(selected_node="target")
     packet = ExecutionPacket(telemetries=Telemetries((telemetry,)), scan_chunk_size=2)
-    variant_solver = supervised_bike_sharing_demand_demo.variants[0].solver
+    variant_solver = supervised_bike_sharing_demand_experiment.variants[0].solver
     assert isinstance(variant_solver, SupervisedSolver)
     solver = replace(
         variant_solver,
@@ -200,10 +200,10 @@ def test_supervised_training_and_inference_support_non_divisible_scan_chunks(
     assert True in data_source_modes
 
 
-def test_supervised_iris_demo_second_half_loss_is_low() -> None:
+def test_supervised_iris_experiment_second_half_loss_is_low() -> None:
     telemetry = LossTelemetry(selected_node="target")
     packet = ExecutionPacket(telemetries=Telemetries((telemetry,)))
-    variant = supervised_iris_demo.variants[0]
+    variant = supervised_iris_experiment.variants[0]
     solver = variant.solver
     training_results = solver.training_results(packet=packet)
     losses = training_results.telemetries[telemetry]

@@ -1,11 +1,11 @@
-"""CPU-activity supervised demo."""
+"""CPU-activity supervised experiment."""
 
 from cem.structure.plotter import Variant
 
-from .demo import SupervisedDemo
+from .experiment import SupervisedExperiment
 from .models import DatasetKind, LinkKind, SupervisedSolver
 
-supervised_cpu_activity_demo = SupervisedDemo(
+supervised_cpu_activity_experiment = SupervisedExperiment(
     name="supervised-cpu-activity",
     variants=[
         Variant(

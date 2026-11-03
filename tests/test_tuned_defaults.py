@@ -5,13 +5,13 @@ import pytest
 from optuna.distributions import CategoricalDistribution
 
 from cem import tuned_defaults
-from cem.npn.experiments.supervised.bike_sharing import supervised_bike_sharing_demand_demo
+from cem.npn.experiments.supervised.bike_sharing import supervised_bike_sharing_demand_experiment
 
 _TUNED_HIDDEN_SIZE = 42
 _DEFAULT_LEARNING_RATE = 0.01
 
 
-def test_tuned_defaults_for_demo_loads_committed_json(
+def test_tuned_defaults_for_experiment_loads_committed_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -19,7 +19,7 @@ def test_tuned_defaults_for_demo_loads_committed_json(
     path.write_text(
         json.dumps(
             {
-                "demo-a": {
+                "experiment-a": {
                     "hidden_size": 12,
                     "learning_rate": 0.25,
                 }
@@ -28,14 +28,14 @@ def test_tuned_defaults_for_demo_loads_committed_json(
     )
     monkeypatch.setattr(tuned_defaults, "TUNED_DEFAULTS_PATH", path)
 
-    assert tuned_defaults.tuned_defaults_for_demo("demo-a") == {
+    assert tuned_defaults.tuned_defaults_for_experiment("experiment-a") == {
         "hidden_size": 12,
         "learning_rate": 0.25,
     }
-    assert tuned_defaults.tuned_defaults_for_demo("demo-b") == {}
+    assert tuned_defaults.tuned_defaults_for_experiment("experiment-b") == {}
 
 
-def test_update_tuned_defaults_rewrites_one_demo(
+def test_update_tuned_defaults_rewrites_one_experiment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -43,7 +43,7 @@ def test_update_tuned_defaults_rewrites_one_demo(
     path.write_text(
         json.dumps(
             {
-                "demo-a": {
+                "experiment-a": {
                     "hidden_size": 12,
                 }
             }
@@ -52,7 +52,7 @@ def test_update_tuned_defaults_rewrites_one_demo(
     monkeypatch.setattr(tuned_defaults, "TUNED_DEFAULTS_PATH", path)
 
     tuned_defaults.update_tuned_defaults(
-        "demo-b",
+        "experiment-b",
         {
             "hidden_size": 24,
             "learning_rate": 0.125,
@@ -60,17 +60,17 @@ def test_update_tuned_defaults_rewrites_one_demo(
     )
 
     assert json.loads(path.read_text()) == {
-        "demo-a": {
+        "experiment-a": {
             "hidden_size": 12,
         },
-        "demo-b": {
+        "experiment-b": {
             "hidden_size": 24,
             "learning_rate": 0.125,
         },
     }
 
 
-def test_demo_default_hyperparameters_overlay_tuned_defaults(
+def test_experiment_default_hyperparameters_overlay_tuned_defaults(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -78,7 +78,7 @@ def test_demo_default_hyperparameters_overlay_tuned_defaults(
     path.write_text(
         json.dumps(
             {
-                supervised_bike_sharing_demand_demo.name: {
+                supervised_bike_sharing_demand_experiment.name: {
                     "natural_parameter.hidden_size": _TUNED_HIDDEN_SIZE,
                 }
             }
@@ -86,14 +86,14 @@ def test_demo_default_hyperparameters_overlay_tuned_defaults(
     )
     monkeypatch.setattr(tuned_defaults, "TUNED_DEFAULTS_PATH", path)
 
-    defaults = supervised_bike_sharing_demand_demo.default_hyperparameters()
+    defaults = supervised_bike_sharing_demand_experiment.default_hyperparameters()
 
     assert defaults["natural_parameter.hidden_size"] == _TUNED_HIDDEN_SIZE
     assert defaults["natural_parameter.learning_rate"] == _DEFAULT_LEARNING_RATE
 
 
 def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
-    hyperparameters = supervised_bike_sharing_demand_demo.create_hyperparameters()
+    hyperparameters = supervised_bike_sharing_demand_experiment.create_hyperparameters()
 
     perceptron_hidden_size = hyperparameters["perceptron.hidden_size"]
     natural_parameter_hidden_size = hyperparameters["natural_parameter.hidden_size"]

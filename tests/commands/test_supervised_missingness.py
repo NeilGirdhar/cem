@@ -5,7 +5,7 @@ import pytest
 from typer.testing import CliRunner
 
 from cem.commands import app
-from cem.npn.experiments.supervised import missingness
+from cem.npn.experiments.supervised.missingness import SupervisedMissingnessExperiment
 
 
 def test_generate_supervised_missingness_writes_json(
@@ -13,7 +13,11 @@ def test_generate_supervised_missingness_writes_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expected = {"missing-data-distributional": {"npn": [0.1]}}
-    monkeypatch.setattr(missingness, "run_missingness_comparison", lambda **_kwargs: expected)
+    monkeypatch.setattr(
+        SupervisedMissingnessExperiment,
+        "generate",
+        lambda _self, _hyperparameters=None: expected,
+    )
     output_dir = tmp_path / "out"
 
     result = CliRunner().invoke(

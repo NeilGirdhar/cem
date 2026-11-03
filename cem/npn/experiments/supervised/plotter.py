@@ -1,15 +1,21 @@
 """Supervised learning plotter: training loss curves."""
 
+from collections.abc import Sequence
 from dataclasses import KW_ONLY
 from typing import override
 
 import numpy as np
 from tjax.dataclasses import field
 
-from cem.structure.plotter.plotter import LinePlotTitles, PlottedSeries
+from cem.structure.plotter.plotter import PlottedSeries, Run
 from cem.structure.plotter.with_smooth_graph import PlotterWithSmoothGraph, smooth_data
-from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
+from cem.structure.solution import Telemetries
 from cem.structure.solution.loss_telemetry import LossTelemetry
+
+_VARIANT_TITLE = {
+    "perceptron": "Perceptron",
+    "natural_parameter": "Gaussian Natural-Parameter Network",
+}
 
 
 class _SupervisedLossPlotter(PlotterWithSmoothGraph):
@@ -29,35 +35,25 @@ class _SupervisedLossPlotter(PlotterWithSmoothGraph):
 
 
 class SupervisedTrainingLossPlotter(_SupervisedLossPlotter):
-    """Plots training loss curves for the supervised demo."""
+    """Plot one training loss curve per variant for the supervised experiment."""
 
     _: KW_ONLY
     name: str = field(static=True, default="supervised-training-loss")
     title: str = field(static=True, default="Supervised Training Loss")
 
     @override
-    def line_plot_titles(self, label: str) -> LinePlotTitles:
-        prefix = {
-            "perceptron": "Perceptron",
-            "natural_parameter": "Gaussian Natural-Parameter Network",
-        }.get(label, label.title())
-        prefix = f"{prefix} " if prefix else ""
-        return {
-            "distributional_loss": f"{prefix}Distributional Loss",
-        }
-
-    @override
-    def plotted_series(
-        self,
-        training_results: TrainingResults,
-        inference_results: InferenceResults,
-        label: str,
-    ) -> PlottedSeries:
-        del inference_results, label
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
         telemetry = LossTelemetry(selected_node=self.selected_node)
-        times, losses = self._loss_series(training_results.telemetries[telemetry])
-        result: PlottedSeries = {
-            "iteration": times.tolist(),
-            "distributional_loss": losses.tolist(),
-        }
+        result: PlottedSeries = {}
+        line_plots: dict[str, str] = {}
+        for run in runs:
+            label = run.variant_label
+            times, losses = self._loss_series(run.training_results.telemetries[telemetry])
+            result["iteration"] = times.tolist()
+            prefix_title = _VARIANT_TITLE.get(label, label.title() if label else "")
+            key = f"{label}.distributional_loss" if label else "distributional_loss"
+            title = f"{prefix_title} Distributional Loss" if prefix_title else "Distributional Loss"
+            result[key] = losses.tolist()
+            line_plots[key] = title
+        result["line plots"] = line_plots
         return result

@@ -1,11 +1,11 @@
-"""Iris supervised demo."""
+"""Iris supervised experiment."""
 
 from cem.structure.plotter import Variant
 
-from .demo import SupervisedDemo
+from .experiment import SupervisedExperiment
 from .models import DatasetKind, LinkKind, SupervisedSolver
 
-supervised_iris_demo = SupervisedDemo(
+supervised_iris_experiment = SupervisedExperiment(
     name="supervised-iris",
     variants=[
         Variant(

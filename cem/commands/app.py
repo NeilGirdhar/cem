@@ -8,11 +8,11 @@ from typing import Annotated
 import typer
 from typer import Argument, Option
 
-from cem.structure import set_up_logging, solver_context_manager
+from cem.structure import Experiment, set_up_logging, solver_context_manager
 
 from ._optimize import OptimizationMode, run_optimize
 from ._render import compile_pdf, open_pdf
-from .registry import Experiment, experiments
+from .registry import experiments
 from .settings import jax_cache_dir
 
 _log = logging.getLogger(__name__)
@@ -26,6 +26,10 @@ def _lookup(name: str) -> Experiment:
         available = ", ".join(sorted(experiments))
         msg = f"Unknown experiment '{name}'. Available: {available}"
         raise typer.BadParameter(msg) from None
+
+
+def _can_optimize(experiment: Experiment) -> bool:
+    return type(experiment).experiment_loss is not Experiment.experiment_loss
 
 
 def _write_json(data: dict[str, object], path: Path) -> None:
@@ -43,7 +47,7 @@ def list_experiments() -> None:
     for name in sorted(experiments):
         experiment = experiments[name]
         verbs = "generate, visualize"
-        if experiment.demo is not None:
+        if _can_optimize(experiment):
             verbs += ", optimize"
         typer.echo(f"{name:<{width}}  ({verbs})")
 
@@ -105,9 +109,9 @@ def optimize(  # ruff:ignore[too-many-arguments]
     profiling: bool = False,
     restart: bool = False,
 ) -> None:
-    """Search hyperparameters for a Demo-backed experiment."""
+    """Search hyperparameters for an :class:`Experiment`."""
     experiment = _lookup(name)
-    if experiment.demo is None:
+    if not _can_optimize(experiment):
         msg = f"Experiment '{name}' has no hyperparameters to optimize."
         raise typer.BadParameter(msg)
     if log:
@@ -115,7 +119,7 @@ def optimize(  # ruff:ignore[too-many-arguments]
     else:
         logging.disable()
     run_optimize(
-        experiment.demo,
+        experiment,
         mode=mode,
         jobs=jobs,
         trials=trials,

@@ -1,4 +1,4 @@
-"""Optuna hyperparameter search driver for Demo-backed experiments."""
+"""Optuna hyperparameter search driver for :class:`Experiment` runs."""
 
 import logging
 from collections.abc import Callable
@@ -20,12 +20,11 @@ from optuna.trial import FrozenTrial, Trial, TrialState
 from tjax import GenericString
 
 from cem.structure import (
-    ExecutionPacket,
     console_progress_bar,
     jax_is_initialized,
     solver_context_manager,
 )
-from cem.structure.plotter import Demo
+from cem.structure.plotter import Experiment
 from cem.tuned_defaults import update_tuned_defaults
 
 from .settings import get_optuna_storage, jax_cache_dir, optuna_sampler, wandb_settings
@@ -72,7 +71,7 @@ def _suggest_from_distribution(trial: Trial, name: str, distribution: BaseDistri
 
 
 def _objective(
-    demo: Demo,
+    experiment: Experiment,
     hyperparameters: dict[str, Any],
     *,
     wandb: bool,
@@ -80,38 +79,18 @@ def _objective(
     progress_manager: rp.Progress | None,
 ) -> float:
     adjusted_wandb_settings = (
-        replace(wandb_settings, name=demo.name, config=hyperparameters, reinit=True)
+        replace(wandb_settings, name=experiment.name, config=hyperparameters, reinit=True)
         if wandb
         else None
     )
-    variant_results = []
-    telemetries = demo.all_telemetries()
-    for variant in demo.variants:
-        if len(demo.variants) > 1:
-            prefix = f"{variant.label}."
-            variant_hyper = {
-                k: v for k, v in hyperparameters.items() if k in demo.shared_hyperparameter_names
-            }
-            variant_hyper.update(
-                {k[len(prefix) :]: v for k, v in hyperparameters.items() if k.startswith(prefix)}
-            )
-        else:
-            variant_hyper = hyperparameters
-        solver = variant.solver.populate_from_hyperparameters(variant_hyper)
-        packet = ExecutionPacket(
+    with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
+        runs = experiment.runs(
+            hyperparameters,
             progress_manager=progress_manager,
-            run_label=variant.label or None,
-            telemetries=telemetries,
             wandb_settings=adjusted_wandb_settings,
             enable_profiling=profiling,
         )
-        with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
-            training_results, inference_results = solver.training_and_inference_result(
-                packet=packet,
-            )
-            variant_results.append((variant, training_results, inference_results))
-    with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
-        return demo.demo_loss(variant_results, hyperparameters)
+        return experiment.experiment_loss(runs, hyperparameters)
 
 
 type BoundObjective = Callable[[dict[str, Any], rp.Progress | None], float]
@@ -179,18 +158,18 @@ def _best_trial_number(study: Study) -> int | None:
         return None
 
 
-def _sync_best_defaults(study: Study, demo_name: str) -> int | None:
+def _sync_best_defaults(study: Study, experiment_name: str) -> int | None:
     try:
         best_trial = study.best_trial
     except ValueError:
         return None
-    update_tuned_defaults(demo_name, best_trial.params)
+    update_tuned_defaults(experiment_name, best_trial.params)
     _log.info("Updated tuned defaults from trial %s", best_trial.number)
     return best_trial.number
 
 
 def run_optimize(  # ruff:ignore[complex-structure]
-    demo: Demo,
+    experiment: Experiment,
     *,
     mode: OptimizationMode,
     jobs: int,
@@ -200,24 +179,24 @@ def run_optimize(  # ruff:ignore[complex-structure]
     profiling: bool,
     restart: bool,
 ) -> None:
-    """Drive the Optuna search for ``demo``."""
+    """Drive the Optuna search for ``experiment``."""
     if trials <= 0:
         raise InvalidTrialsError
     if jobs != -1 and jobs <= 0:
         raise InvalidJobsError
-    hyper_space = demo.create_hyperparameters()
+    hyper_space = experiment.create_hyperparameters()
     storage = get_optuna_storage()
     if restart:
-        _delete_study_with_confirmation(demo.name, storage)
+        _delete_study_with_confirmation(experiment.name, storage)
     study = create_study(
         storage=storage,
         sampler=optuna_sampler,
-        study_name=demo.name,
+        study_name=experiment.name,
         load_if_exists=not restart,
     )
     if restart:
-        _enqueue_default_trial(study, hyper_space, demo.default_hyperparameters())
-    best_trial_number = _sync_best_defaults(study, demo.name)
+        _enqueue_default_trial(study, hyper_space, experiment.default_hyperparameters())
+    best_trial_number = _sync_best_defaults(study, experiment.name)
     if jax_is_initialized():
         raise RuntimeError
 
@@ -226,7 +205,7 @@ def run_optimize(  # ruff:ignore[complex-structure]
         progress_manager: rp.Progress | None,
     ) -> float:
         return _objective(
-            demo,
+            experiment,
             hyperparameters,
             wandb=wandb,
             profiling=profiling,
@@ -241,7 +220,7 @@ def run_optimize(  # ruff:ignore[complex-structure]
                 nonlocal best_trial_number
                 current_best_trial_number = _best_trial_number(study)
                 if current_best_trial_number != best_trial_number:
-                    best_trial_number = _sync_best_defaults(study, demo.name)
+                    best_trial_number = _sync_best_defaults(study, experiment.name)
 
             _run_single_task_trials(
                 study,
@@ -262,7 +241,7 @@ def run_optimize(  # ruff:ignore[complex-structure]
 
             def sync_defaults_callback(study: Study, trial: FrozenTrial) -> None:
                 if trial.state == TrialState.COMPLETE and study.best_trial.number == trial.number:
-                    _sync_best_defaults(study, demo.name)
+                    _sync_best_defaults(study, experiment.name)
 
             study.optimize(
                 parallel_objective,

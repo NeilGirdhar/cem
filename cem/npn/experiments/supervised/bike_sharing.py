@@ -1,11 +1,11 @@
-"""Bike-sharing demand supervised demo."""
+"""Bike-sharing demand supervised experiment."""
 
 from cem.structure.plotter import Variant
 
-from .demo import SupervisedDemo
+from .experiment import SupervisedExperiment
 from .models import DatasetKind, LinkKind, SupervisedSolver
 
-supervised_bike_sharing_demand_demo = SupervisedDemo(
+supervised_bike_sharing_demand_experiment = SupervisedExperiment(
     name="supervised-bike-sharing-demand",
     variants=[
         Variant(

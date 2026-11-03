@@ -1,25 +1,46 @@
-"""Capacity-matched supervised missing-input comparison."""
+"""Capacity-matched supervised missing-input comparison, swept over datasets and seeds."""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import KW_ONLY, replace
 from statistics import fmean, pstdev
+from typing import Any, override
 
 import jax.numpy as jnp
+from tjax.dataclasses import field
 
-from cem.structure.solution import ExecutionPacket, LossTelemetry, Telemetries
+from cem.structure.plotter import Experiment, Run, Variant
+from cem.structure.plotter.plotter import PlottedSeries, Plotter
+from cem.structure.solution import Telemetries
+from cem.structure.solution.loss_telemetry import LossTelemetry
+from cem.structure.solver import Solver
 
 from .models import DatasetKind, LinkKind, SupervisedSolver
 
-type ProgressReporter = Callable[[DatasetKind, str, int, float], None]
-
+_SEED_COUNT = 3
+_INFERENCE_BATCH_SIZE = 128
 _MODEL_LABELS = {
     "npn": "Gaussian NPN",
     "mask-mlp": "Mask-aware MLP",
 }
-_SETTINGS = {
-    DatasetKind.iris: (220, 133, 1168),
-    DatasetKind.bike_sharing_demand: (98, 57, 1216),
-    DatasetKind.cpu_activity: (20, 11, 882),
-    DatasetKind.elevators: (85, 46, 2456),
+_HIDDEN_SIZES: dict[str, dict[DatasetKind, int]] = {
+    "npn": {
+        DatasetKind.iris: 220,
+        DatasetKind.bike_sharing_demand: 98,
+        DatasetKind.cpu_activity: 20,
+        DatasetKind.elevators: 85,
+    },
+    "mask-mlp": {
+        DatasetKind.iris: 133,
+        DatasetKind.bike_sharing_demand: 57,
+        DatasetKind.cpu_activity: 11,
+        DatasetKind.elevators: 46,
+    },
+}
+_TRAINING_EXAMPLES = {
+    DatasetKind.iris: 1168,
+    DatasetKind.bike_sharing_demand: 1216,
+    DatasetKind.cpu_activity: 882,
+    DatasetKind.elevators: 2456,
 }
 _DATASET_LABELS = {
     DatasetKind.iris: "Iris",
@@ -29,71 +50,121 @@ _DATASET_LABELS = {
 }
 
 
-def _held_out_distributional_loss(solver: SupervisedSolver) -> float:
-    telemetry = LossTelemetry(selected_node="target")
-    training = solver.training_results(packet=ExecutionPacket(scan_chunk_size=64))
-    inference = solver.inference_results(
-        training.final_state,
-        packet=ExecutionPacket(
-            telemetries=Telemetries((telemetry,)),
-            scan_chunk_size=16,
-        ),
+class MissingnessBarPlotter(Plotter):
+    """Aggregate per-seed held-out losses into a dataset-vs-model bar chart."""
+
+    _: KW_ONLY
+    name: str = field(static=True, default="missing-data-distributional")
+    title: str = field(
+        static=True,
+        default="Held-out distributional loss, 50% missing inputs",
     )
-    return float(jnp.mean(inference.telemetries[telemetry])) / solver.inference_batch_size
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((LossTelemetry(selected_node="target"),))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        telemetry = LossTelemetry(selected_node="target")
+        seen = {DatasetKind(run.sweep_entry["dataset_kind"]) for run in runs}
+        datasets_in_order = [dataset for dataset in _DATASET_LABELS if dataset in seen]
+        losses: dict[str, dict[DatasetKind, list[float]]] = {
+            label: {dataset: [] for dataset in datasets_in_order} for label in _MODEL_LABELS
+        }
+        for run in runs:
+            dataset = DatasetKind(run.sweep_entry["dataset_kind"])
+            inference = run.inference_results
+            loss = float(jnp.mean(inference.telemetries[telemetry])) / _INFERENCE_BATCH_SIZE
+            losses[run.variant_label][dataset].append(loss)
+        means = {
+            label: [fmean(losses[label][dataset]) for dataset in datasets_in_order]
+            for label in _MODEL_LABELS
+        }
+        deviations = {
+            label: [pstdev(losses[label][dataset]) for dataset in datasets_in_order]
+            for label in _MODEL_LABELS
+        }
+        seed_losses = {
+            label: [list(losses[label][dataset]) for dataset in datasets_in_order]
+            for label in _MODEL_LABELS
+        }
+        return {
+            "iteration": list(range(len(datasets_in_order))),
+            "x labels": [_DATASET_LABELS[dataset] for dataset in datasets_in_order],
+            "bar plots": dict(_MODEL_LABELS),
+            "bar errors": deviations,
+            **means,
+            "seed losses": seed_losses,
+            "error bars": "one population standard deviation across matched seeds",
+        }
 
 
-def summarize_missingness_losses(
-    losses: Mapping[str, Sequence[Sequence[float]]],
-) -> dict[str, object]:
-    """Create thesis chart data from per-dataset, per-seed losses."""
-    means = {key: [fmean(dataset) for dataset in values] for key, values in losses.items()}
-    deviations = {key: [pstdev(dataset) for dataset in values] for key, values in losses.items()}
-    return {
-        "iteration": list(range(len(_SETTINGS))),
-        "x labels": [_DATASET_LABELS[dataset] for dataset in _SETTINGS],
-        "bar plots": _MODEL_LABELS,
-        "bar errors": deviations,
-        **means,
-        "seed losses": {
-            key: [list(dataset) for dataset in values] for key, values in losses.items()
-        },
-        "error bars": "one population standard deviation across matched seeds",
-    }
+class SupervisedMissingnessExperiment(Experiment):
+    """Compare NPN against a mask-aware MLP under 50% missing inputs across four datasets."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="supervised-missingness",
+            variants=[
+                Variant(
+                    label="npn",
+                    solver=SupervisedSolver(
+                        dataset_kind=DatasetKind.iris,
+                        link_kind=LinkKind.natural_parameter,
+                        training_batch_size=128,
+                        inference_examples=64,
+                        inference_batch_size=_INFERENCE_BATCH_SIZE,
+                        learning_rate=0.01,
+                        missing_probability=0.5,
+                        random_missing_values=False,
+                        include_missingness_mask=False,
+                    ),
+                ),
+                Variant(
+                    label="mask-mlp",
+                    solver=SupervisedSolver(
+                        dataset_kind=DatasetKind.iris,
+                        link_kind=LinkKind.perceptron,
+                        training_batch_size=128,
+                        inference_examples=64,
+                        inference_batch_size=_INFERENCE_BATCH_SIZE,
+                        learning_rate=0.01,
+                        missing_probability=0.5,
+                        random_missing_values=False,
+                        include_missingness_mask=True,
+                    ),
+                ),
+            ],
+            plotters=[MissingnessBarPlotter()],
+            sweep=[
+                {"dataset_kind": dataset, "seed": seed}
+                for dataset in _HIDDEN_SIZES["npn"]
+                for seed in range(_SEED_COUNT)
+            ],
+        )
+
+    @override
+    def resolve_solver(
+        self,
+        variant: Variant,
+        sweep_entry: Mapping[str, Any],
+        hyperparameters: Mapping[str, Any],
+    ) -> Solver[Any]:
+        del hyperparameters
+        dataset_kind = sweep_entry["dataset_kind"]
+        seed = sweep_entry["seed"]
+        base = variant.solver
+        assert isinstance(base, SupervisedSolver)
+        return replace(
+            base,
+            dataset_kind=dataset_kind,
+            hidden_size=_HIDDEN_SIZES[variant.label][dataset_kind],
+            training_examples=_TRAINING_EXAMPLES[dataset_kind],
+            parameters_seed=seed,
+            training_seed=100 + seed,
+            inference_seed=200 + seed,
+        )
 
 
-def run_missingness_comparison(
-    *,
-    seed_count: int = 3,
-    report: ProgressReporter | None = None,
-) -> dict[str, dict[str, object]]:
-    """Train both models and return the thesis chart's JSON object."""
-    losses: dict[str, list[list[float]]] = {key: [] for key in _MODEL_LABELS}
-    for dataset_kind, (npn_width, mlp_width, training_examples) in _SETTINGS.items():
-        for key, link_kind, hidden_size in (
-            ("npn", LinkKind.natural_parameter, npn_width),
-            ("mask-mlp", LinkKind.perceptron, mlp_width),
-        ):
-            seed_losses = []
-            for seed in range(seed_count):
-                solver = SupervisedSolver(
-                    dataset_kind=dataset_kind,
-                    link_kind=link_kind,
-                    hidden_size=hidden_size,
-                    training_examples=training_examples,
-                    training_batch_size=128,
-                    inference_examples=64,
-                    inference_batch_size=128,
-                    learning_rate=0.01,
-                    parameters_seed=seed,
-                    training_seed=100 + seed,
-                    inference_seed=200 + seed,
-                    missing_probability=0.5,
-                    random_missing_values=False,
-                    include_missingness_mask=link_kind == LinkKind.perceptron,
-                )
-                loss = _held_out_distributional_loss(solver)
-                seed_losses.append(loss)
-                if report is not None:
-                    report(dataset_kind, key, seed, loss)
-            losses[key].append(seed_losses)
-    return {"missing-data-distributional": summarize_missingness_losses(losses)}
+supervised_missingness_experiment = SupervisedMissingnessExperiment()
