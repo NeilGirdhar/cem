@@ -1,12 +1,9 @@
-"""Generate the SIP identification results used by the thesis."""
+"""SIP identification: direct-injection, inherited-instrument, and TD-error benchmarks."""
 
-import json
 from dataclasses import asdict
-from pathlib import Path
+from typing import Any
 
-import typer
-
-from cem.sip import (
+from cem.sip.experiments.benchmark import (
     CausalBenchmarkResult,
     CausalBenchmarkTrajectory,
     CreditBenchmarkResult,
@@ -15,11 +12,7 @@ from cem.sip import (
     run_td_error_benchmark,
     simulate_remaining_food,
 )
-from cem.structure import solver_context_manager
 
-from .settings import jax_cache_dir
-
-app = typer.Typer(pretty_exceptions_enable=False)
 _DIRECT_SEED = 200
 _INHERITED_SEED = 300
 _TD_ERROR_SEED = 400
@@ -209,39 +202,24 @@ def _td_error_charts(
     }
 
 
-@app.command()
-def sip_identification(
-    *,
-    output: Path = Path("results/sip-identification.json"),
-    count: int = 64,
-    steps: int = 256,
-) -> None:
-    """Run the direct-injection and inherited-instrument thesis benchmarks."""
+def generate_sip_identification(*, count: int = 64, steps: int = 256) -> dict[str, Any]:
+    """Run the direct-injection, inherited-instrument, and TD-error thesis benchmarks."""
     if count < 1:
-        msg = "--count must be positive"
-        raise typer.BadParameter(msg)
+        msg = "count must be positive"
+        raise ValueError(msg)
     if steps < 1:
-        msg = "--steps must be positive"
-        raise typer.BadParameter(msg)
+        msg = "steps must be positive"
+        raise ValueError(msg)
 
-    with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
-        direct = run_direct_injection_benchmark(
-            count=count,
-            steps=steps,
-            seed=_DIRECT_SEED,
-        )
-        inherited = run_inherited_instrument_benchmark(
-            count=count,
-            steps=steps,
-            seed=_INHERITED_SEED,
-        )
-        td_error = run_td_error_benchmark(
-            count=count,
-            steps=steps,
-            seed=_TD_ERROR_SEED,
-        )
+    direct = run_direct_injection_benchmark(count=count, steps=steps, seed=_DIRECT_SEED)
+    inherited = run_inherited_instrument_benchmark(
+        count=count,
+        steps=steps,
+        seed=_INHERITED_SEED,
+    )
+    td_error = run_td_error_benchmark(count=count, steps=steps, seed=_TD_ERROR_SEED)
 
-    result = {
+    return {
         "configuration": {
             "count": count,
             "steps": steps,
@@ -256,8 +234,3 @@ def sip_identification(
         "td-error": _credit_conditions(td_error),
         **_td_error_charts(td_error),
     }
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w") as file:
-        json.dump(result, file, indent=2)
-        file.write("\n")
-    typer.echo(output)

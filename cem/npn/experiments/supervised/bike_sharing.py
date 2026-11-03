@@ -1,18 +1,26 @@
 """Bike-sharing demand supervised demo."""
 
-from .demo import SupervisedDemo, SupervisedVariant
-from .models import DatasetKind, LinkKind
+from cem.structure.plotter import Variant
+
+from .demo import SupervisedDemo
+from .models import DatasetKind, LinkKind, SupervisedSolver
 
 supervised_bike_sharing_demand_demo = SupervisedDemo(
     name="supervised-bike-sharing-demand",
     variants=[
-        SupervisedVariant(
-            dataset_kind=DatasetKind.bike_sharing_demand,
-            link_kind=LinkKind.perceptron,
+        Variant(
+            label="perceptron",
+            solver=SupervisedSolver(
+                dataset_kind=DatasetKind.bike_sharing_demand,
+                link_kind=LinkKind.perceptron,
+            ),
         ),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.bike_sharing_demand,
-            link_kind=LinkKind.natural_parameter,
+        Variant(
+            label="natural_parameter",
+            solver=SupervisedSolver(
+                dataset_kind=DatasetKind.bike_sharing_demand,
+                link_kind=LinkKind.natural_parameter,
+            ),
         ),
     ],
 )

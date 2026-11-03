@@ -4,21 +4,22 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import cem.commands.supervised_missingness as command
+from cem.commands import app
+from cem.npn.experiments.supervised import missingness
 
 
-def test_supervised_missingness_cli_writes_json(
+def test_generate_supervised_missingness_writes_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expected = {"missing-data-distributional": {"npn": [0.1]}}
-    monkeypatch.setattr(command, "run_missingness_comparison", lambda **_kwargs: expected)
-    output = tmp_path / "missingness.json"
+    monkeypatch.setattr(missingness, "run_missingness_comparison", lambda **_kwargs: expected)
+    output_dir = tmp_path / "out"
 
     result = CliRunner().invoke(
-        command.app,
-        ["--output", str(output), "--seeds", "2"],
+        app,
+        ["generate", "supervised-missingness", "--output-dir", str(output_dir), "--no-log"],
     )
 
-    assert result.exit_code == 0
-    assert json.loads(output.read_text()) == expected
+    assert result.exit_code == 0, result.output
+    assert json.loads((output_dir / "supervised-missingness.json").read_text()) == expected

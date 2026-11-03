@@ -122,7 +122,7 @@ def test_hf_supervised_solver_short_training_is_finite(
     monkeypatch.setattr(_LOAD_HF_PATH, lambda _config: small_supervised_problem())
     telemetry = LossTelemetry(selected_node="target")
     packet = ExecutionPacket(telemetries=Telemetries((telemetry,)))
-    variant_solver = supervised_bike_sharing_demand_demo.variants[0].create_solver()
+    variant_solver = supervised_bike_sharing_demand_demo.variants[0].solver
     assert isinstance(variant_solver, SupervisedSolver)
     solver = replace(
         variant_solver,
@@ -177,7 +177,7 @@ def test_supervised_training_and_inference_support_non_divisible_scan_chunks(
     monkeypatch.setattr(_LOAD_HF_PATH, lambda _config: small_supervised_problem())
     telemetry = LossTelemetry(selected_node="target")
     packet = ExecutionPacket(telemetries=Telemetries((telemetry,)), scan_chunk_size=2)
-    variant_solver = supervised_bike_sharing_demand_demo.variants[0].create_solver()
+    variant_solver = supervised_bike_sharing_demand_demo.variants[0].solver
     assert isinstance(variant_solver, SupervisedSolver)
     solver = replace(
         variant_solver,
@@ -204,7 +204,7 @@ def test_supervised_iris_demo_second_half_loss_is_low() -> None:
     telemetry = LossTelemetry(selected_node="target")
     packet = ExecutionPacket(telemetries=Telemetries((telemetry,)))
     variant = supervised_iris_demo.variants[0]
-    solver = variant.create_solver()
+    solver = variant.solver
     training_results = solver.training_results(packet=packet)
     losses = training_results.telemetries[telemetry]
     second_half_losses = losses[losses.shape[0] // 2 :]

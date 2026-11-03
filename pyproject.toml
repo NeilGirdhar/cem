@@ -51,10 +51,7 @@ dependencies = [
 urls.Documentation = "https://github.com/NeilGirdhar/cem#readme"
 urls.Issues = "https://github.com/NeilGirdhar/cem/issues"
 urls.Source = "https://github.com/NeilGirdhar/cem"
-scripts.optimize = "cem.commands.optimize:app"
-scripts.sip-identification = "cem.commands.sip_identification:app"
-scripts.supervised-missingness = "cem.commands.supervised_missingness:app"
-scripts.visualize = "cem.commands.visualize:app"
+scripts.cem = "cem.commands.app:app"
 
 [dependency-groups]
 dev = [

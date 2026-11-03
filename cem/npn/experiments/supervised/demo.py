@@ -1,63 +1,33 @@
-"""Shared Demo and Variant classes for the supervised experiments."""
+"""Shared :class:`Demo` subclass for the supervised experiments."""
 
 from collections.abc import Sequence
 from typing import Any, override
 
 import jax.numpy as jnp
 
-from cem.structure.plotter import Demo, Plotter, Variant
-from cem.structure.solution import InferenceResults, Telemetries, TrainingResults
+from cem.structure.plotter import Demo, Variant
+from cem.structure.solution import InferenceResults, TrainingResults
 from cem.structure.solution.loss_telemetry import LossTelemetry
-from cem.structure.solver import Solver
 
-from .datasets import SupervisedProblem
-from .models import DatasetKind, LinkKind, SupervisedSolver
+from .models import SupervisedSolver
 from .plotter import SupervisedTrainingLossPlotter
 
 _COMPUTE_WEIGHT = 0.1
-
-
-class SupervisedVariant(Variant):
-    """Variant for supervised learning on tabular datasets."""
-
-    def __init__(
-        self,
-        *,
-        dataset_kind: DatasetKind,
-        link_kind: LinkKind,
-    ) -> None:
-        self.dataset_kind = dataset_kind
-        self.link_kind = link_kind
-        self.label = link_kind.name
-
-    @override
-    def create_solver(self) -> Solver[SupervisedProblem]:
-        return SupervisedSolver(
-            dataset_kind=self.dataset_kind,
-            link_kind=self.link_kind,
-        )
-
-    @override
-    def plotters(self) -> Sequence[Plotter]:
-        return [SupervisedTrainingLossPlotter()]
-
-    @override
-    def extra_telemetries(self) -> Telemetries:
-        return Telemetries()
-
-    @override
-    def shared_hyperparameter_names(self) -> frozenset[str]:
-        return frozenset(
-            {
-                "training_examples",
-                "training_batch_size",
-            }
-        )
+_SHARED_HYPERPARAMETER_NAMES = frozenset({"training_examples", "training_batch_size"})
 
 
 class SupervisedDemo(Demo):
-    """Supervised demo scored across its model variants."""
+    """Supervised demo scored across its model variants with a compute penalty."""
 
+    def __init__(self, *, name: str, variants: Sequence[Variant]) -> None:
+        super().__init__(
+            name=name,
+            variants=variants,
+            plotters=[SupervisedTrainingLossPlotter()],
+            shared_hyperparameter_names=_SHARED_HYPERPARAMETER_NAMES,
+        )
+
+    @override
     def demo_loss(
         self,
         variant_results: Sequence[tuple[Variant, TrainingResults, InferenceResults]],
@@ -70,9 +40,10 @@ class SupervisedDemo(Demo):
                 msg = "supervised demo scoring requires inference results"
                 raise ValueError(msg)
             prefix = f"{variant.label}."
-            shared = variant.shared_hyperparameter_names()
             variant_hyperparameters = {
-                key: value for key, value in hyperparameters.items() if key in shared
+                key: value
+                for key, value in hyperparameters.items()
+                if key in self.shared_hyperparameter_names
             }
             variant_hyperparameters.update(
                 {
@@ -81,7 +52,7 @@ class SupervisedDemo(Demo):
                     if key.startswith(prefix)
                 }
             )
-            default_solver = variant.create_solver()
+            default_solver = variant.solver
             assert isinstance(default_solver, SupervisedSolver)
             solver = default_solver.populate_from_hyperparameters(variant_hyperparameters)
             compute_penalty = _COMPUTE_WEIGHT * (

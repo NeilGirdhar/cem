@@ -1,19 +1,5 @@
-"""CLI commands."""
+"""CLI: ``cem`` entry point."""
 
-from . import demos as demos
-from .settings import (
-    jax_cache_dir,
-    optuna_cache,
-    optuna_sampler,
-    wandb_cache_path,
-    wandb_settings,
-)
+from .app import app
 
-__all__ = [
-    "demos",
-    "jax_cache_dir",
-    "optuna_cache",
-    "optuna_sampler",
-    "wandb_cache_path",
-    "wandb_settings",
-]
+__all__ = ["app"]

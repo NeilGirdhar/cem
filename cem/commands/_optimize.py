@@ -1,8 +1,10 @@
+"""Optuna hyperparameter search driver for Demo-backed experiments."""
+
 import logging
 from collections.abc import Callable
 from dataclasses import replace
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Any
 
 import rich.progress as rp
 import typer
@@ -16,28 +18,19 @@ from optuna.storages import JournalStorage
 from optuna.study import Study, create_study, delete_study, load_study
 from optuna.trial import FrozenTrial, Trial, TrialState
 from tjax import GenericString
-from typer import Argument, BadParameter, Option
 
 from cem.structure import (
-    Demo,
     ExecutionPacket,
     console_progress_bar,
     jax_is_initialized,
-    set_up_logging,
     solver_context_manager,
 )
+from cem.structure.plotter import Demo
 from cem.tuned_defaults import update_tuned_defaults
 
-from .demos import DemoEnum, demo_registry
-from .settings import (
-    get_optuna_storage,
-    jax_cache_dir,
-    optuna_sampler,
-    wandb_settings,
-)
+from .settings import get_optuna_storage, jax_cache_dir, optuna_sampler, wandb_settings
 
 _log = logging.getLogger(__name__)
-app = typer.Typer(pretty_exceptions_enable=False)
 
 
 class OptimizationMode(StrEnum):
@@ -45,17 +38,17 @@ class OptimizationMode(StrEnum):
     multi_task = "multi"
 
 
-class InvalidTrialsError(BadParameter):
+class InvalidTrialsError(typer.BadParameter):
     def __init__(self) -> None:
         super().__init__("must be greater than 0", param_hint="trials")
 
 
-class InvalidJobsError(BadParameter):
+class InvalidJobsError(typer.BadParameter):
     def __init__(self) -> None:
         super().__init__("must be -1 or greater than 0", param_hint="jobs")
 
 
-def suggest_from_distribution(trial: Trial, name: str, distribution: BaseDistribution) -> object:
+def _suggest_from_distribution(trial: Trial, name: str, distribution: BaseDistribution) -> object:
     if isinstance(distribution, FloatDistribution):
         return trial.suggest_float(
             name,
@@ -78,7 +71,7 @@ def suggest_from_distribution(trial: Trial, name: str, distribution: BaseDistrib
     raise TypeError(msg)
 
 
-def objective(
+def _objective(
     demo: Demo,
     hyperparameters: dict[str, Any],
     *,
@@ -92,27 +85,29 @@ def objective(
         else None
     )
     variant_results = []
+    telemetries = demo.all_telemetries()
     for variant in demo.variants:
         if len(demo.variants) > 1:
             prefix = f"{variant.label}."
-            shared = variant.shared_hyperparameter_names()
-            variant_hyper = {k: v for k, v in hyperparameters.items() if k in shared}
+            variant_hyper = {
+                k: v for k, v in hyperparameters.items() if k in demo.shared_hyperparameter_names
+            }
             variant_hyper.update(
                 {k[len(prefix) :]: v for k, v in hyperparameters.items() if k.startswith(prefix)}
             )
         else:
             variant_hyper = hyperparameters
-        solver = variant.create_solver().populate_from_hyperparameters(variant_hyper)
+        solver = variant.solver.populate_from_hyperparameters(variant_hyper)
         packet = ExecutionPacket(
             progress_manager=progress_manager,
             run_label=variant.label or None,
-            telemetries=variant.all_telemetries(),
+            telemetries=telemetries,
             wandb_settings=adjusted_wandb_settings,
             enable_profiling=profiling,
         )
         with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
             training_results, inference_results = solver.training_and_inference_result(
-                packet=packet
+                packet=packet,
             )
             variant_results.append((variant, training_results, inference_results))
     with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
@@ -194,24 +189,18 @@ def _sync_best_defaults(study: Study, demo_name: str) -> int | None:
     return best_trial.number
 
 
-@app.command()
-def optimize(  # ruff:ignore[complex-structure, too-many-arguments]
-    name: DemoEnum,
+def run_optimize(  # ruff:ignore[complex-structure]
+    demo: Demo,
     *,
-    mode: Annotated[OptimizationMode, Argument()] = OptimizationMode.single_task,
-    jobs: Annotated[int, Option(help="The number of jobs.  Using -1 sets jobs to all CPUs.")] = -1,
-    trials: int = 1,
-    log: bool = True,
-    progress_bar: bool = True,
-    wandb: bool = False,
-    profiling: bool = False,
-    restart: bool = False,
+    mode: OptimizationMode,
+    jobs: int,
+    trials: int,
+    progress_bar: bool,
+    wandb: bool,
+    profiling: bool,
+    restart: bool,
 ) -> None:
-    demo = demo_registry[name]
-    if log:
-        set_up_logging()
-    else:
-        logging.disable()
+    """Drive the Optuna search for ``demo``."""
     if trials <= 0:
         raise InvalidTrialsError
     if jobs != -1 and jobs <= 0:
@@ -233,9 +222,10 @@ def optimize(  # ruff:ignore[complex-structure, too-many-arguments]
         raise RuntimeError
 
     def bound_objective(
-        hyperparameters: dict[str, Any], progress_manager: rp.Progress | None
+        hyperparameters: dict[str, Any],
+        progress_manager: rp.Progress | None,
     ) -> float:
-        return objective(
+        return _objective(
             demo,
             hyperparameters,
             wandb=wandb,
@@ -265,7 +255,7 @@ def optimize(  # ruff:ignore[complex-structure, too-many-arguments]
 
             def parallel_objective(trial: Trial) -> float:
                 hyperparameters = {
-                    dist_name: suggest_from_distribution(trial, dist_name, distribution)
+                    dist_name: _suggest_from_distribution(trial, dist_name, distribution)
                     for dist_name, distribution in hyper_space.items()
                 }
                 return bound_objective(hyperparameters, None)

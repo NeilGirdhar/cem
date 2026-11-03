@@ -3,7 +3,7 @@ from typing import cast
 import jax.numpy as jnp
 import pytest
 
-from cem.commands.demos import DemoEnum, demo_registry
+from cem.commands.registry import experiments
 from cem.npn.experiments.supervised.bike_sharing import supervised_bike_sharing_demand_demo
 from cem.npn.experiments.supervised.cpu_activity import supervised_cpu_activity_demo
 from cem.npn.experiments.supervised.elevators import supervised_elevators_demo
@@ -31,15 +31,15 @@ def _inference_results(losses: jnp.ndarray) -> InferenceResults:
 
 
 @pytest.mark.parametrize(
-    ("demo", "enum_value"),
+    "demo",
     [
-        (supervised_bike_sharing_demand_demo, DemoEnum.supervised_bike_sharing_demand),
-        (supervised_elevators_demo, DemoEnum.supervised_elevators),
-        (supervised_cpu_activity_demo, DemoEnum.supervised_cpu_activity),
+        supervised_bike_sharing_demand_demo,
+        supervised_elevators_demo,
+        supervised_cpu_activity_demo,
     ],
 )
-def test_hf_supervised_demo_registry_and_variants(demo: Demo, enum_value: DemoEnum) -> None:
-    assert demo_registry[enum_value] is demo
+def test_hf_supervised_demo_registry_and_variants(demo: Demo) -> None:
+    assert experiments[demo.name].demo is demo
     assert [variant.label for variant in demo.variants] == ["perceptron", "natural_parameter"]
 
 
