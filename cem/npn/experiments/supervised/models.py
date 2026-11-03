@@ -30,7 +30,7 @@ from cem.structure.graph.node import TargetConfiguration
 from cem.structure.problem import DataSource, Problem
 from cem.structure.solver import Solver, bool_field, float_field, hardware_friendly_ints, int_field
 
-from .problem import (
+from .datasets import (
     SupervisedProblem,
     SupervisedProblemState,
     load_hf_tabular_regression,

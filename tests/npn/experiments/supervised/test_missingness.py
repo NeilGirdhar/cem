@@ -1,4 +1,4 @@
-from cem.demos.supervised.missingness import summarize_missingness_losses
+from cem.npn.experiments.supervised.missingness import summarize_missingness_losses
 
 
 def test_summarize_missingness_losses_reports_means_and_deviations() -> None:

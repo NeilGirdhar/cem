@@ -1,4 +1,4 @@
-"""Supervised learning variant."""
+"""Shared Demo and Variant classes for the supervised experiments."""
 
 from collections.abc import Sequence
 from typing import Any, override
@@ -10,13 +10,9 @@ from cem.structure.solution import InferenceResults, Telemetries, TrainingResult
 from cem.structure.solution.loss_telemetry import LossTelemetry
 from cem.structure.solver import Solver
 
+from .datasets import SupervisedProblem
+from .models import DatasetKind, LinkKind, SupervisedSolver
 from .plotter import SupervisedTrainingLossPlotter
-from .problem import SupervisedProblem
-from .solution import (
-    DatasetKind,
-    LinkKind,
-    SupervisedSolver,
-)
 
 _COMPUTE_WEIGHT = 0.1
 
@@ -94,48 +90,3 @@ class SupervisedDemo(Demo):
             inference_loss = jnp.mean(inference_results.telemetries[telemetry])
             penalized_losses.append(inference_loss + compute_penalty)
         return float(jnp.max(jnp.asarray(penalized_losses)))
-
-
-supervised_iris_demo = SupervisedDemo(
-    name="supervised-iris",
-    variants=[
-        SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.perceptron),
-        SupervisedVariant(dataset_kind=DatasetKind.iris, link_kind=LinkKind.natural_parameter),
-    ],
-)
-
-supervised_bike_sharing_demand_demo = SupervisedDemo(
-    name="supervised-bike-sharing-demand",
-    variants=[
-        SupervisedVariant(
-            dataset_kind=DatasetKind.bike_sharing_demand,
-            link_kind=LinkKind.perceptron,
-        ),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.bike_sharing_demand,
-            link_kind=LinkKind.natural_parameter,
-        ),
-    ],
-)
-
-supervised_elevators_demo = SupervisedDemo(
-    name="supervised-elevators",
-    variants=[
-        SupervisedVariant(dataset_kind=DatasetKind.elevators, link_kind=LinkKind.perceptron),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.elevators,
-            link_kind=LinkKind.natural_parameter,
-        ),
-    ],
-)
-
-supervised_cpu_activity_demo = SupervisedDemo(
-    name="supervised-cpu-activity",
-    variants=[
-        SupervisedVariant(dataset_kind=DatasetKind.cpu_activity, link_kind=LinkKind.perceptron),
-        SupervisedVariant(
-            dataset_kind=DatasetKind.cpu_activity,
-            link_kind=LinkKind.natural_parameter,
-        ),
-    ],
-)

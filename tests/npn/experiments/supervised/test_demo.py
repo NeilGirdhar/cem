@@ -4,11 +4,9 @@ import jax.numpy as jnp
 import pytest
 
 from cem.commands.demos import DemoEnum, demo_registry
-from cem.demos.supervised.demo import (
-    supervised_bike_sharing_demand_demo,
-    supervised_cpu_activity_demo,
-    supervised_elevators_demo,
-)
+from cem.npn.experiments.supervised.bike_sharing import supervised_bike_sharing_demand_demo
+from cem.npn.experiments.supervised.cpu_activity import supervised_cpu_activity_demo
+from cem.npn.experiments.supervised.elevators import supervised_elevators_demo
 from cem.structure.plotter import Demo
 from cem.structure.solution import (
     InferenceResults,

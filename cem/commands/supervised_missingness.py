@@ -5,7 +5,7 @@ from pathlib import Path
 
 import typer
 
-from cem.demos.supervised.missingness import run_missingness_comparison
+from cem.npn.experiments.supervised.missingness import run_missingness_comparison
 from cem.structure import solver_context_manager
 
 from .settings import jax_cache_dir

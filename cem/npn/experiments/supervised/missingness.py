@@ -7,7 +7,7 @@ import jax.numpy as jnp
 
 from cem.structure.solution import ExecutionPacket, LossTelemetry, Telemetries
 
-from .solution import DatasetKind, LinkKind, SupervisedSolver
+from .models import DatasetKind, LinkKind, SupervisedSolver
 
 type ProgressReporter = Callable[[DatasetKind, str, int, float], None]
 

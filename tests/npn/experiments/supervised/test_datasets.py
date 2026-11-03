@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import cem.demos.supervised.problem as supervised_problem
+from cem.npn.experiments.supervised.datasets import problem_from_numeric_dataframe
 
 from ._problems import small_supervised_problem
 
@@ -23,12 +23,12 @@ def test_hf_tabular_regression_dataframe_loader_is_deterministic() -> None:
             "target": np.linspace(0.0, 1.0, 10),
         }
     )
-    first = supervised_problem.problem_from_numeric_dataframe(
+    first = problem_from_numeric_dataframe(
         df,
         max_rows=_EXPECTED_HF_SELECTED_ROWS,
         seed=7,
     )
-    second = supervised_problem.problem_from_numeric_dataframe(
+    second = problem_from_numeric_dataframe(
         df,
         max_rows=_EXPECTED_HF_SELECTED_ROWS,
         seed=7,

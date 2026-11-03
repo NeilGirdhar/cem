@@ -248,16 +248,20 @@ Return `None` to skip an episode (e.g. before any training has run).
 Declares which `Telemetry` objects it needs via `telemetries()`, then
 receives the accumulated snapshots in `plot()`.
 
-### Adding a new demo
+### Adding a new experiment
 
-1. Create `cem/demos/<name>/problem.py` with a `ProblemState`, a
-   `DataSource`, and a `Problem`.
-2. Create `cem/demos/<name>/solution.py` with a `Model` and a `Solver`.
-   Every JAX array field in the model must be `LearnableParameter` or
-   `FixedParameter`.
-3. Optionally add `cem/demos/<name>/plotter.py` with `Telemetry` and
-   `Plotter` subclasses.
-4. Register the solver in `cem/commands/demos.py`.
+1. Pick the module the experiment exercises (for example `cem/npn/` or
+   `cem/sip/`) and create `cem/<module>/experiments/<name>/datasets.py`
+   with a `ProblemState`, a `DataSource`, and a `Problem`.
+2. Create `cem/<module>/experiments/<name>/models.py` with a `Model` and
+   a `Solver`. Every JAX array field in the model must be
+   `LearnableParameter` or `FixedParameter`.
+3. Optionally add `cem/<module>/experiments/<name>/plotter.py` with
+   `Telemetry` and `Plotter` subclasses.
+4. For a watchable (interactive) demo, add one module per demo
+   registration (`iris.py`, `bike_sharing.py`, …) and register the
+   solver in `cem/commands/demos.py`. For a thesis experiment that
+   writes JSON, add a `cem/commands/<name>.py` wrapper.
 
 ## Contribution guidelines
 
