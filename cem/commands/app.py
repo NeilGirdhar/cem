@@ -42,6 +42,15 @@ def _write_json(data: dict[str, object], path: Path) -> None:
     typer.echo(str(path))
 
 
+def _run_to_json(experiment: Experiment, output_dir: Path, *, log: bool) -> Path:
+    _configure_logging(log=log)
+    with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
+        data = experiment.generate()
+    json_path = output_dir / f"{experiment.name}.json"
+    _write_json(data, json_path)
+    return json_path
+
+
 @app.command("list")
 def list_experiments() -> None:
     """List every registered experiment and the verbs available on it."""
@@ -62,11 +71,7 @@ def generate(
     log: bool = True,
 ) -> None:
     """Write ``<output_dir>/<name>.json`` for the named experiment."""
-    experiment = _lookup(name)
-    _configure_logging(log=log)
-    with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
-        data = experiment.generate()
-    _write_json(data, output_dir / f"{name}.json")
+    _run_to_json(_lookup(name), output_dir, log=log)
 
 
 @app.command()
@@ -79,14 +84,8 @@ def visualize(
     log: bool = True,
 ) -> None:
     """Generate ``<name>.json``, compile ``<name>.pdf`` with typst, and open it."""
-    experiment = _lookup(name)
-    _configure_logging(log=log)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    json_path = output_dir / f"{name}.json"
+    json_path = _run_to_json(_lookup(name), output_dir, log=log)
     pdf_path = output_dir / f"{name}.pdf"
-    with solver_context_manager(jax_cache_dir=jax_cache_dir, thread_limit=None):
-        data = experiment.generate()
-    _write_json(data, json_path)
     compile_pdf(json_path, pdf_path)
     if display:
         open_pdf(pdf_path, viewer=viewer)
