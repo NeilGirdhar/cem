@@ -5,7 +5,7 @@ import pytest
 from optuna.distributions import CategoricalDistribution
 
 from cem import tuned_defaults
-from cem.npn.experiments.supervised.bike_sharing import supervised_bike_sharing_demand_experiment
+from cem.npn.experiments.supervised.missingness import supervised_missingness_experiment
 
 _TUNED_HIDDEN_SIZE = 42
 _DEFAULT_LEARNING_RATE = 0.01
@@ -78,28 +78,28 @@ def test_experiment_default_hyperparameters_overlay_tuned_defaults(
     path.write_text(
         json.dumps(
             {
-                supervised_bike_sharing_demand_experiment.name: {
-                    "natural_parameter.hidden_size": _TUNED_HIDDEN_SIZE,
+                supervised_missingness_experiment.name: {
+                    "npn.hidden_size": _TUNED_HIDDEN_SIZE,
                 }
             }
         )
     )
     monkeypatch.setattr(tuned_defaults, "TUNED_DEFAULTS_PATH", path)
 
-    defaults = supervised_bike_sharing_demand_experiment.default_hyperparameters()
+    defaults = supervised_missingness_experiment.default_hyperparameters()
 
-    assert defaults["natural_parameter.hidden_size"] == _TUNED_HIDDEN_SIZE
-    assert defaults["natural_parameter.learning_rate"] == _DEFAULT_LEARNING_RATE
+    assert defaults["npn.hidden_size"] == _TUNED_HIDDEN_SIZE
+    assert defaults["npn.learning_rate"] == _DEFAULT_LEARNING_RATE
 
 
 def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
-    hyperparameters = supervised_bike_sharing_demand_experiment.create_hyperparameters()
+    hyperparameters = supervised_missingness_experiment.create_hyperparameters()
 
-    perceptron_hidden_size = hyperparameters["perceptron.hidden_size"]
-    natural_parameter_hidden_size = hyperparameters["natural_parameter.hidden_size"]
+    mask_mlp_hidden_size = hyperparameters["mask-mlp.hidden_size"]
+    npn_hidden_size = hyperparameters["npn.hidden_size"]
 
-    assert isinstance(perceptron_hidden_size, CategoricalDistribution)
-    assert perceptron_hidden_size.choices == (
+    assert isinstance(mask_mlp_hidden_size, CategoricalDistribution)
+    assert mask_mlp_hidden_size.choices == (
         2,
         3,
         4,
@@ -128,5 +128,5 @@ def test_supervised_shape_hyperparameters_include_tuned_choices() -> None:
         220,
         256,
     )
-    assert isinstance(natural_parameter_hidden_size, CategoricalDistribution)
-    assert natural_parameter_hidden_size.choices == perceptron_hidden_size.choices
+    assert isinstance(npn_hidden_size, CategoricalDistribution)
+    assert npn_hidden_size.choices == mask_mlp_hidden_size.choices
