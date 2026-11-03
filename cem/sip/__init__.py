@@ -1,6 +1,7 @@
 """Self-instrumental purification components."""
 
-from cem.sip.benchmark import (
+from cem.sip.emitter import EmitterOutput, SIPEmitter
+from cem.sip.experiments.benchmark import (
     CausalBenchmarkResult,
     CausalBenchmarkTrajectory,
     CreditBenchmarkResult,
@@ -12,7 +13,6 @@ from cem.sip.benchmark import (
     run_td_error_benchmark,
     simulate_remaining_food,
 )
-from cem.sip.emitter import EmitterOutput, SIPEmitter
 from cem.sip.explanatory_coupling import ExplanatoryCoupling, ExplanatoryCouplingOutput
 from cem.sip.objectives import purification_loss, witness_loss
 from cem.sip.predictor_witness import PredictorWitnessPair
