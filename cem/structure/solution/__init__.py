@@ -5,6 +5,7 @@ from .execution_packet import ExecutionPacket
 from .inference import Inference, InferenceResult, SolutionState, TrainingResult
 from .inference_context import infer_episodes
 from .loss_telemetry import LossTelemetry
+from .prediction_telemetry import PredictionTelemetry
 from .results import InferenceResults, TrainingResults
 from .telemetry import Telemetries, Telemetry
 from .training_context import train_episodes
@@ -17,6 +18,7 @@ __all__ = [
     "InferenceResult",
     "InferenceResults",
     "LossTelemetry",
+    "PredictionTelemetry",
     "SolutionState",
     "Telemetries",
     "Telemetry",
