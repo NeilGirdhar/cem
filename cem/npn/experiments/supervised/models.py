@@ -171,13 +171,22 @@ class GaussianNPNTargetConfiguration(TargetConfiguration):
 
 
 class GaussianNPNTarget(eqx.Module):
-    """Compare Gaussian NPN predictions with unit-presence observations."""
+    r"""Compare Gaussian NPN predictions with unit-presence observations.
+
+    When ``use_nll_loss`` is false (the default) the loss is
+    :math:`\mathrm{KL}(N(y, 1) \mid\mid \text{predicted})`, which puts NPN on the same
+    "distributional loss with unit-variance observation" scale as the mask-aware perceptron
+    baseline. When true, the loss is :math:`-\log p(y \mid \text{predicted})`, which
+    treats :math:`y` as a point and lets the predicted variance converge to the squared
+    residual rather than one plus the squared residual.
+    """
 
     field_names: tuple[str, ...] = eqx.field(static=True)
+    use_nll_loss: bool = eqx.field(static=True)
 
     @classmethod
-    def create(cls, n_targets: int) -> Self:
-        return cls(field_names=tuple(_y_fields(n_targets)))
+    def create(cls, n_targets: int, *, use_nll_loss: bool = False) -> Self:
+        return cls(field_names=tuple(_y_fields(n_targets)), use_nll_loss=use_nll_loss)
 
     def infer(
         self,
@@ -198,10 +207,12 @@ class GaussianNPNTarget(eqx.Module):
                 negative_half_precision=prediction.negative_half_precision[..., index : index + 1],
             )
             observed_exp = observed.to_exp()
-            predicted_exp = predicted.to_exp()
-            losses[field_name] = observed_exp.kl_divergence(predicted, self_nat=observed)
+            if self.use_nll_loss:
+                losses[field_name] = -predicted.log_pdf(observed_mean)
+            else:
+                losses[field_name] = observed_exp.kl_divergence(predicted, self_nat=observed)
             observed_distributions[field_name] = observed_exp
-            predicted_distributions[field_name] = predicted_exp
+            predicted_distributions[field_name] = predicted.to_exp()
         return GaussianNPNTargetConfiguration(
             loss=frozendict(losses),
             observed_distributions=frozendict(observed_distributions),
@@ -223,6 +234,7 @@ class GaussianNPNSupervisedModel(Model):
         hidden_size: int,
         *,
         missing_probability: float = 0.0,
+        use_nll_loss: bool = False,
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
@@ -232,7 +244,7 @@ class GaussianNPNSupervisedModel(Model):
                 hidden_features=hidden_size,
                 streams=streams,
             ),
-            target=GaussianNPNTarget.create(sup.n_targets),
+            target=GaussianNPNTarget.create(sup.n_targets, use_nll_loss=use_nll_loss),
             missing_probability=missing_probability,
         )
 
@@ -294,6 +306,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
     )
     random_missing_values: bool = bool_field(default=True, optimize=False)
     include_missingness_mask: bool = bool_field(default=False, optimize=False)
+    use_nll_loss: bool = bool_field(default=False, optimize=False)
 
     def gradient_transformations(self) -> DisGradientTransformation:
         return DisGradientTransformation(
@@ -348,6 +361,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
             problem,
             self.hidden_size,
             missing_probability=self.missing_probability,
+            use_nll_loss=self.use_nll_loss,
             streams=streams,
         )
 

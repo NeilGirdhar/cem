@@ -1,4 +1,4 @@
-"""Reliability curve for NPN predicted variance across the four supervised datasets."""
+"""Reliability scatter for NPN predicted variance across the four supervised datasets."""
 
 import itertools as it
 from collections.abc import Mapping, Sequence
@@ -33,8 +33,8 @@ _TRAINING_EXAMPLES = {
 }
 _DATASET_TITLES = {
     DatasetKind.iris: "Iris",
-    DatasetKind.bike_sharing_demand: "Bike-Sharing Demand",
-    DatasetKind.cpu_activity: "CPU Activity",
+    DatasetKind.bike_sharing_demand: "Bike",
+    DatasetKind.cpu_activity: "CPU",
     DatasetKind.elevators: "Elevators",
 }
 
@@ -43,31 +43,28 @@ def _bin_by_quantile(
     predicted_variance: np.ndarray,
     squared_residual: np.ndarray,
     bins: int,
-) -> tuple[list[float], list[float], list[int]]:
-    """Return per-bin (mean predicted variance, mean squared residual, count) by quantile."""
+) -> tuple[list[float], list[float]]:
+    """Return per-bin (mean predicted variance, mean squared residual) by quantile."""
     order = np.argsort(predicted_variance)
     variance_sorted = predicted_variance[order]
     residual_sorted = squared_residual[order]
     edges = np.linspace(0, variance_sorted.shape[0], bins + 1).astype(int)
     predicted_means: list[float] = []
     empirical_means: list[float] = []
-    counts: list[int] = []
     for start, end in it.pairwise(edges):
         if end <= start:
             continue
         predicted_means.append(float(variance_sorted[start:end].mean()))
         empirical_means.append(float(residual_sorted[start:end].mean()))
-        counts.append(int(end - start))
-    return predicted_means, empirical_means, counts
+    return predicted_means, empirical_means
 
 
-class CalibrationPlotter(Plotter):
-    """Reliability curve for one dataset: mean predicted σ² vs. mean squared residual per bin."""
+class CalibrationScatterPlotter(Plotter):
+    """One scatter panel: predicted σ² (x) vs. empirical squared residual (y) per dataset."""
 
     _: KW_ONLY
-    name: str = field(static=True)
-    title: str = field(static=True)
-    dataset: DatasetKind = field(static=True)
+    name: str = field(static=True, default="calibration-scatter")
+    title: str = field(static=True, default="NPN variance reliability")
     bins: int = field(static=True, default=_BINS)
 
     @override
@@ -79,11 +76,9 @@ class CalibrationPlotter(Plotter):
     @override
     def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
         telemetry = PredictionTelemetry(selected_node=_TARGET_NODE, selected_field=_TARGET_FIELD)
-        predicted_variance_batches: list[np.ndarray] = []
-        squared_residual_batches: list[np.ndarray] = []
+        batches: dict[DatasetKind, list[tuple[np.ndarray, np.ndarray]]] = {}
         for run in runs:
-            if DatasetKind(run.sweep_entry["dataset_kind"]) is not self.dataset:
-                continue
+            dataset = DatasetKind(run.sweep_entry["dataset_kind"])
             snapshot = np.asarray(run.inference_results.telemetries[telemetry])
             if snapshot.size == 0:
                 continue
@@ -92,29 +87,35 @@ class CalibrationPlotter(Plotter):
             predicted_variance = flat[:, 1]
             observed = flat[:, 2]
             residual = predicted_mean - observed
-            predicted_variance_batches.append(predicted_variance)
-            squared_residual_batches.append(residual * residual)
-        if not predicted_variance_batches:
-            return {"iteration": [], "line plots": {}}
-        predicted_variance = np.concatenate(predicted_variance_batches)
-        squared_residual = np.concatenate(squared_residual_batches)
-        predicted_means, empirical_means, counts = _bin_by_quantile(
-            predicted_variance, squared_residual, self.bins
-        )
+            batches.setdefault(dataset, []).append((predicted_variance, residual * residual))
+
+        series_x: dict[str, list[float]] = {}
+        series_y: dict[str, list[float]] = {}
+        for dataset, title in _DATASET_TITLES.items():
+            if dataset not in batches:
+                continue
+            all_variance = np.concatenate([pv for pv, _ in batches[dataset]])
+            all_residual = np.concatenate([rs for _, rs in batches[dataset]])
+            predicted_means, empirical_means = _bin_by_quantile(
+                all_variance, all_residual, self.bins
+            )
+            series_x[title] = predicted_means
+            series_y[title] = empirical_means
+
+        all_values = [v for name in series_x for v in (*series_x[name], *series_y[name]) if v > 0]
         return {
-            "iteration": list(range(len(predicted_means))),
-            "line plots": {
-                "predicted": f"{_DATASET_TITLES[self.dataset]} predicted σ²",
-                "empirical": f"{_DATASET_TITLES[self.dataset]} empirical squared residual",
+            "iteration": [],
+            "line plots": {},
+            "scatter series": {
+                name: {"x": series_x[name], "y": series_y[name]} for name in series_x
             },
-            "predicted": predicted_means,
-            "empirical": empirical_means,
-            "counts": counts,
+            "min": min(all_values) if all_values else 0.0,
+            "max": max(all_values) if all_values else 1.0,
         }
 
 
 class SupervisedCalibrationExperiment(Experiment):
-    """NPN predicted-variance calibration across the four tabular regression datasets."""
+    """NPN predicted-variance reliability across the four tabular regression datasets."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -129,17 +130,11 @@ class SupervisedCalibrationExperiment(Experiment):
                         inference_examples=256,
                         inference_batch_size=128,
                         learning_rate=0.01,
+                        use_nll_loss=True,
                     ),
                 ),
             ],
-            plotters=[
-                CalibrationPlotter(
-                    name=f"calibration-{dataset.value.replace('_', '-')}",
-                    title=f"{_DATASET_TITLES[dataset]} calibration",
-                    dataset=dataset,
-                )
-                for dataset in _HIDDEN_SIZES
-            ],
+            plotters=[CalibrationScatterPlotter()],
             sweep=[
                 {"dataset_kind": dataset, "seed": seed}
                 for dataset in _HIDDEN_SIZES

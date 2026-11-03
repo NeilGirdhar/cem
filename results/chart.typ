@@ -154,6 +154,76 @@
   })
 }
 
+#let scatter-chart(
+  plot-data,
+  width: 100%,
+  aspect-ratio: 1,
+  legend-position: top + left,
+  show-legend: true,
+  palette: none,
+) = {
+  let theme = if palette == none { default-palette } else { palette }
+  let colors = chart-colors(theme)
+  let series = plot-data.at("scatter series")
+  let names = series.keys()
+  let lo = plot-data.at("min")
+  let hi = plot-data.at("max")
+
+  layout(size => {
+    let chart-width = if type(width) == ratio {
+      size.width * width
+    } else {
+      width
+    }
+    {
+      set text(fill: theme.text)
+      show lq.selector(lq.tick-label): set text(fill: theme.subtext0)
+      show: lq.set-spine(stroke: none)
+      show: lq.set-tick(stroke: 0.45pt + theme.overlay0.transparentize(100%))
+      show: lq.set-grid(stroke: 0.35pt + theme.surface1)
+      show: lq.set-legend(
+        fill: theme.base,
+        stroke: 0.4pt + theme.surface1,
+      )
+
+      lq.diagram(
+        width: chart-width,
+        height: chart-width / aspect-ratio,
+        margin: 5%,
+        xscale: "log",
+        yscale: "log",
+        xaxis: (subticks: none, tick-args: (density: 60%)),
+        yaxis: (subticks: none, tick-args: (density: 60%)),
+        xlim: (lo, hi),
+        ylim: (lo, hi),
+        legend: if show-legend { (position: legend-position) } else { none },
+        grid: (:),
+        fill: theme.base,
+        lq.plot(
+          (lo, hi),
+          (lo, hi),
+          mark: none,
+          color: theme.subtext0,
+          stroke: (dash: "dashed", thickness: 0.5pt),
+          label: $ y = x $,
+        ),
+        ..range(names.len()).map(i => {
+          let name = names.at(i)
+          let pts = series.at(name)
+          lq.plot(
+            pts.x,
+            pts.y,
+            mark: "o",
+            stroke: none,
+            color: colors.at(calc.rem(i, colors.len())),
+            label: name,
+          )
+        }),
+      )
+    }
+  })
+}
+
 #let chart-from-json(
   source,
   plot-key,

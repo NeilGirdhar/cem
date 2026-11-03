@@ -5,7 +5,7 @@ import numpy as np
 
 from cem.commands.registry import experiments
 from cem.npn.experiments.supervised.calibration import (
-    CalibrationPlotter,
+    CalibrationScatterPlotter,
     SupervisedCalibrationExperiment,
     supervised_calibration_experiment,
 )
@@ -40,7 +40,7 @@ def test_supervised_calibration_experiment_is_registered() -> None:
     assert isinstance(supervised_calibration_experiment, SupervisedCalibrationExperiment)
 
 
-def test_calibration_plotter_filters_by_dataset_and_bins_by_variance() -> None:
+def test_calibration_plotter_bins_by_variance_and_emits_per_dataset_series() -> None:
     iris_snapshot = jnp.array(
         [
             # [predicted_mean, predicted_variance, observed_value]
@@ -52,7 +52,8 @@ def test_calibration_plotter_filters_by_dataset_and_bins_by_variance() -> None:
     )
     bike_snapshot = jnp.array(
         [
-            [0.0, 99.0, 99.0],
+            [0.0, 0.05, 0.3],
+            [0.0, 0.15, 0.6],
         ]
     )
     runs = [
@@ -60,25 +61,21 @@ def test_calibration_plotter_filters_by_dataset_and_bins_by_variance() -> None:
         _run(DatasetKind.bike_sharing_demand, 0, bike_snapshot),
     ]
 
-    result = CalibrationPlotter(
-        name="calibration-iris",
-        title="Iris calibration",
-        dataset=DatasetKind.iris,
-        bins=2,
-    ).plotted_series(runs)
+    result = CalibrationScatterPlotter(bins=2).plotted_series(runs)
 
-    assert result["iteration"] == [0, 1]
-    assert result["counts"] == [2, 2]
-    assert result["predicted"][0] < result["predicted"][1]
-    assert result["empirical"] == [np.mean([1.0, 4.0]), np.mean([9.0, 16.0])]
+    assert set(result["scatter series"]) == {"Iris", "Bike"}
+    iris_series = result["scatter series"]["Iris"]
+    assert iris_series["x"][0] < iris_series["x"][1]
+    assert iris_series["y"] == [np.mean([1.0, 4.0]), np.mean([9.0, 16.0])]
+    bike_series = result["scatter series"]["Bike"]
+    assert bike_series["y"] == [0.3 * 0.3, 0.6 * 0.6]
+    assert result["min"] > 0
+    assert result["max"] >= max(iris_series["y"] + iris_series["x"])
 
 
-def test_calibration_plotter_returns_empty_when_dataset_absent() -> None:
-    result = CalibrationPlotter(
-        name="calibration-iris",
-        title="Iris",
-        dataset=DatasetKind.iris,
-        bins=4,
-    ).plotted_series([])
+def test_calibration_plotter_returns_empty_series_when_no_runs() -> None:
+    result = CalibrationScatterPlotter().plotted_series([])
 
-    assert result == {"iteration": [], "line plots": {}}
+    assert result["scatter series"] == {}
+    assert result["min"] == 0.0
+    assert result["max"] == 1.0
