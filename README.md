@@ -3,6 +3,9 @@
 This repository implements the Causal Evidence Model (CEM), which is a model for causal instrument
 discovery via self-instrumental purification.
 
+The in-progress plan for aligning `cem/sip` with chapter 5 of the thesis is in
+[`testing.md`](testing.md).
+
 ## Running
 
 - Install UV: `pip install uv`
