@@ -1,5 +1,6 @@
 """The :class:`Experiment` harness: variants crossed with a sweep, rendered by plotters."""
 
+from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import reduce
@@ -46,10 +47,11 @@ class Experiment:
     (variant, sweep entry) pair is one :class:`Run`; plotters receive all runs and
     pivot them into chart data.
 
+    Experiments that support hyperparameter optimization subclass
+    :class:`OptimizableExperiment` and implement :meth:`experiment_loss`.
     Multi-variant experiments optimize jointly: :meth:`create_hyperparameters`
     prefixes each variant's parameters with ``"{variant.label}."`` except for the
-    names listed in ``shared_hyperparameter_names``, and the loss is scored by
-    subclasses that override :meth:`experiment_loss`.
+    names listed in ``shared_hyperparameter_names``.
     """
 
     def __init__(
@@ -196,6 +198,11 @@ class Experiment:
         collected = self.runs(resolved, progress_manager=console_progress_bar())
         return {plotter.name: plotter.plotted_series(collected) for plotter in self.plotters}
 
+
+class OptimizableExperiment(Experiment, ABC):
+    """An :class:`Experiment` whose hyperparameters can be tuned by ``cem optimize``."""
+
+    @abstractmethod
     def experiment_loss(
         self,
         runs: Sequence[Run],

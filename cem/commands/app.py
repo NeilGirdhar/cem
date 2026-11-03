@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 from typer import Argument, Option
 
-from cem.structure import Experiment, set_up_logging, solver_context_manager
+from cem.structure import Experiment, OptimizableExperiment, set_up_logging, solver_context_manager
 
 from ._optimize import OptimizationMode, run_optimize
 from ._render import compile_pdf, open_pdf
@@ -28,10 +28,6 @@ def _lookup(name: str) -> Experiment:
         raise typer.BadParameter(msg) from None
 
 
-def _can_optimize(experiment: Experiment) -> bool:
-    return type(experiment).experiment_loss is not Experiment.experiment_loss
-
-
 def _write_json(data: dict[str, object], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as file:
@@ -47,7 +43,7 @@ def list_experiments() -> None:
     for name in sorted(experiments):
         experiment = experiments[name]
         verbs = "generate, visualize"
-        if _can_optimize(experiment):
+        if isinstance(experiment, OptimizableExperiment):
             verbs += ", optimize"
         typer.echo(f"{name:<{width}}  ({verbs})")
 
@@ -109,9 +105,9 @@ def optimize(  # ruff:ignore[too-many-arguments]
     profiling: bool = False,
     restart: bool = False,
 ) -> None:
-    """Search hyperparameters for an :class:`Experiment`."""
+    """Search hyperparameters for an :class:`OptimizableExperiment`."""
     experiment = _lookup(name)
-    if not _can_optimize(experiment):
+    if not isinstance(experiment, OptimizableExperiment):
         msg = f"Experiment '{name}' has no hyperparameters to optimize."
         raise typer.BadParameter(msg)
     if log:

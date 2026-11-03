@@ -7,7 +7,7 @@ from cem.commands.registry import experiments
 from cem.npn.experiments.supervised.bike_sharing import supervised_bike_sharing_demand_experiment
 from cem.npn.experiments.supervised.cpu_activity import supervised_cpu_activity_experiment
 from cem.npn.experiments.supervised.elevators import supervised_elevators_experiment
-from cem.structure.plotter import Experiment, Run
+from cem.structure.plotter import OptimizableExperiment, Run
 from cem.structure.solution import (
     InferenceResults,
     LossTelemetry,
@@ -47,7 +47,7 @@ def _run(variant_label: str, training: TrainingResults, inference: InferenceResu
         supervised_cpu_activity_experiment,
     ],
 )
-def test_hf_supervised_experiment_registry_and_variants(experiment: Experiment) -> None:
+def test_hf_supervised_experiment_registry_and_variants(experiment: OptimizableExperiment) -> None:
     assert experiments[experiment.name] is experiment
     assert [variant.label for variant in experiment.variants] == [
         "perceptron",

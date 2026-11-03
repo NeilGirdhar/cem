@@ -24,7 +24,7 @@ from cem.structure import (
     jax_is_initialized,
     solver_context_manager,
 )
-from cem.structure.plotter import Experiment
+from cem.structure.plotter import OptimizableExperiment
 from cem.tuned_defaults import update_tuned_defaults
 
 from .settings import get_optuna_storage, jax_cache_dir, optuna_sampler, wandb_settings
@@ -71,7 +71,7 @@ def _suggest_from_distribution(trial: Trial, name: str, distribution: BaseDistri
 
 
 def _objective(
-    experiment: Experiment,
+    experiment: OptimizableExperiment,
     hyperparameters: dict[str, Any],
     *,
     wandb: bool,
@@ -169,7 +169,7 @@ def _sync_best_defaults(study: Study, experiment_name: str) -> int | None:
 
 
 def run_optimize(  # ruff:ignore[complex-structure]
-    experiment: Experiment,
+    experiment: OptimizableExperiment,
     *,
     mode: OptimizationMode,
     jobs: int,

@@ -5,7 +5,7 @@ from typing import Any, override
 
 import jax.numpy as jnp
 
-from cem.structure.plotter import Experiment, Run, Variant
+from cem.structure.plotter import OptimizableExperiment, Run, Variant
 from cem.structure.solution.loss_telemetry import LossTelemetry
 
 from .models import SupervisedSolver
@@ -15,7 +15,7 @@ _COMPUTE_WEIGHT = 0.1
 _SHARED_HYPERPARAMETER_NAMES = frozenset({"training_examples", "training_batch_size"})
 
 
-class SupervisedExperiment(Experiment):
+class SupervisedExperiment(OptimizableExperiment):
     """Supervised experiment scored across its model variants with a compute penalty."""
 
     def __init__(self, *, name: str, variants: Sequence[Variant]) -> None:
