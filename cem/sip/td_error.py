@@ -14,7 +14,7 @@ from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.perceptron.mlp import MLP
-from cem.sip.messages import mean_and_precision, promoting_link_loss
+from cem.sip.messages import mean_and_precision, promoting_link_loss, variance_from_precision
 from cem.structure.graph import FixedParameter, LearnableParameter
 
 
@@ -204,9 +204,9 @@ class TDError(eqx.Module):
 
         gamma = self.discount.value
         boot_mean = jax.lax.stop_gradient(reward_mean) + gamma * jax.lax.stop_gradient(cur_mean)
-        boot_variance = jax.lax.stop_gradient(jnp.reciprocal(reward_precision)) + jnp.square(
-            gamma
-        ) * jax.lax.stop_gradient(jnp.reciprocal(cur_precision))
+        boot_variance = jax.lax.stop_gradient(variance_from_precision(reward_precision)) + (
+            jnp.square(gamma) * jax.lax.stop_gradient(jnp.reciprocal(cur_precision))
+        )
         return _Moments(
             boot_mean=boot_mean,
             boot_variance=boot_variance,

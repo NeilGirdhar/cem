@@ -1,16 +1,41 @@
 """SIP-specific Gaussian message helpers."""
 
+from typing import Final
+
 import jax
 import jax.numpy as jnp
 from efax import NormalNP
-from tjax import JaxRealArray
+from tjax import JaxRealArray, divide_or_zero, divide_where
+
+MAX_VARIANCE: Final[float] = 1e12
+"""Fallback variance for absent (κ = 0) external messages. Large but finite so
+downstream cross-entropy terms stay well-defined. Module-patch to override for
+experiments that need a different ceiling."""
 
 
 def mean_and_precision(distribution: NormalNP) -> tuple[JaxRealArray, JaxRealArray]:
     """Extract the mean and precision from a Gaussian natural-parameter message."""
     precision = -2 * distribution.negative_half_precision
-    mean = distribution.mean_times_precision / precision
+    mean = divide_or_zero(distribution.mean_times_precision, precision)
     return mean, precision
+
+
+def variance_from_precision(
+    precision: JaxRealArray, *, otherwise: float = MAX_VARIANCE
+) -> JaxRealArray:
+    """Return `1 / precision`, mapping absent messages (κ = 0) to `otherwise`.
+
+    Use for precisions that aren't strictly positive by construction — external
+    inputs such as an observed reward that may arrive in absent-message encoding.
+    For `GaussianNPN` and `MLP` outputs whose softplus readout keeps precision
+    strictly positive, use `jnp.reciprocal` directly.
+    """
+    return divide_where(
+        jnp.ones_like(precision),
+        precision,
+        where=precision > 0,
+        otherwise=jnp.full_like(precision, otherwise),
+    )
 
 
 def evidence_scale(message: NormalNP, gain: JaxRealArray) -> NormalNP:
