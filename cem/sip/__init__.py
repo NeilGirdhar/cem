@@ -15,6 +15,7 @@ from cem.sip.features import (
 from cem.sip.intentions import Intentions
 from cem.sip.messages import (
     InstrumentedMessage,
+    concat_messages,
     evidence_scale,
     mean_and_precision,
     promoting_link_loss,
@@ -46,6 +47,7 @@ __all__ = [
     "TDFeature",
     "TDFeatureOutputs",
     "TDTraces",
+    "concat_messages",
     "evidence_scale",
     "mean_and_precision",
     "promoting_link_loss",

@@ -15,7 +15,7 @@ import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray, KeyArray, RngStream
 
-from cem.npn.gaussian import GaussianNPN
+from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 from cem.sip.messages import InstrumentedMessage, evidence_scale, mean_and_precision
@@ -54,6 +54,7 @@ class SIPFeature(eqx.Module):
 
     emitter: Emitter
     mismatch: Mismatch
+    last_observation_index: eqx.nn.StateIndex[NormalNP]
 
     @classmethod
     def create(
@@ -86,7 +87,11 @@ class SIPFeature(eqx.Module):
             gain_features=sizes.gain,
             streams=streams,
         )
-        return cls(emitter=emitter, mismatch=mismatch)
+        return cls(
+            emitter=emitter,
+            mismatch=mismatch,
+            last_observation_index=eqx.nn.StateIndex(_absent_observation(n)),
+        )
 
     def step(
         self,
@@ -126,6 +131,7 @@ class SIPFeature(eqx.Module):
             streams=streams,
             inference=inference,
         )
+        new_state = new_state.set(self.last_observation_index, emitter_outputs.observation)
         return new_state, SIPFeatureOutputs(
             observation=emitter_outputs.observation,
             instrument=emitter_outputs.instrument,
@@ -151,6 +157,7 @@ class SensationInputFeature(eqx.Module):
 
     instrument_map: GaussianNPN
     mismatch: Mismatch
+    last_observation_index: eqx.nn.StateIndex[NormalNP]
 
     @classmethod
     def create(
@@ -171,6 +178,7 @@ class SensationInputFeature(eqx.Module):
                 gain_features=gain_features,
                 streams=streams,
             ),
+            last_observation_index=eqx.nn.StateIndex(_absent_observation(n)),
         )
 
     def step(
@@ -212,6 +220,7 @@ class SensationInputFeature(eqx.Module):
             streams=streams,
             inference=inference,
         )
+        state = state.set(self.last_observation_index, out_observation)
         return state, SIPFeatureOutputs(
             observation=out_observation,
             instrument=out_instrument,
@@ -301,6 +310,7 @@ class TDFeature(eqx.Module):
     """
 
     td_error: TDError
+    last_observation_index: eqx.nn.StateIndex[NormalNP]
 
     @classmethod
     def create(
@@ -317,7 +327,8 @@ class TDFeature(eqx.Module):
                 predictor_features=predictor_features,
                 discount=discount,
                 streams=streams,
-            )
+            ),
+            last_observation_index=eqx.nn.StateIndex(_absent_observation(n)),
         )
 
     def step(
@@ -338,6 +349,7 @@ class TDFeature(eqx.Module):
             streams=streams,
             inference=inference,
         )
+        new_state = new_state.set(self.last_observation_index, reward_observation)
         return new_state, TDFeatureOutputs(
             observation=reward_observation,
             advantage=td_outputs.advantage,
@@ -346,3 +358,11 @@ class TDFeature(eqx.Module):
             uncertainty_loss=td_outputs.uncertainty_loss,
             loss=td_outputs.loss,
         )
+
+
+def _absent_observation(n: int) -> NormalNP:
+    """Absent-message placeholder (mean 0, precision 0) for the first-step read."""
+    return normal_from_mean_and_presence(
+        jnp.zeros(n, dtype=jnp.float64),
+        jnp.zeros(n, dtype=jnp.float64),
+    )

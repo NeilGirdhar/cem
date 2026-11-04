@@ -52,6 +52,18 @@ def variance_from_precision(
     )
 
 
+def concat_messages(*messages: NormalNP) -> NormalNP:
+    """Concatenate 1-D Gaussian messages along the component axis.
+
+    Treats each input as an independent-component diagonal Gaussian and
+    returns the joint with the components laid out in the given order.
+    """
+    return NormalNP(
+        mean_times_precision=jnp.concat([m.mean_times_precision for m in messages]),
+        negative_half_precision=jnp.concat([m.negative_half_precision for m in messages]),
+    )
+
+
 def evidence_scale(message: NormalNP, gain: JaxRealArray) -> NormalNP:
     """Scale a Gaussian message's evidence by `gain`.
 

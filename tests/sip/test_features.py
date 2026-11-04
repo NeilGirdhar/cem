@@ -307,6 +307,55 @@ def test_sensation_input_observation_pass_through(
     )
 
 
+def test_sip_feature_stores_observation_into_state(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """After a step the state's `last_observation_index` holds `outputs.observation`."""
+    n = 2
+    feature = _sip_feature(n, streams)
+    state = eqx.nn.State(feature)
+    new_state, outputs = feature.step(state, **_sip_inputs(n), streams=streams, inference=True)
+    stored = new_state.get(feature.last_observation_index)
+    assert jnp.allclose(stored.mean_times_precision, outputs.observation.mean_times_precision)
+    assert jnp.allclose(stored.negative_half_precision, outputs.observation.negative_half_precision)
+
+
+def test_sensation_input_stores_observation_into_state(
+    streams: Mapping[str, RngStream],
+) -> None:
+    n = 3
+    feature = _sensation_input(n, streams)
+    state = eqx.nn.State(feature)
+    observation = _message(jnp.asarray([0.1, 0.2, 0.3]), jnp.ones(n))
+    new_state, outputs = feature.step(
+        state,
+        observation=observation,
+        predictors=InstrumentedMessage(
+            observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+            instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        ),
+        gain=None,
+        streams=streams,
+        inference=True,
+    )
+    stored = new_state.get(feature.last_observation_index)
+    assert jnp.allclose(stored.mean_times_precision, outputs.observation.mean_times_precision)
+
+
+def test_td_feature_stores_reward_observation_into_state(
+    streams: Mapping[str, RngStream],
+) -> None:
+    n = 2
+    feature = _td_feature(n, streams)
+    state = eqx.nn.State(feature)
+    inputs = _td_inputs(n)
+    new_state, _ = feature.step(state, **inputs, streams=streams, inference=True)
+    stored = new_state.get(feature.last_observation_index)
+    assert jnp.allclose(
+        stored.mean_times_precision, inputs["reward_observation"].mean_times_precision
+    )
+
+
 def test_sensation_input_outputs_dissonance_from_mismatch(
     streams: Mapping[str, RngStream],
 ) -> None:
