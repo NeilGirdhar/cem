@@ -75,7 +75,7 @@ def test_reconstruction_loss_trains_prediction_map(streams: Mapping[str, RngStre
     assert jnp.any(jnp.abs(grads.prediction_map.layers[-1].weight.value) > 0)
 
 
-def test_confounding_loss_does_not_train_witness_maps(
+def test_confounding_loss_does_not_train_witness_map(
     streams: Mapping[str, RngStream],
 ) -> None:
     """Confounding loss's gradient to witness params is zero (witness stop-gradded)."""
@@ -88,7 +88,6 @@ def test_confounding_loss_does_not_train_witness_maps(
 
     grads = eqx.filter_grad(loss_fn)(mismatch)
     assert jnp.allclose(grads.witness_map.layers[-1].weight.value, 0.0)
-    assert jnp.allclose(grads.witness_gain_map.layers[-1].weight.value, 0.0)
 
 
 def test_witness_loss_does_not_train_prediction_map(
@@ -106,7 +105,7 @@ def test_witness_loss_does_not_train_prediction_map(
     assert jnp.allclose(grads.prediction_map.layers[-1].weight.value, 0.0)
 
 
-def test_witness_loss_trains_witness_maps(streams: Mapping[str, RngStream]) -> None:
+def test_witness_loss_trains_witness_map(streams: Mapping[str, RngStream]) -> None:
     n = 2
     mismatch = _mismatch(n, streams)
     inputs = _inputs(n)
@@ -116,7 +115,6 @@ def test_witness_loss_trains_witness_maps(streams: Mapping[str, RngStream]) -> N
 
     grads = eqx.filter_grad(loss_fn)(mismatch)
     assert jnp.any(jnp.abs(grads.witness_map.layers[-1].weight.value) > 0)
-    assert jnp.any(jnp.abs(grads.witness_gain_map.layers[-1].weight.value) > 0)
 
 
 def test_combined_loss_does_not_train_loss_weights(streams: Mapping[str, RngStream]) -> None:

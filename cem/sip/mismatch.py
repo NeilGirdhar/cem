@@ -41,14 +41,14 @@ class _Moments(eqx.Module):
 class Mismatch(eqx.Module):
     """One feature's mismatch circuit: predict, witness, purify.
 
-    The prediction map fits the target observation; the witness and witness-gain
-    maps search for instrument-predictable residuals; a Lagrange multiplier
-    constrains the witness's gain-weighted squared norm.
+    The prediction map fits the target observation; one joint witness MLP takes
+    the natural parameters of the predictor and gain instruments and searches
+    for instrument-predictable residuals; a Lagrange multiplier constrains the
+    witness's gain-weighted squared norm.
     """
 
     prediction_map: GaussianNPN
     witness_map: MLP
-    witness_gain_map: MLP
     reconstruction_loss_weight: LearnableParameter[JaxRealArray]  # raw (n,)
     confounding_loss_weight: LearnableParameter[JaxRealArray]  # raw (n, 2)
     witness_multiplier: LearnableParameter[JaxRealArray]  # raw ()
@@ -63,7 +63,6 @@ class Mismatch(eqx.Module):
         gain_instrument_features: int,
         prediction_hidden_features: int | tuple[int, ...] = (),
         witness_hidden_features: int | tuple[int, ...] = (),
-        witness_gain_hidden_features: int | tuple[int, ...] = (),
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
@@ -74,15 +73,9 @@ class Mismatch(eqx.Module):
                 streams=streams,
             ),
             witness_map=MLP.create(
-                in_features=predictor_instrument_features,
+                in_features=2 * (predictor_instrument_features + gain_instrument_features),
                 out_features=2 * n,
                 hidden_features=witness_hidden_features,
-                streams=streams,
-            ),
-            witness_gain_map=MLP.create(
-                in_features=gain_instrument_features,
-                out_features=2 * n,
-                hidden_features=witness_gain_hidden_features,
                 streams=streams,
             ),
             reconstruction_loss_weight=LearnableParameter(jnp.zeros(n, dtype=jnp.float64)),
@@ -166,15 +159,17 @@ class Mismatch(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxRealArray:
-        pred_instr_mean, _ = mean_and_precision(predictor_instruments)
-        gain_instr_mean, _ = mean_and_precision(gain_instrument)
-        ungated = self.witness_map.infer(
-            pred_instr_mean, streams=streams, inference=inference
-        ).reshape(-1, 2)
-        gain_coord = self.witness_gain_map.infer(
-            gain_instr_mean, streams=streams, inference=inference
-        ).reshape(-1, 2)
-        return ungated * gain_coord
+        witness_input = jnp.concatenate(
+            [
+                predictor_instruments.mean_times_precision,
+                predictor_instruments.negative_half_precision,
+                gain_instrument.mean_times_precision,
+                gain_instrument.negative_half_precision,
+            ]
+        )
+        return self.witness_map.infer(witness_input, streams=streams, inference=inference).reshape(
+            -1, 2
+        )
 
     def _witness_training(
         self,
@@ -185,7 +180,7 @@ class Mismatch(eqx.Module):
         covariance = -jnp.sum(
             gain[:, None] * jax.lax.stop_gradient(witness_residuals) * confounding_witness
         )
-        constraint_violation = jnp.sum(jnp.square(confounding_witness) * gain[:, None]) - jnp.sum(
+        constraint_violation = jnp.sum(jnp.square(confounding_witness) * gain[:, None]) - jnp.mean(
             gain
         )
         lambda_value = jax.nn.softplus(self.witness_multiplier.value)
