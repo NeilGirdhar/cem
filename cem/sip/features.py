@@ -39,9 +39,8 @@ class SIPFeatureSizes(eqx.Module):
     """Per-parent feature sizes for building one identification feature."""
 
     observation_content: int
-    predictor_observations: int
-    predictor_instruments: int
-    gain_instrument: int
+    predictor: int
+    gain: int
 
 
 class SIPFeatureOutputs(eqx.Module):
@@ -81,7 +80,7 @@ class SIPFeature(eqx.Module):
             in_features=sizes.observation_content, out_features=n, streams=streams
         )
         instrument_map = GaussianNPN.create(
-            in_features=sizes.predictor_instruments, out_features=n, streams=streams
+            in_features=sizes.predictor, out_features=n, streams=streams
         )
         baseline_map = GaussianNPN.create(
             in_features=sizes.observation_content, out_features=1, streams=streams
@@ -94,9 +93,8 @@ class SIPFeature(eqx.Module):
         )
         mismatch = Mismatch.create(
             n,
-            predictor_observation_features=sizes.predictor_observations,
-            predictor_instrument_features=sizes.predictor_instruments,
-            gain_instrument_features=sizes.gain_instrument,
+            predictor_features=sizes.predictor,
+            gain_features=sizes.gain,
             streams=streams,
         )
         return cls(emitter=emitter, mismatch=mismatch)
@@ -169,16 +167,14 @@ class TDFeature(eqx.Module):
         cls,
         n: int,
         *,
-        predictor_observation_features: int,
-        predictor_instrument_features: int,
+        predictor_features: int,
         discount: float = 1.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
             td_error=TDError.create(
                 n,
-                predictor_observation_features=predictor_observation_features,
-                predictor_instrument_features=predictor_instrument_features,
+                predictor_features=predictor_features,
                 discount=discount,
                 streams=streams,
             )

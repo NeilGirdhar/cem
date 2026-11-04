@@ -58,22 +58,21 @@ class Mismatch(eqx.Module):
         cls,
         n: int,
         *,
-        predictor_observation_features: int,
-        predictor_instrument_features: int,
-        gain_instrument_features: int,
+        predictor_features: int,
+        gain_features: int,
         prediction_hidden_features: int | tuple[int, ...] = (),
         witness_hidden_features: int | tuple[int, ...] = (),
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
             prediction_map=GaussianNPN.create(
-                in_features=predictor_observation_features,
+                in_features=predictor_features,
                 out_features=n,
                 hidden_features=prediction_hidden_features,
                 streams=streams,
             ),
             witness_map=MLP.create(
-                in_features=2 * (predictor_instrument_features + gain_instrument_features),
+                in_features=2 * (predictor_features + gain_features),
                 out_features=2 * n,
                 hidden_features=witness_hidden_features,
                 streams=streams,

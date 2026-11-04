@@ -26,9 +26,8 @@ def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
 def _mismatch(n: int, streams: Mapping[str, RngStream]) -> Mismatch:
     return Mismatch.create(
         n,
-        predictor_observation_features=2,
-        predictor_instrument_features=2,
-        gain_instrument_features=1,
+        predictor_features=2,
+        gain_features=1,
         streams=streams,
     )
 

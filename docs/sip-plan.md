@@ -25,7 +25,7 @@ Leaves first, then features, then models
   the feature wrappers; one `is None` branch per site drops gain multiplies
   and sets the norm-constraint RHS to `1.0`. Witness-map input size is set
   at create time, so recruiter `Mismatch`es still take
-  `gain_instrument_features=0`. Add a `RecruiterFeature` composition
+  `gain_features=0`. Add a `RecruiterFeature` composition
   (controllable `SIPFeature` with no gain parent) that supplies gain to
   its consumer features.
 - [ ] `ExplanatoryCoupling`, `RewardCritic`, `SIPAgent` — plain `eqx.Module`s

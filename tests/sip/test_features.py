@@ -39,9 +39,8 @@ def _sip_feature(
 ) -> SIPFeature:
     sizes = SIPFeatureSizes(
         observation_content=1,
-        predictor_observations=2,
-        predictor_instruments=2,
-        gain_instrument=1,
+        predictor=2,
+        gain=1,
     )
     return SIPFeature.create(n, sizes, controllable=controllable, streams=streams)
 
@@ -65,8 +64,7 @@ def _sip_inputs(n: int) -> _SIPStepInputs:
 def _td_feature(n: int, streams: Mapping[str, RngStream], *, discount: float = 1.0) -> TDFeature:
     return TDFeature.create(
         n,
-        predictor_observation_features=2,
-        predictor_instrument_features=2,
+        predictor_features=2,
         discount=discount,
         streams=streams,
     )

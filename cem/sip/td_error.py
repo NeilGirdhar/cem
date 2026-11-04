@@ -30,9 +30,7 @@ class TDTraces(eqx.Module):
     predictor_instruments: NormalNP
 
     @classmethod
-    def initial(
-        cls, predictor_observation_features: int, predictor_instrument_features: int
-    ) -> Self:
+    def initial(cls, predictor_features: int) -> Self:
         def placeholder(size: int) -> NormalNP:
             return normal_from_mean_and_presence(
                 jnp.zeros(size, dtype=jnp.float64),
@@ -40,8 +38,8 @@ class TDTraces(eqx.Module):
             )
 
         return cls(
-            predictor_observations=placeholder(predictor_observation_features),
-            predictor_instruments=placeholder(predictor_instrument_features),
+            predictor_observations=placeholder(predictor_features),
+            predictor_instruments=placeholder(predictor_features),
         )
 
 
@@ -88,8 +86,7 @@ class TDError(eqx.Module):
         cls,
         n: int,
         *,
-        predictor_observation_features: int,
-        predictor_instrument_features: int,
+        predictor_features: int,
         discount: float = 1.0,
         prediction_hidden_features: int | tuple[int, ...] = (),
         witness_hidden_features: int | tuple[int, ...] = (),
@@ -97,13 +94,13 @@ class TDError(eqx.Module):
     ) -> Self:
         return cls(
             prediction_map=GaussianNPN.create(
-                in_features=predictor_observation_features,
+                in_features=predictor_features,
                 out_features=n,
                 hidden_features=prediction_hidden_features,
                 streams=streams,
             ),
             witness_map=MLP.create(
-                in_features=2 * predictor_instrument_features,
+                in_features=2 * predictor_features,
                 out_features=2 * n,
                 hidden_features=witness_hidden_features,
                 streams=streams,
@@ -113,9 +110,7 @@ class TDError(eqx.Module):
             uncertainty_loss_weight=LearnableParameter(jnp.zeros(n, dtype=jnp.float64)),
             witness_multiplier=LearnableParameter(jnp.asarray(0.0, dtype=jnp.float64)),
             discount=FixedParameter(jnp.asarray(discount, dtype=jnp.float64)),
-            delay_index=eqx.nn.StateIndex(
-                TDTraces.initial(predictor_observation_features, predictor_instrument_features)
-            ),
+            delay_index=eqx.nn.StateIndex(TDTraces.initial(predictor_features)),
         )
 
     def step(

@@ -112,10 +112,12 @@ special-casing anything in the model.
 The default routing in `Solver.gradient_transformations` is:
 
 ```python
-DisGradientTransformation([
-    (ParameterType(FixedParameter), None),          # not optimized
-    (ParameterType(LearnableParameter), Adam(...)), # Adam
-])
+DisGradientTransformation(
+    [
+        (ParameterType(FixedParameter), None),  # not optimized
+        (ParameterType(LearnableParameter), Adam(...)),  # Adam
+    ]
+)
 ```
 
 `TrainingSolution` (`cem/structure/solution/training_solution.py`)\

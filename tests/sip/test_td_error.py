@@ -24,8 +24,7 @@ def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
 def _td_error(n: int, streams: Mapping[str, RngStream], *, discount: float = 1.0) -> TDError:
     return TDError.create(
         n,
-        predictor_observation_features=2,
-        predictor_instrument_features=2,
+        predictor_features=2,
         discount=discount,
         streams=streams,
     )
