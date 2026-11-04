@@ -9,8 +9,8 @@ framework SIP plugs into, see [`architecture.md`](architecture.md).
 
 Naming convention: bare names for domain-specific nouns (`Emitter`, `Mismatch`,
 …); the `SIP` prefix only for generic ones that would otherwise collide with
-common ML terms (`SIPFeature`, `SIPValueModel`, `SIPAgent`).
-`ExplanatoryCoupling` is a thesis term and takes no prefix.
+common ML terms (`SIPFeature`, `SIPAgent`). `ExplanatoryCoupling`, `Sensations`,
+`Intentions` and `RewardCritic` are thesis terms and take no prefix.
 
 Circuit sub-modules (leaves first):
 
@@ -29,25 +29,61 @@ Circuit sub-modules (leaves first):
 Features (per causal node):
 
 - `SIPFeature` — one identification node: `Emitter` + `Mismatch`. Plays the
-  "prospect feature" role when wired into `RewardCritic`.
+  "prospect feature" role when wired into `RewardCritic`. Each `step` writes
+  its outgoing `InstrumentedMessage` into `state` through
+  `last_message_index`, so the next step and any sibling in the same
+  coupling can read the previous (or just-written) message.
+- `SensationInputFeature` — the sensation-stack input. Drops `observation_map`
+  (the environment observation is the raw observation) and `Credit` (a sensor
+  only reports), keeping `instrument_map` and `Mismatch`; also writes its
+  outgoing `InstrumentedMessage` into `state`.
 - `TDFeature` — one value node: `TDError` only; reward features use fixed
-  unit gain and no local noise, so they skip the emitter.
+  unit gain and no local noise, so they skip the emitter. Its observation is
+  the pass-through reward, so it has no `last_message_index`.
 - `RecruiterFeature` — one recruiter node: a controllable `SIPFeature` with
   no gain parent. Steps with `gain_observation=None, gain_instrument=None`
   (and its underlying `Mismatch` is created with `gain_features=0`
   so the witness map ignores the missing gain parent). Supplies gain to its
   consumer features.
 
+Messages and helpers in `messages.py`:
+
+- `InstrumentedMessage` — a Gaussian message paired with its instrument
+  half; the pair exchanged between features and between a feature and its
+  recruiter.
+- `concat_messages`, `concat_instrumented_messages` — concatenation along
+  the component axis (treating each input as an independent-component
+  diagonal Gaussian); used to join readouts with demand signals and to join
+  external predictors with the stored message of the layer directly above.
+- `mean_and_precision`, `variance_from_precision`, `evidence_scale`,
+  `promoting_link_loss`, `suppressing_link_loss` — Gaussian-message
+  utilities used throughout the circuit.
+
 Composition `Module`s (plain `eqx.Module`s, not `Model` subclasses):
 
-- `ExplanatoryCoupling` — wired stack of `SIPFeature`s with prediction and
-  demand links per the thesis's explanatory-coupling architecture figure;
-  the carrier for tests 1–12, 16 and reused as a sub-module inside `SIPAgent`.
+- `ExplanatoryCoupling` — marker base for `Sensations` and `Intentions`.
+  Each subclass declares its own feature-stack schema.
+- `Sensations` — bottom-up coupling. Layer 0 is a `SensationInputFeature`;
+  layers 1+ are non-controllable `SIPFeature`s. The environment observation
+  is layer 0's content; each higher layer's content is the previous layer's
+  `observation_mismatch`, and its Credit goal is the previous layer's
+  `dissonance`. Each layer's effective predictor is the external predictor
+  concatenated with the stored message of the layer directly above
+  (previous-step value, since higher layers have not yet been processed
+  this step).
+- `Intentions` — top-down coupling of controllable `SIPFeature`s. The top
+  layer takes its content from the readout alone; lower layers concatenate
+  their readout with the above layer's `observation_mismatch`. Each
+  layer's Credit goal is the externally supplied advantage. The effective
+  predictor concat follows the same rule as `Sensations`; in top-down
+  order the above-layer message is the just-written current-step value.
+  Layer 0 is the bottom (processed last) and its outgoing `observation` is
+  the action.
 - `RewardCritic` — prospect `SIPFeature`s plus one `TDFeature`, wired for
   reward prediction and purification; tests 13–15.
-- `SIPAgent` — two `ExplanatoryCoupling`s (sensation and intention; the
-  intention coupling is the policy) plus one `RewardCritic`, wired for
-  readout, affordance, advantage, and dissonance links; test 17.
+- `SIPAgent` — a `Sensations`, an `Intentions` (the policy), and a
+  `RewardCritic`, wired for readout, affordance, advantage, and dissonance
+  links; test 17.
 
 Implementation gates: `Emitter` alone covers test 12; `Emitter + Mismatch +
 Credit` covers tests 1–12; `TDError` adds 13–15; tests 16–17 wire the full
@@ -56,14 +92,20 @@ stack together and need no new modules.
 ## Target code layout
 
 - `cem/sip/` — the circuit.
-    - `messages.py` — SIP-specific Gaussian helpers (evidence scaling,
-      amplitude gating, mismatch-message encoding). Pure functions, no classes.
+    - `messages.py` — `InstrumentedMessage` plus SIP-specific Gaussian
+      helpers (concatenation, evidence scaling, variance-from-precision,
+      promoting/suppressing link losses).
     - `credit.py` — `Credit`.
     - `mismatch.py` — `Mismatch`.
     - `td_error.py` — `TDError`.
     - `emitter.py` — `Emitter`.
-    - `features.py` — `SIPFeature`, `TDFeature`.
-    - `couplings.py` — `ExplanatoryCoupling`, `RewardCritic`, `SIPAgent`.
+    - `features.py` — `SIPFeature`, `SensationInputFeature`, `TDFeature`,
+      `RecruiterFeature`.
+    - `explanatory_coupling.py` — `ExplanatoryCoupling` marker base.
+    - `sensations.py` — `Sensations`.
+    - `intentions.py` — `Intentions`.
+    - `reward_critic.py` — `RewardCritic` (to come).
+    - `sip_agent.py` — `SIPAgent` (to come).
 - `cem/sip/experiments/` — experiments and test fixtures.
     - `datasets.py` — `Problem` / `DataSource` for the identification tests.
     - `scenarios.py` — parametrized SCM generator (confounding, instrument
