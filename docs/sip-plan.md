@@ -20,8 +20,11 @@ Leaves first, then features, then models
 - [x] `Mismatch` — committed, unit-tested. Experiments 4–7 still to write.
 - [x] `TDError` — committed, unit-tested. Experiments 13–15 still to write.
 - [x] `SIPFeature`, `TDFeature` — committed, unit-tested.
-- [ ] `ExplanatoryCoupling`, `SIPValueModel`, `SIPAgent` — the `Model`s that
-  compose features into the test surfaces for tests 16–17.
+- [ ] `ExplanatoryCoupling`, `RewardCritic`, `SIPAgent` — plain `eqx.Module`s
+  (not `Model` subclasses) that wire features together per the thesis's
+  architecture figures (prediction, demand, readout, dissonance, advantage).
+  `RewardCritic` replaces the earlier `SIPValueModel` name: it is prospect
+  `SIPFeature`s plus one `TDFeature`.
 
 ## Per-piece checklist
 

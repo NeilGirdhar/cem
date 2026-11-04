@@ -29,17 +29,20 @@ Circuit sub-modules (leaves first):
 Features (per causal node):
 
 - `SIPFeature` — one identification node: `Emitter` + `Mismatch`. Plays the
-  "prospect feature" role when wired into `SIPValueModel`.
-- `TDFeature` — one value node: `Emitter` + `TDError`.
+  "prospect feature" role when wired into `RewardCritic`.
+- `TDFeature` — one value node: `TDError` only; reward features use fixed
+  unit gain and no local noise, so they skip the emitter.
 
-`Model` subclasses:
+Composition `Module`s (plain `eqx.Module`s, not `Model` subclasses):
 
-- `ExplanatoryCoupling` — wired stack of `SIPFeature`s; identification `Model`
-  for tests 1–12, 16. Also reused as a sub-`Module` inside `SIPAgent`.
-- `SIPValueModel` — collection of prospect `SIPFeature`s + one `TDFeature`;
-  tests 13–15.
-- `SIPAgent` — two `ExplanatoryCoupling`s (observation and intention; the
-  intention coupling is the policy) + one `SIPValueModel`; test 17.
+- `ExplanatoryCoupling` — wired stack of `SIPFeature`s with prediction and
+  demand links per the thesis's explanatory-coupling architecture figure;
+  the carrier for tests 1–12, 16 and reused as a sub-module inside `SIPAgent`.
+- `RewardCritic` — prospect `SIPFeature`s plus one `TDFeature`, wired for
+  reward prediction and purification; tests 13–15.
+- `SIPAgent` — two `ExplanatoryCoupling`s (sensation and intention; the
+  intention coupling is the policy) plus one `RewardCritic`, wired for
+  readout, affordance, advantage, and dissonance links; test 17.
 
 Implementation gates: `Emitter` alone covers test 12; `Emitter + Mismatch +
 Credit` covers tests 1–12; `TDError` adds 13–15; tests 16–17 wire the full
@@ -55,7 +58,7 @@ stack together and need no new modules.
     - `td_error.py` — `TDError`.
     - `emitter.py` — `Emitter`.
     - `features.py` — `SIPFeature`, `TDFeature`.
-    - `models.py` — `ExplanatoryCoupling`, `SIPValueModel`, `SIPAgent`.
+    - `couplings.py` — `ExplanatoryCoupling`, `RewardCritic`, `SIPAgent`.
 - `cem/sip/experiments/` — experiments and test fixtures.
     - `datasets.py` — `Problem` / `DataSource` for the identification tests.
     - `scenarios.py` — parametrized SCM generator (confounding, instrument
