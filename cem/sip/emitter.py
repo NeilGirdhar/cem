@@ -1,195 +1,121 @@
-"""Real-valued emitter for self-instrumental purification."""
+"""SIP emitter circuit: observation map, instrument map, noise top-up, gain.
 
-from collections.abc import Mapping
+See `sip-emitter` in `~/src/typst/thesis.typ`.
+"""
+
 from typing import Self
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from jax.lax import stop_gradient
-from tjax import JaxRealArray, RngStream
+from efax import NormalNP
+from tjax import JaxRealArray, KeyArray, replace_cotangent
 
-from cem.perceptron.mlp import MLP
-from cem.structure.graph import LearnableParameter
-
-
-class _Linear(eqx.Module):
-    """Bias-free real linear map used for inherited instruments."""
-
-    weight: LearnableParameter[JaxRealArray]
-
-    @classmethod
-    def create(
-        cls,
-        in_features: int,
-        out_features: int,
-        *,
-        stream: RngStream,
-    ) -> Self:
-        if in_features < 1 or out_features < 1:
-            msg = "linear dimensions must be positive"
-            raise ValueError(msg)
-        scale = 1.0 / jnp.sqrt(jnp.asarray(in_features, dtype=jnp.float64))
-        weight = scale * jr.normal(stream.key(), (out_features, in_features), dtype=jnp.float64)
-        return cls(weight=LearnableParameter(weight))
-
-    def project(self, x: JaxRealArray) -> JaxRealArray:
-        """Apply the bias-free map to the final feature axis."""
-        return x @ self.weight.value.T
+from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
+from cem.sip.credit import Credit, CreditOutputs
+from cem.sip.messages import evidence_scale, mean_and_precision
 
 
-class EmitterOutput(eqx.Module):
-    """Observation and instrument emitted by one SIP feature."""
+class EmitterOutputs(eqx.Module):
+    """One step of the emitter circuit."""
 
-    observation: JaxRealArray
-    instrument: JaxRealArray
-    raw_observation: JaxRealArray
-    inherited_instrument: JaxRealArray
-    injected_noise: JaxRealArray
+    observation: NormalNP
+    instrument: NormalNP
+    raw_observation: NormalNP
+    noised_instrument: NormalNP
+    local_variance: JaxRealArray
+    credit_outputs: CreditOutputs
+    loss: JaxRealArray
 
 
-class SIPEmitter(eqx.Module):
-    """Construct a real-valued observation and its self-instrument.
+class Emitter(eqx.Module):
+    """One feature's emitter: constructs its observation and instrument.
 
-    The observation map uses innovation and goal features. A separate bias-free map
-    propagates instruments inherited from causal parents. During training, independent
-    Gaussian perturbations are added to both paths. Gain scales both emitted channels,
-    so the instrument remains the exogenous component of the emitted observation.
-
-    Noise magnitudes are represented by unconstrained logits and transformed with
-    ``softplus``. Inference disables local experimentation, matching the usual
-    train/evaluation distinction for stochastic interventions.
+    Transforms observation content and predictor instruments through neural maps,
+    injects fresh noise at controllable features to create experimental variation,
+    and evidence-scales both messages by gain.
     """
 
-    observation_map: MLP
-    instrument_map: _Linear
-    noise_logits: LearnableParameter[JaxRealArray]
-    observation_features: int = eqx.field(static=True)
-    goal_features: int = eqx.field(static=True)
-    predictor_instrument_features: int = eqx.field(static=True)
-    learn_noise: bool = eqx.field(static=True)
+    observation_map: GaussianNPN
+    instrument_map: GaussianNPN
+    credit: Credit
+    controllable: bool = eqx.field(static=True)
+
+    def step(
+        self,
+        state: eqx.nn.State,
+        key: KeyArray,
+        *,
+        observation_content: NormalNP,
+        predictor_instruments: NormalNP,
+        gain_observation: NormalNP,
+        goal: JaxRealArray,
+    ) -> tuple[eqx.nn.State, EmitterOutputs]:
+        """Advance the emitter one time step."""
+        raw_observation = self.observation_map.infer(*mean_and_precision(observation_content))
+        inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictor_instruments))
+        inherited_mean, inherited_precision = mean_and_precision(inherited_instrument)
+
+        if self.controllable:
+            local_variance = jnp.maximum(
+                0.0, jnp.reciprocal(inherited_precision) - jnp.square(inherited_mean)
+            )
+            displacement = jnp.sqrt(local_variance) * jr.normal(key, inherited_mean.shape)
+            noised_raw_observation = _shift_mean(raw_observation, displacement)
+            noised_instrument = _shift_mean(inherited_instrument, displacement)
+        else:
+            local_variance = jnp.zeros_like(inherited_mean)
+            noised_raw_observation = raw_observation
+            noised_instrument = inherited_instrument
+
+        gain, _ = mean_and_precision(gain_observation)
+        observation = evidence_scale(noised_raw_observation, gain)
+
+        new_state, credit_outputs = self.credit.step(
+            state,
+            gain_observation=gain_observation,
+            noised_instrument=noised_instrument,
+            observation_content=observation_content,
+            raw_observation=raw_observation,
+            observation=observation,
+            goal=goal,
+        )
+
+        raw_moments = jnp.stack(list(mean_and_precision(raw_observation)), axis=-1)
+        promoting_loss = jnp.sum(
+            replace_cotangent(raw_moments, credit_outputs.cotangent)
+            - jax.lax.stop_gradient(raw_moments)
+        )
+        outputs = EmitterOutputs(
+            observation=observation,
+            instrument=evidence_scale(noised_instrument, gain),
+            raw_observation=raw_observation,
+            noised_instrument=noised_instrument,
+            local_variance=local_variance,
+            credit_outputs=credit_outputs,
+            loss=credit_outputs.dummy_loss + promoting_loss,
+        )
+        return new_state, outputs
 
     @classmethod
     def create(
         cls,
-        innovation_features: int,
-        goal_features: int,
-        predictor_instrument_features: int,
-        observation_features: int,
+        observation_map: GaussianNPN,
+        instrument_map: GaussianNPN,
+        credit: Credit,
         *,
-        hidden_features: int | tuple[int, ...] = (),
-        initial_noise: float = 1e-3,
-        learn_noise: bool = True,
-        streams: Mapping[str, RngStream],
+        controllable: bool,
     ) -> Self:
-        dimensions = (
-            innovation_features,
-            goal_features,
-            predictor_instrument_features,
-            observation_features,
-        )
-        if any(dimension < 1 for dimension in dimensions):
-            msg = "all emitter feature dimensions must be positive"
-            raise ValueError(msg)
-        if initial_noise <= 0.0:
-            msg = "initial_noise must be positive"
-            raise ValueError(msg)
-        stream = streams["parameters"]
-        inverse_softplus = jnp.log(jnp.expm1(jnp.asarray(initial_noise, dtype=jnp.float64)))
         return cls(
-            observation_map=MLP.create(
-                innovation_features + goal_features,
-                observation_features,
-                hidden_features=hidden_features,
-                streams=streams,
-            ),
-            instrument_map=_Linear.create(
-                predictor_instrument_features,
-                observation_features,
-                stream=stream,
-            ),
-            noise_logits=LearnableParameter(
-                jnp.full(observation_features, inverse_softplus, dtype=jnp.float64)
-            ),
-            observation_features=observation_features,
-            goal_features=goal_features,
-            predictor_instrument_features=predictor_instrument_features,
-            learn_noise=learn_noise,
+            observation_map=observation_map,
+            instrument_map=instrument_map,
+            credit=credit,
+            controllable=controllable,
         )
 
-    @property
-    def noise_magnitudes(self) -> JaxRealArray:
-        """Learned nonnegative intervention scale per channel."""
-        magnitudes = jax.nn.softplus(self.noise_logits.value)
-        return magnitudes if self.learn_noise else stop_gradient(magnitudes)
 
-    def infer_inherited_instrument(
-        self,
-        predictor_instruments: JaxRealArray,
-    ) -> JaxRealArray:
-        """Predict the observation component explained by parent instruments."""
-        predictor_instruments = self._feature_vector(
-            predictor_instruments,
-            self.predictor_instrument_features,
-        )
-        return self.instrument_map.project(predictor_instruments)
-
-    @staticmethod
-    def _feature_vector(value: JaxRealArray, expected_features: int) -> JaxRealArray:
-        if value.ndim == 0:
-            return value[jnp.newaxis]
-        if value.ndim == 1 and value.shape[-1] != expected_features:
-            return value[..., jnp.newaxis]
-        return value
-
-    def infer(
-        self,
-        innovation: JaxRealArray,
-        goal: JaxRealArray,
-        gain: JaxRealArray,
-        predictor_instruments: JaxRealArray,
-        *,
-        streams: Mapping[str, RngStream],
-        inference: bool,
-    ) -> EmitterOutput:
-        """Emit an observation and instrument for one batch or one example."""
-        goal = self._feature_vector(goal, self.goal_features)
-        predictor_instruments = self._feature_vector(
-            predictor_instruments,
-            self.predictor_instrument_features,
-        )
-        gain = self._feature_vector(gain, 1)
-        if gain.shape[-1] != 1:
-            msg = f"gain must have one feature, got {gain.shape[-1]}"
-            raise ValueError(msg)
-        expected_inputs = self.observation_map.layers[0].weight.value.shape[1]
-        if innovation.shape[-1] + goal.shape[-1] != expected_inputs:
-            msg = "innovation and goal dimensions do not match this emitter"
-            raise ValueError(msg)
-
-        raw_observation = self.observation_map.infer(
-            jnp.concatenate((innovation, goal), axis=-1),
-            streams=streams,
-            inference=inference,
-        )
-        inherited_instrument = self.infer_inherited_instrument(predictor_instruments)
-        noise = jnp.zeros_like(raw_observation)
-        if not inference:
-            noise_magnitudes = jnp.reshape(
-                self.noise_magnitudes,
-                (1,) * (raw_observation.ndim - 1) + (-1,),
-            )
-            noise = noise_magnitudes * jr.normal(
-                streams["inference"].key(),
-                shape=raw_observation.shape,
-                dtype=raw_observation.dtype,
-            )
-        gain = jnp.broadcast_to(gain, (*raw_observation.shape[:-1], 1))
-        return EmitterOutput(
-            observation=gain * (raw_observation + noise),
-            instrument=gain * (inherited_instrument + noise),
-            raw_observation=raw_observation,
-            inherited_instrument=inherited_instrument,
-            injected_noise=noise,
-        )
+def _shift_mean(message: NormalNP, displacement: JaxRealArray) -> NormalNP:
+    """Shift a Gaussian message's mean by `displacement`, preserving precision."""
+    mean, precision = mean_and_precision(message)
+    return normal_from_mean_and_presence(mean + displacement, precision)

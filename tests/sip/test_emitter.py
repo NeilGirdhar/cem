@@ -1,133 +1,151 @@
+from collections.abc import Mapping
+
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from tjax import create_streams
+from efax import NormalNP
+from tjax import RngStream
 
-from cem.sip import SIPEmitter, train_instrument_map
+from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
+from cem.sip.credit import Credit
+from cem.sip.emitter import Emitter
+from cem.sip.messages import mean_and_precision
 
 
-def _emitter() -> SIPEmitter:
-    return SIPEmitter.create(
-        innovation_features=3,
-        goal_features=2,
-        predictor_instrument_features=4,
-        observation_features=5,
-        hidden_features=7,
-        initial_noise=0.2,
-        streams=create_streams({"parameters": jr.key(1), "inference": jr.key(2)}),
+def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
+    return normal_from_mean_and_presence(mean, precision)
+
+
+def _emitter(
+    n: int,
+    *,
+    content_dim: int,
+    instrument_dim: int,
+    controllable: bool,
+    streams: Mapping[str, RngStream],
+) -> Emitter:
+    observation_map = GaussianNPN.create(
+        in_features=content_dim, out_features=n, hidden_features=(), streams=streams
+    )
+    instrument_map = GaussianNPN.create(
+        in_features=instrument_dim, out_features=n, hidden_features=(), streams=streams
+    )
+    baseline_map = GaussianNPN.create(
+        in_features=content_dim, out_features=1, hidden_features=(), streams=streams
+    )
+    credit = Credit.create(n, baseline_map, trace_decay_rate=0.0)
+    return Emitter.create(
+        observation_map=observation_map,
+        instrument_map=instrument_map,
+        credit=credit,
+        controllable=controllable,
     )
 
 
-def _inputs() -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    return (
-        jnp.array([0.2, -0.3, 0.5]),
-        jnp.array([0.1, 0.4]),
-        jnp.array([0.8]),
-        jnp.array([0.4, -0.2, 0.3, 0.1]),
+def _inherited(
+    emitter: Emitter, predictor_instruments: NormalNP
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    inst_mean, inst_precision = mean_and_precision(predictor_instruments)
+    inherited = emitter.instrument_map.infer(inst_mean, inst_precision)
+    return mean_and_precision(inherited)
+
+
+def test_local_variance_matches_inherited_moments(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """V_local equals max(0, var_inh - mean_inh^2) at the actual inherited moments."""
+    n = 3
+    emitter = _emitter(n, content_dim=1, instrument_dim=4, controllable=True, streams=streams)
+    predictor_instruments = _message(
+        jnp.array([0.4, -0.3, 0.1, 0.2]), jnp.array([1.0, 2.0, 0.5, 1.0])
     )
+    inherited_mean, inherited_precision = _inherited(emitter, predictor_instruments)
+    expected = jnp.maximum(0.0, jnp.reciprocal(inherited_precision) - jnp.square(inherited_mean))
+    state = eqx.nn.State(emitter)
+    _, outputs = emitter.step(
+        state,
+        jr.key(0),
+        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
+        predictor_instruments=predictor_instruments,
+        gain_observation=_message(jnp.ones(n), jnp.ones(n)),
+        goal=jnp.asarray(0.0),
+    )
+    assert jnp.allclose(outputs.local_variance, expected)
 
 
-def test_inference_disables_local_noise() -> None:
-    """Inference omits local noise but retains both gain-scaled base channels.
+def test_same_displacement_shifts_both_means(streams: Mapping[str, RngStream]) -> None:
+    """One fresh displacement shifts the raw observation and inherited instrument alike.
 
-    The emitter has nonzero configured noise. In inference mode, its injected noise
-    must be zero, while its observation and instrument must equal the gain-scaled raw
-    observation and inherited instrument.
+    `(noised_inst.mean - inherited.mean)` and `(raw.mean - obs_map(content).mean)`
+    must be equal. The `raw_observation` the emitter returns is pre-noise.
     """
-    emitter = _emitter()
-    inputs = _inputs()
-    result = emitter.infer(
-        *inputs,
-        streams=create_streams({"inference": jr.key(3)}),
-        inference=True,
+    n = 2
+    emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=True, streams=streams)
+    state = eqx.nn.State(emitter)
+    predictor_instruments = _message(jnp.array([1.0, -1.0]), jnp.array([0.5, 0.25]))
+    inherited_mean, _ = _inherited(emitter, predictor_instruments)
+    _, outputs = emitter.step(
+        state,
+        jr.key(7),
+        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
+        predictor_instruments=predictor_instruments,
+        gain_observation=_message(jnp.ones(n), jnp.ones(n)),
+        goal=jnp.asarray(0.0),
     )
-    assert jnp.allclose(result.injected_noise, 0.0)
-    assert jnp.allclose(result.observation, inputs[2] * result.raw_observation)
-    assert jnp.allclose(result.instrument, inputs[2] * result.inherited_instrument)
+    noised_inst_mean, _ = mean_and_precision(outputs.noised_instrument)
+    inst_displacement = noised_inst_mean - inherited_mean
+    # `observation` is gain-scaled with gain=1 here, so its mean equals the noised
+    # raw mean; `raw_observation.mean` is pre-noise.
+    raw_mean, _ = mean_and_precision(outputs.raw_observation)
+    obs_mean, _ = mean_and_precision(outputs.observation)
+    obs_displacement = obs_mean - raw_mean
+    assert jnp.allclose(inst_displacement, obs_displacement)
 
 
-def test_training_adds_the_same_noise_to_both_channels() -> None:
-    """Training adds the same sampled noise to the observation and instrument.
-
-    Removing each channel's gain-scaled base value must leave equal residuals. This
-    equality makes the injected noise in the observation its own instrument.
-    """
-    emitter = _emitter()
-    inputs = _inputs()
-    result = emitter.infer(
-        *inputs,
-        streams=create_streams({"inference": jr.key(3)}),
-        inference=False,
+def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> None:
+    """Without noise, `observation` equals `evidence_scale(raw_observation, gain)`."""
+    n = 2
+    emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=False, streams=streams)
+    state = eqx.nn.State(emitter)
+    gain = jnp.array([2.0, 0.5])
+    _, outputs = emitter.step(
+        state,
+        jr.key(0),
+        observation_content=_message(jnp.array([0.4]), jnp.ones(1)),
+        predictor_instruments=_message(jnp.array([0.1, 0.2]), jnp.array([1.0, 1.0])),
+        gain_observation=_message(gain, jnp.ones(n)),
+        goal=jnp.asarray(0.0),
     )
-    gain = inputs[2]
+    assert jnp.allclose(outputs.local_variance, 0.0)
     assert jnp.allclose(
-        result.observation - gain * result.raw_observation,
-        result.instrument - gain * result.inherited_instrument,
+        outputs.observation.mean_times_precision,
+        gain * outputs.raw_observation.mean_times_precision,
+    )
+    assert jnp.allclose(
+        outputs.observation.negative_half_precision,
+        gain * outputs.raw_observation.negative_half_precision,
     )
 
 
-def test_gain_scales_observation_and_instrument() -> None:
-    """Gain scales the emitter's observation and instrument together.
+def test_credit_cotangent_reaches_observation_map(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """The promoting link sends a nonzero cotangent to the observation map's params."""
+    n = 2
+    emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=False, streams=streams)
+    state = eqx.nn.State(emitter)
 
-    In deterministic inference, halving gain must halve both outputs. A suppressed
-    feature therefore cannot retain a full-strength instrument.
-    """
-    emitter = _emitter()
-    innovation, goal, _gain, instruments = _inputs()
-    streams = create_streams({"inference": jr.key(4)})
-    one = emitter.infer(
-        innovation,
-        goal,
-        jnp.array([1.0]),
-        instruments,
-        streams=streams,
-        inference=True,
-    )
-    half = emitter.infer(
-        innovation,
-        goal,
-        jnp.array([0.5]),
-        instruments,
-        streams=streams,
-        inference=True,
-    )
-    assert jnp.allclose(half.observation, 0.5 * one.observation)
-    assert jnp.allclose(half.instrument, 0.5 * one.instrument)
+    def loss_fn(em: Emitter) -> jnp.ndarray:
+        _, outputs = em.step(
+            state,
+            jr.key(0),
+            observation_content=_message(jnp.array([0.5]), jnp.ones(1)),
+            predictor_instruments=_message(jnp.array([0.1, -0.2]), jnp.array([1.0, 1.0])),
+            gain_observation=_message(jnp.ones(n), jnp.ones(n)),
+            goal=jnp.asarray(1.0),
+        )
+        return outputs.loss
 
-
-def test_noise_magnitudes_are_nonnegative() -> None:
-    """A newly constructed emitter exposes only nonnegative noise magnitudes.
-
-    This checks initialization, not whether optimization preserves nonnegativity.
-    """
-    assert jnp.all(_emitter().noise_magnitudes >= 0.0)
-
-
-def test_instrument_score_trains_emitter_instrument_map() -> None:
-    """An observed Y trains instrument(Y) from instrument(A)."""
-    count = 64
-    instrument_a = jr.normal(jr.key(81), (count, 1))
-    nuisance = jr.normal(jr.key(82), (count, 1))
-    observation_y = 1.3 * instrument_a + nuisance
-    emitter = SIPEmitter.create(
-        innovation_features=1,
-        goal_features=1,
-        predictor_instrument_features=1,
-        observation_features=1,
-        hidden_features=(),
-        streams=create_streams({"parameters": jr.key(83), "inference": jr.key(84)}),
-    )
-    initial_instrument_y = emitter.infer_inherited_instrument(instrument_a)
-    initial_covariance = jnp.mean((initial_instrument_y - observation_y) * instrument_a)
-
-    trained, losses = train_instrument_map(
-        emitter,
-        observation_y,
-        instrument_a,
-        steps=400,
-        learning_rate=0.01,
-    )
-    instrument_y = trained.infer_inherited_instrument(instrument_a)
-    final_covariance = jnp.mean((instrument_y - observation_y) * instrument_a)
-
-    assert losses[-1] < losses[0]
-    assert jnp.abs(final_covariance) < jnp.abs(initial_covariance)
+    grads = eqx.filter_grad(loss_fn)(emitter)
+    first_layer_weight_grad = grads.observation_map.layers[0].weight.value
+    assert jnp.any(jnp.abs(first_layer_weight_grad) > 0)

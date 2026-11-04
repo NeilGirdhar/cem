@@ -1,1 +1,1 @@
-"""SIP experiments: thesis benchmarks and chart drivers."""
+"""SIP experiments and shared test fixtures."""
