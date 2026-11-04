@@ -11,13 +11,14 @@ from collections.abc import Mapping
 from typing import Self
 
 import equinox as eqx
+import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray, KeyArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
-from cem.sip.messages import InstrumentedMessage
+from cem.sip.messages import InstrumentedMessage, evidence_scale, mean_and_precision
 from cem.sip.mismatch import Mismatch
 from cem.sip.td_error import TDError
 
@@ -38,6 +39,7 @@ class SIPFeatureOutputs(eqx.Module):
     observation_mismatch: NormalNP  # 2n unit-presence demand signal
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
+    dissonance: JaxRealArray  # scalar; reconstruction + confounding
     loss: JaxRealArray  # scalar; combined surrogate
 
 
@@ -130,7 +132,94 @@ class SIPFeature(eqx.Module):
             observation_mismatch=mismatch_outputs.mismatch,
             reconstruction_cost=mismatch_outputs.reconstruction_cost,
             confounding_cost=mismatch_outputs.confounding_cost,
+            dissonance=mismatch_outputs.dissonance,
             loss=emitter_outputs.loss + mismatch_outputs.loss,
+        )
+
+
+class SensationInputFeature(eqx.Module):
+    """A sensation-stack input: raw environment observation + mismatch.
+
+    Drops the `observation_map` and `Credit` that `SIPFeature` carries: the
+    environment observation serves directly as both content and raw
+    observation, and there is nothing to credit on a sensor that only
+    reports. Keeps the `instrument_map` (building the outgoing instrument
+    from the predictors' instruments) and the `Mismatch` circuit. Not
+    controllable, so no local noise, but a gain parent is still supported
+    through evidence scaling on the outgoing messages.
+    """
+
+    instrument_map: GaussianNPN
+    mismatch: Mismatch
+
+    @classmethod
+    def create(
+        cls,
+        n: int,
+        *,
+        predictor_features: int,
+        gain_features: int = 0,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        return cls(
+            instrument_map=GaussianNPN.create(
+                in_features=predictor_features, out_features=n, streams=streams
+            ),
+            mismatch=Mismatch.create(
+                n,
+                predictor_features=predictor_features,
+                gain_features=gain_features,
+                streams=streams,
+            ),
+        )
+
+    def step(
+        self,
+        state: eqx.nn.State,
+        *,
+        observation: NormalNP,
+        predictors: InstrumentedMessage,
+        gain: InstrumentedMessage | None,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
+        """Advance the sensation input one time step.
+
+        Threads `state` through unchanged (no Credit state to update) so the
+        caller can iterate the stack uniformly.
+        """
+        inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictors.instrument))
+        inherited_mean, _ = mean_and_precision(inherited_instrument)
+        local_variance = jnp.zeros_like(inherited_mean)
+
+        gain_observation = None if gain is None else gain.observation
+        gain_instrument = None if gain is None else gain.instrument
+        if gain_observation is None:
+            out_observation = observation
+            out_instrument = inherited_instrument
+        else:
+            gain_mean, _ = mean_and_precision(gain_observation)
+            out_observation = evidence_scale(observation, gain_mean)
+            out_instrument = evidence_scale(inherited_instrument, gain_mean)
+
+        mismatch_outputs = self.mismatch.step(
+            raw_observation=observation,
+            local_variance=local_variance,
+            predictor_observations=predictors.observation,
+            predictor_instruments=predictors.instrument,
+            gain_observation=gain_observation,
+            gain_instrument=gain_instrument,
+            streams=streams,
+            inference=inference,
+        )
+        return state, SIPFeatureOutputs(
+            observation=out_observation,
+            instrument=out_instrument,
+            observation_mismatch=mismatch_outputs.mismatch,
+            reconstruction_cost=mismatch_outputs.reconstruction_cost,
+            confounding_cost=mismatch_outputs.confounding_cost,
+            dissonance=mismatch_outputs.dissonance,
+            loss=mismatch_outputs.loss,
         )
 
 

@@ -5,16 +5,13 @@ See `explanatory-couplings` in `~/src/typst/thesis.typ`.
 
 import equinox as eqx
 
-from cem.sip.features import SIPFeature
-
 
 class ExplanatoryCoupling(eqx.Module):
-    """A stack of `SIPFeature`s, one per level.
+    """Marker base for the `Sensations` and `Intentions` feature stacks.
 
-    Subclassed by `Sensations` (bottom-up) and `Intentions` (top-down), which
-    wire the stack's observation-mismatch flow and set per-feature
-    controllability. The base class only holds the features; subclasses
-    supply their own `create` and `infer` methods.
+    The two stacks share a bottom-up / top-down symmetry but their layer
+    types differ (a sensation input has no `observation_map` and no `Credit`;
+    a future intention output may have its own specialization), so each
+    subclass declares its own feature fields rather than inheriting a shared
+    tuple here.
     """
-
-    features: tuple[SIPFeature, ...]

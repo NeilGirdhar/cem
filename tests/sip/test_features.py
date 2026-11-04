@@ -10,6 +10,7 @@ from tjax import JaxRealArray, KeyArray, RngStream
 from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.features import (
     RecruiterFeature,
+    SensationInputFeature,
     SIPFeature,
     SIPFeatureSizes,
     TDFeature,
@@ -275,3 +276,66 @@ def test_recruiter_feature_step_runs_without_gain(
     )
     assert jnp.isfinite(outputs.loss)
     assert outputs.observation.mean_times_precision.shape == (n,)
+
+
+def _sensation_input(n: int, streams: Mapping[str, RngStream]) -> SensationInputFeature:
+    return SensationInputFeature.create(n, predictor_features=2, streams=streams)
+
+
+def test_sensation_input_observation_pass_through(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """With no gain parent the outgoing observation equals the environment observation."""
+    n = 3
+    feature = _sensation_input(n, streams)
+    state = eqx.nn.State(feature)
+    observation = _message(jnp.asarray([0.1, 0.2, 0.3]), jnp.ones(n))
+    _, outputs = feature.step(
+        state,
+        observation=observation,
+        predictors=InstrumentedMessage(
+            observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+            instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        ),
+        gain=None,
+        streams=streams,
+        inference=True,
+    )
+    assert jnp.allclose(outputs.observation.mean_times_precision, observation.mean_times_precision)
+    assert jnp.allclose(
+        outputs.observation.negative_half_precision, observation.negative_half_precision
+    )
+
+
+def test_sensation_input_outputs_dissonance_from_mismatch(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """The feature's `dissonance` equals its mismatch's dissonance."""
+    n = 3
+    feature = _sensation_input(n, streams)
+    state = eqx.nn.State(feature)
+    predictors = InstrumentedMessage(
+        observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+        instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+    )
+    observation = _message(jnp.asarray([0.1, 0.2, 0.3]), jnp.ones(n))
+    _, outputs = feature.step(
+        state,
+        observation=observation,
+        predictors=predictors,
+        gain=None,
+        streams=streams,
+        inference=True,
+    )
+    mismatch_outputs = feature.mismatch.step(
+        raw_observation=observation,
+        local_variance=jnp.zeros(n),
+        predictor_observations=predictors.observation,
+        predictor_instruments=predictors.instrument,
+        gain_observation=None,
+        gain_instrument=None,
+        streams=streams,
+        inference=True,
+    )
+    assert jnp.allclose(outputs.dissonance, mismatch_outputs.dissonance)
+    assert jnp.allclose(outputs.loss, mismatch_outputs.loss)

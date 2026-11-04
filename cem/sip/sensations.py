@@ -7,56 +7,72 @@ from collections.abc import Mapping, Sequence
 from typing import Self
 
 import equinox as eqx
+import jax.numpy as jnp
 import jax.random as jr
 from efax import NormalNP
-from tjax import JaxRealArray, KeyArray, RngStream
+from tjax import KeyArray, RngStream
 
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
-from cem.sip.features import SIPFeature, SIPFeatureOutputs, SIPFeatureSizes
+from cem.sip.features import (
+    SensationInputFeature,
+    SIPFeature,
+    SIPFeatureOutputs,
+    SIPFeatureSizes,
+)
 from cem.sip.messages import InstrumentedMessage
 
 
 class Sensations(ExplanatoryCoupling):
     """Bottom-up explanatory coupling.
 
-    Layer 0 receives the environment observation as its `observation_content`.
-    Each higher layer's `observation_content` is the previous layer's
-    `observation_mismatch`, a `2 * sizes[i - 1]`-dimensional demand signal.
-    Features are non-controllable: sensations are observations of the
-    environment, so no local noise is injected.
+    Layer 0 is a `SensationInputFeature`: the environment observation flows in
+    unchanged (no `observation_map`, no `Credit`). Each higher layer is a
+    non-controllable `SIPFeature` whose observation content is the previous
+    layer's `observation_mismatch` (a `2 * sizes[i - 1]`-dimensional demand
+    signal) and whose goal is the previous layer's `dissonance` scalar, so
+    higher layers are credited for reducing the dissonance below them.
     """
+
+    input_feature: SensationInputFeature
+    interior_features: tuple[SIPFeature, ...]
 
     @classmethod
     def create(
         cls,
         sizes: Sequence[int],
         *,
-        observation_features: int,
         predictor_features: Sequence[int],
         streams: Mapping[str, RngStream],
     ) -> Self:
-        """Build a bottom-up sensation stack from a list of per-layer sizes.
+        """Build a bottom-up sensation stack from per-layer sizes.
 
-        `observation_features` is the dimension of layer 0's environment
-        observation. `predictor_features[i]` is the dimension of the
-        externally-supplied predictor signals that layer `i` consumes;
-        these come from outside the coupling in the current scope.
+        `sizes[0]` is both the environment observation dimension and the
+        layer-0 feature width (the sensation input has no `observation_map`
+        to decouple them). `predictor_features[i]` is the dimension of the
+        externally-supplied predictor signals that layer `i` consumes.
         """
+        if len(sizes) == 0:
+            msg = "sizes must be non-empty"
+            raise ValueError(msg)
         if len(predictor_features) != len(sizes):
             msg = "predictor_features must have the same length as sizes"
             raise ValueError(msg)
-        features: list[SIPFeature] = []
-        for i, n in enumerate(sizes):
-            content_features = observation_features if i == 0 else 2 * sizes[i - 1]
+        input_feature = SensationInputFeature.create(
+            sizes[0],
+            predictor_features=predictor_features[0],
+            streams=streams,
+        )
+        interior: list[SIPFeature] = []
+        for i in range(1, len(sizes)):
             feature_sizes = SIPFeatureSizes(
-                observation_content=content_features,
+                observation_content=2 * sizes[i - 1],
                 predictor=predictor_features[i],
                 gain=0,
             )
-            features.append(
-                SIPFeature.create(n, feature_sizes, controllable=False, streams=streams)
+            interior.append(
+                SIPFeature.create(sizes[i], feature_sizes, controllable=False, streams=streams)
             )
-        return cls(features=tuple(features))
+        return cls(input_feature=input_feature, interior_features=tuple(interior))
 
     def infer(
         self,
@@ -65,37 +81,45 @@ class Sensations(ExplanatoryCoupling):
         *,
         observation: NormalNP,
         predictors: Sequence[InstrumentedMessage],
-        goals: Sequence[JaxRealArray],
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, tuple[SIPFeatureOutputs, ...]]:
         """Run bottom-up inference across the stack.
 
-        Layer 0's `observation_content` is `observation`; each higher layer's
-        `observation_content` is the previous layer's `observation_mismatch`.
-        `predictors[i]` and `goals[i]` are the externally-supplied predictor
-        and goal signals for layer `i`. Returns the per-layer feature outputs.
+        Layer 0 consumes `observation` directly; each higher layer's content
+        is the previous layer's `observation_mismatch`, and its Credit goal
+        is the previous layer's `dissonance`. Returns the per-layer outputs
+        in bottom-up order.
         """
-        if len(predictors) != len(self.features):
-            msg = "predictors must have the same length as the feature stack"
+        layer_count = 1 + len(self.interior_features)
+        if len(predictors) != layer_count:
+            msg = "predictors must have one entry per layer"
             raise ValueError(msg)
-        if len(goals) != len(self.features):
-            msg = "goals must have the same length as the feature stack"
-            raise ValueError(msg)
-        keys = jr.split(key, len(self.features))
-        outputs: list[SIPFeatureOutputs] = []
-        content = observation
-        for i, feature in enumerate(self.features):
+        state, input_out = self.input_feature.step(
+            state,
+            observation=observation,
+            predictors=predictors[0],
+            gain=None,
+            streams=streams,
+            inference=inference,
+        )
+        outputs: list[SIPFeatureOutputs] = [input_out]
+        if not self.interior_features:
+            return state, tuple(outputs)
+        keys = jr.split(key, len(self.interior_features))
+        for feature, feature_key, feature_predictors in zip(
+            self.interior_features, keys, predictors[1:], strict=True
+        ):
+            prev = outputs[-1]
             state, out = feature.step(
                 state,
-                keys[i],
-                observation_content=content,
-                predictors=predictors[i],
+                feature_key,
+                observation_content=prev.observation_mismatch,
+                predictors=feature_predictors,
                 gain=None,
-                goal=goals[i],
+                goal=jnp.asarray(prev.dissonance),
                 streams=streams,
                 inference=inference,
             )
             outputs.append(out)
-            content = out.observation_mismatch
         return state, tuple(outputs)

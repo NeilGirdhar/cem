@@ -5,6 +5,7 @@ from cem.sip.emitter import Emitter, EmitterOutputs
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import (
     RecruiterFeature,
+    SensationInputFeature,
     SIPFeature,
     SIPFeatureOutputs,
     SIPFeatureSizes,
@@ -38,6 +39,7 @@ __all__ = [
     "SIPFeature",
     "SIPFeatureOutputs",
     "SIPFeatureSizes",
+    "SensationInputFeature",
     "Sensations",
     "TDError",
     "TDErrorOutputs",
