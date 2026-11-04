@@ -5,6 +5,7 @@ from cem.sip.emitter import Emitter, EmitterOutputs
 from cem.sip.features import (
     FeatureGain,
     FeaturePredictors,
+    RecruiterFeature,
     SIPFeature,
     SIPFeatureOutputs,
     SIPFeatureSizes,
@@ -30,6 +31,7 @@ __all__ = [
     "FeaturePredictors",
     "Mismatch",
     "MismatchOutputs",
+    "RecruiterFeature",
     "SIPFeature",
     "SIPFeatureOutputs",
     "SIPFeatureSizes",

@@ -106,18 +106,25 @@ class SIPFeature(eqx.Module):
         *,
         observation_content: NormalNP,
         predictors: FeaturePredictors,
-        gain: FeatureGain,
+        gain: FeatureGain | None,
         goal: JaxRealArray,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
-        """Advance the feature one time step."""
+        """Advance the feature one time step.
+
+        `gain=None` marks a recruiter feature at the top of the gain chain:
+        the underlying `Mismatch` must have been created with `gain=0` so its
+        witness map omits the missing gain parent.
+        """
+        gain_observation = None if gain is None else gain.observation
+        gain_instrument = None if gain is None else gain.instrument
         new_state, emitter_outputs = self.emitter.step(
             state,
             key,
             observation_content=observation_content,
             predictor_instruments=predictors.instruments,
-            gain_observation=gain.observation,
+            gain_observation=gain_observation,
             goal=goal,
         )
         mismatch_outputs = self.mismatch.step(
@@ -125,8 +132,8 @@ class SIPFeature(eqx.Module):
             local_variance=emitter_outputs.local_variance,
             predictor_observations=predictors.observations,
             predictor_instruments=predictors.instruments,
-            gain_observation=gain.observation,
-            gain_instrument=gain.instrument,
+            gain_observation=gain_observation,
+            gain_instrument=gain_instrument,
             streams=streams,
             inference=inference,
         )
@@ -137,6 +144,63 @@ class SIPFeature(eqx.Module):
             reconstruction_cost=mismatch_outputs.reconstruction_cost,
             confounding_cost=mismatch_outputs.confounding_cost,
             loss=emitter_outputs.loss + mismatch_outputs.loss,
+        )
+
+
+class RecruiterFeature(eqx.Module):
+    """One recruiter node: a controllable `SIPFeature` with no gain parent.
+
+    Recruiters sit at the top of the gain chain, so they have no incoming
+    gain signals. The underlying `SIPFeature` is created with `gain=0` so
+    its witness map omits gain features, and every step passes `gain=None`.
+    A recruiter's own `observation` and `instrument` outputs serve as the
+    `gain_observation` and `gain_instrument` of consumer features.
+    """
+
+    feature: SIPFeature
+
+    @classmethod
+    def create(
+        cls,
+        n: int,
+        *,
+        observation_content_features: int,
+        predictor_features: int,
+        trace_decay_rate: float = 0.0,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        sizes = SIPFeatureSizes(
+            observation_content=observation_content_features,
+            predictor=predictor_features,
+            gain=0,
+        )
+        return cls(
+            feature=SIPFeature.create(
+                n, sizes, controllable=True, trace_decay_rate=trace_decay_rate, streams=streams
+            )
+        )
+
+    def step(
+        self,
+        state: eqx.nn.State,
+        key: KeyArray,
+        *,
+        observation_content: NormalNP,
+        predictors: FeaturePredictors,
+        goal: JaxRealArray,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
+        """Advance the recruiter one time step, with no gain parent."""
+        return self.feature.step(
+            state,
+            key,
+            observation_content=observation_content,
+            predictors=predictors,
+            gain=None,
+            goal=goal,
+            streams=streams,
+            inference=inference,
         )
 
 

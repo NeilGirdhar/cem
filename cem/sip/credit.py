@@ -66,7 +66,7 @@ class Credit(eqx.Module):
         self,
         state: eqx.nn.State,
         *,
-        gain_observation: NormalNP,
+        gain_observation: NormalNP | None,
         noised_instrument: NormalNP,
         observation_content: NormalNP,
         raw_observation: NormalNP,
@@ -76,17 +76,19 @@ class Credit(eqx.Module):
 
         `goal` has shape `()`. All Gaussian inputs have shape `(n,)` in natural
         parameters, except `observation_content`, whose shape is the baseline
-        NPN's input dimension.
+        NPN's input dimension. Pass `gain_observation=None` for a recruiter
+        feature at the top of the gain chain.
         """
         traces = state.get(self.trace_index)
         decay = jnp.exp(-self.trace_decay_rate.value)
 
         inst_mean, inst_precision = mean_and_precision(noised_instrument)
         raw_mean, raw_precision = mean_and_precision(raw_observation)
-        gain, _ = mean_and_precision(gain_observation)
+        gain = None if gain_observation is None else mean_and_precision(gain_observation)[0]
 
         def advance(old: JaxRealArray, contribution: JaxRealArray) -> JaxRealArray:
-            return decay * old + gain * contribution
+            scaled = contribution if gain is None else gain * contribution
+            return decay * old + scaled
 
         new_traces = CreditTraces(
             linear=advance(traces.linear, inst_precision * inst_mean),

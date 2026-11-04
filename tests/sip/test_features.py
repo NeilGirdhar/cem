@@ -11,6 +11,7 @@ from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.features import (
     FeatureGain,
     FeaturePredictors,
+    RecruiterFeature,
     SIPFeature,
     SIPFeatureSizes,
     TDFeature,
@@ -193,3 +194,85 @@ def test_td_feature_state_delays_predictor_inputs(
         stored.predictor_observations.mean_times_precision,
         inputs["predictors"].observations.mean_times_precision,
     )
+
+
+def _recruiter_feature(n: int, streams: Mapping[str, RngStream]) -> RecruiterFeature:
+    return RecruiterFeature.create(
+        n,
+        observation_content_features=1,
+        predictor_features=2,
+        streams=streams,
+    )
+
+
+def test_recruiter_feature_observation_equals_pre_gain(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """With no gain parent the outgoing observation equals the noised raw observation.
+
+    The emitter skips evidence scaling and the result should match running the
+    emitter directly with `gain_observation=None`.
+    """
+    n = 2
+    feature = _recruiter_feature(n, streams)
+    state = eqx.nn.State(feature)
+    _, outputs = feature.step(
+        state,
+        jr.key(0),
+        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
+        predictors=FeaturePredictors(
+            observations=_message(jnp.array([0.3, -0.2]), jnp.ones(2)),
+            instruments=_message(jnp.array([0.5, 0.1]), jnp.ones(2)),
+        ),
+        goal=jnp.asarray(0.5),
+        streams=streams,
+        inference=True,
+    )
+    fresh_state = eqx.nn.State(feature)
+    _, emitter_outputs = feature.feature.emitter.step(
+        fresh_state,
+        jr.key(0),
+        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
+        predictor_instruments=_message(jnp.array([0.5, 0.1]), jnp.ones(2)),
+        gain_observation=None,
+        goal=jnp.asarray(0.5),
+    )
+    assert jnp.allclose(
+        outputs.observation.mean_times_precision,
+        emitter_outputs.observation.mean_times_precision,
+    )
+
+
+def test_recruiter_feature_witness_input_omits_gain(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """The recruiter's witness map input dim is 2 * predictor_features only."""
+    n = 2
+    feature = _recruiter_feature(n, streams)
+    first_layer = feature.feature.mismatch.witness_map.layers[0]
+    # predictor_features=2 → witness input dim = 2 * 2 (no gain concat).
+    expected_input_dim = 2 * 2
+    assert first_layer.weight.value.shape[-1] == expected_input_dim
+
+
+def test_recruiter_feature_step_runs_without_gain(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """Smoke test: a full recruiter step produces finite outputs with no gain."""
+    n = 2
+    feature = _recruiter_feature(n, streams)
+    state = eqx.nn.State(feature)
+    _, outputs = feature.step(
+        state,
+        jr.key(0),
+        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
+        predictors=FeaturePredictors(
+            observations=_message(jnp.array([0.3, -0.2]), jnp.ones(2)),
+            instruments=_message(jnp.array([0.5, 0.1]), jnp.ones(2)),
+        ),
+        goal=jnp.asarray(0.5),
+        streams=streams,
+        inference=True,
+    )
+    assert jnp.isfinite(outputs.loss)
+    assert outputs.observation.mean_times_precision.shape == (n,)

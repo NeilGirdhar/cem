@@ -48,10 +48,14 @@ class Emitter(eqx.Module):
         *,
         observation_content: NormalNP,
         predictor_instruments: NormalNP,
-        gain_observation: NormalNP,
+        gain_observation: NormalNP | None,
         goal: JaxRealArray,
     ) -> tuple[eqx.nn.State, EmitterOutputs]:
-        """Advance the emitter one time step."""
+        """Advance the emitter one time step.
+
+        Pass `gain_observation=None` for a recruiter feature at the top of the
+        gain chain; evidence scaling is skipped and `Credit` sees unit gain.
+        """
         raw_observation = self.observation_map.infer(*mean_and_precision(observation_content))
         inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictor_instruments))
         inherited_mean, inherited_precision = mean_and_precision(inherited_instrument)
@@ -68,8 +72,13 @@ class Emitter(eqx.Module):
             noised_raw_observation = raw_observation
             noised_instrument = inherited_instrument
 
-        gain, _ = mean_and_precision(gain_observation)
-        observation = evidence_scale(noised_raw_observation, gain)
+        if gain_observation is None:
+            observation = noised_raw_observation
+            instrument = noised_instrument
+        else:
+            gain, _ = mean_and_precision(gain_observation)
+            observation = evidence_scale(noised_raw_observation, gain)
+            instrument = evidence_scale(noised_instrument, gain)
 
         new_state, credit_outputs = self.credit.step(
             state,
@@ -84,7 +93,7 @@ class Emitter(eqx.Module):
         promoting_loss = promoting_link_loss(raw_moments, credit_outputs.cotangent)
         outputs = EmitterOutputs(
             observation=observation,
-            instrument=evidence_scale(noised_instrument, gain),
+            instrument=instrument,
             raw_observation=raw_observation,
             noised_instrument=noised_instrument,
             local_variance=local_variance,

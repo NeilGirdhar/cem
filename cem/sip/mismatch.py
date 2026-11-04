@@ -35,7 +35,7 @@ class _Moments(eqx.Module):
     target_variance: JaxRealArray
     pred_mean: JaxRealArray
     pred_variance: JaxRealArray
-    gain: JaxRealArray
+    gain: JaxRealArray | None
 
 
 class Mismatch(eqx.Module):
@@ -89,12 +89,18 @@ class Mismatch(eqx.Module):
         local_variance: JaxRealArray,
         predictor_observations: NormalNP,
         predictor_instruments: NormalNP,
-        gain_observation: NormalNP,
-        gain_instrument: NormalNP,
+        gain_observation: NormalNP | None,
+        gain_instrument: NormalNP | None,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> MismatchOutputs:
-        """Advance the mismatch circuit one time step."""
+        """Advance the mismatch circuit one time step.
+
+        Pass `gain_observation=None` and `gain_instrument=None` for a recruiter
+        feature at the top of the gain chain; gain multiplies drop out and the
+        witness norm bound reduces to the unit-gain case `‖w‖² ≤ 1`. The
+        witness map's input must then have been sized with `gain_features=0`.
+        """
         moments = self._moments(
             raw_observation, local_variance, predictor_observations, gain_observation
         )
@@ -112,8 +118,7 @@ class Mismatch(eqx.Module):
         )
         confounding_cost = jnp.sum(
             c_weight
-            * moments.gain[:, None]
-            * witness_residuals
+            * _scale_rows(witness_residuals, moments.gain)
             * jax.lax.stop_gradient(confounding_witness)
         )
         witness_loss, multiplier_loss = self._witness_training(
@@ -135,13 +140,13 @@ class Mismatch(eqx.Module):
         raw_observation: NormalNP,
         local_variance: JaxRealArray,
         predictor_observations: NormalNP,
-        gain_observation: NormalNP,
+        gain_observation: NormalNP | None,
     ) -> _Moments:
         raw_mean, raw_precision = mean_and_precision(raw_observation)
         pred_mean, pred_precision = mean_and_precision(
             self.prediction_map.infer(*mean_and_precision(predictor_observations))
         )
-        gain, _ = mean_and_precision(gain_observation)
+        gain = None if gain_observation is None else mean_and_precision(gain_observation)[0]
         return _Moments(
             target_mean=raw_mean,
             target_variance=jnp.reciprocal(raw_precision) + local_variance,
@@ -153,34 +158,36 @@ class Mismatch(eqx.Module):
     def _confounding_witness(
         self,
         predictor_instruments: NormalNP,
-        gain_instrument: NormalNP,
+        gain_instrument: NormalNP | None,
         *,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxRealArray:
-        witness_input = jnp.concatenate(
-            [
-                predictor_instruments.mean_times_precision,
-                predictor_instruments.negative_half_precision,
-                gain_instrument.mean_times_precision,
-                gain_instrument.negative_half_precision,
-            ]
-        )
+        parts = [
+            predictor_instruments.mean_times_precision,
+            predictor_instruments.negative_half_precision,
+        ]
+        if gain_instrument is not None:
+            parts.extend(
+                [gain_instrument.mean_times_precision, gain_instrument.negative_half_precision]
+            )
+        witness_input = jnp.concatenate(parts)
         return self.witness_map.infer(witness_input, streams=streams, inference=inference).reshape(
             -1, 2
         )
 
     def _witness_training(
         self,
-        gain: JaxRealArray,
+        gain: JaxRealArray | None,
         witness_residuals: JaxRealArray,
         confounding_witness: JaxRealArray,
     ) -> tuple[JaxRealArray, JaxRealArray]:
         covariance = -jnp.sum(
-            gain[:, None] * jax.lax.stop_gradient(witness_residuals) * confounding_witness
+            _scale_rows(jax.lax.stop_gradient(witness_residuals), gain) * confounding_witness
         )
-        constraint_violation = jnp.sum(jnp.square(confounding_witness) * gain[:, None]) - jnp.mean(
-            gain
+        norm_bound = 1.0 if gain is None else jnp.mean(gain)
+        constraint_violation = (
+            jnp.sum(_scale_rows(jnp.square(confounding_witness), gain)) - norm_bound
         )
         lambda_value = jax.nn.softplus(self.witness_multiplier.value)
         witness_loss = covariance + jax.lax.stop_gradient(lambda_value) * constraint_violation
@@ -194,14 +201,11 @@ def _reconstruction_and_mismatch(
     moments: _Moments, r_weight: JaxRealArray
 ) -> tuple[JaxRealArray, NormalNP]:
     mean_resid = moments.pred_mean - moments.target_mean
-    recon_error = (
-        moments.gain
-        * 0.5
-        * (
-            jnp.log(2.0 * jnp.pi * moments.pred_variance)
-            + (moments.target_variance + jnp.square(mean_resid)) / moments.pred_variance
-        )
+    recon_density = 0.5 * (
+        jnp.log(2.0 * jnp.pi * moments.pred_variance)
+        + (moments.target_variance + jnp.square(mean_resid)) / moments.pred_variance
     )
+    recon_error = recon_density if moments.gain is None else moments.gain * recon_density
     reconstruction_cost = jnp.sum(r_weight * recon_error)
 
     second_moment_diff = (
@@ -211,7 +215,8 @@ def _reconstruction_and_mismatch(
         - moments.target_variance
     )
     mismatch_pair = jnp.stack([mean_resid, second_moment_diff], axis=-1)
-    mismatch_flat = ((r_weight * moments.gain)[:, None] * mismatch_pair).reshape(-1)
+    presence = r_weight if moments.gain is None else r_weight * moments.gain
+    mismatch_flat = (presence[:, None] * mismatch_pair).reshape(-1)
     mismatch_message = normal_from_mean_and_presence(mismatch_flat, jnp.ones_like(mismatch_flat))
     return reconstruction_cost, mismatch_message
 
@@ -220,3 +225,8 @@ def _witness_residuals(moments: _Moments) -> JaxRealArray:
     mean_resid = moments.pred_mean - moments.target_mean
     var_resid = moments.pred_variance - moments.target_variance - jnp.square(mean_resid)
     return jnp.stack([mean_resid, var_resid], axis=-1)
+
+
+def _scale_rows(x: JaxRealArray, gain: JaxRealArray | None) -> JaxRealArray:
+    """Return `x` scaled per-channel by `gain` (shape (n,)), or unchanged if gain is None."""
+    return x if gain is None else gain[:, None] * x

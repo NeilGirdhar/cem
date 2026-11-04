@@ -15,8 +15,8 @@ class _StepInputs(TypedDict):
     local_variance: JaxRealArray
     predictor_observations: NormalNP
     predictor_instruments: NormalNP
-    gain_observation: NormalNP
-    gain_instrument: NormalNP
+    gain_observation: NormalNP | None
+    gain_instrument: NormalNP | None
 
 
 def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
@@ -161,3 +161,56 @@ def test_multiplier_ascends_when_constraint_violated(
     multiplier_grad = grads.witness_multiplier.value
     assert jnp.abs(multiplier_grad) > 0
     del outputs
+
+
+def _recruiter_mismatch(n: int, streams: Mapping[str, RngStream]) -> Mismatch:
+    return Mismatch.create(n, predictor_features=2, gain_features=0, streams=streams)
+
+
+def _recruiter_inputs(n: int) -> _StepInputs:
+    return _StepInputs(
+        raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
+        local_variance=jnp.zeros(n),
+        predictor_observations=_message(jnp.array([0.3, -0.2]), jnp.ones(2)),
+        predictor_instruments=_message(jnp.array([0.5, 0.1]), jnp.ones(2)),
+        gain_observation=None,
+        gain_instrument=None,
+    )
+
+
+def test_mismatch_accepts_none_gain(streams: Mapping[str, RngStream]) -> None:
+    """A recruiter-style Mismatch (gain_features=0) runs with gain=None."""
+    n = 2
+    mismatch = _recruiter_mismatch(n, streams)
+    outputs = mismatch.step(**_recruiter_inputs(n), streams=streams, inference=True)
+    assert jnp.isfinite(outputs.loss)
+    assert outputs.mismatch.mean_times_precision.shape == (2 * n,)
+
+
+def test_mismatch_norm_constraint_rhs_is_one_when_gain_is_none(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """With gain=None the constraint reduces to sum(w^2) <= 1.
+
+    The multiplier raw gradient is `-violation` under the promoting-link
+    convention, so its sign is the opposite of `sum(w^2) - 1`.
+    """
+    n = 2
+    mismatch = _recruiter_mismatch(n, streams)
+    inputs = _recruiter_inputs(n)
+
+    # Compute confounding_witness independently to find the realized norm.
+    witness = mismatch._confounding_witness(  # ruff: ignore[private-member-access]
+        inputs["predictor_instruments"],
+        inputs["gain_instrument"],
+        streams=streams,
+        inference=True,
+    )
+    violation = jnp.sum(jnp.square(witness)) - 1.0
+
+    def loss_fn(m: Mismatch) -> jnp.ndarray:
+        return m.step(**inputs, streams=streams, inference=True).loss
+
+    grads = eqx.filter_grad(loss_fn)(mismatch)
+    # Multiplier raw gradient is -violation (promoting_link_loss convention).
+    assert jnp.sign(grads.witness_multiplier.value) == -jnp.sign(violation)
