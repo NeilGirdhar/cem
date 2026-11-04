@@ -92,6 +92,15 @@ models or that contains arrays (e.g. a variance matrix stored inside a `Flattene
 thumb: use `static=True` for Python scalars and shapes; use `FixedParameter` for JAX arrays that
 are architectural constants.
 
+**Nonnegative learnable parameters.**
+
+Store the unconstrained `LearnableParameter[JaxRealArray]` in ℝ and apply `jax.nn.softplus` at
+every read site. This is the canonical pattern — no projection step, smooth autodiff, bounded
+nonnegativity at the API surface. Use the same pattern for scalars (Lagrange multipliers, loss
+scales) and arrays (per-channel precisions, loss weights). Alternatives like projected updates
+(`jnp.maximum(value, 0)` after each step) require a post-update hook the gradient-transform pipeline
+doesn't currently provide.
+
 ## Training infrastructure
 
 `DisModel` and `DisGradientTransformation` (`cem/structure/graph/disassembled.py`)\
