@@ -129,7 +129,7 @@ def test_step_precision_cotangent_uses_quadratic_trace_and_prediction_error(
     assert jnp.allclose(outputs.cotangent[:, 1], expected_precision_cotangent)
 
 
-def test_step_dummy_loss_is_scalar_and_promotes_baseline(
+def test_step_loss_is_scalar_and_promotes_baseline(
     streams: Mapping[str, RngStream],
 ) -> None:
     n = 1
@@ -146,7 +146,7 @@ def test_step_dummy_loss_is_scalar_and_promotes_baseline(
         goal=jnp.asarray(1.0),
     )
 
-    assert outputs.dummy_loss.shape == ()
+    assert outputs.loss.shape == ()
 
 
 def test_decay_reduces_previous_trace(streams: Mapping[str, RngStream]) -> None:

@@ -6,15 +6,14 @@ See `sip-emitter` in `~/src/typst/thesis.typ`.
 from typing import Self
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import jax.random as jr
 from efax import NormalNP
-from tjax import JaxRealArray, KeyArray, replace_cotangent
+from tjax import JaxRealArray, KeyArray
 
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.sip.credit import Credit, CreditOutputs
-from cem.sip.messages import evidence_scale, mean_and_precision
+from cem.sip.messages import evidence_scale, mean_and_precision, promoting_link_loss
 
 
 class EmitterOutputs(eqx.Module):
@@ -83,10 +82,7 @@ class Emitter(eqx.Module):
         )
 
         raw_moments = jnp.stack(list(mean_and_precision(raw_observation)), axis=-1)
-        promoting_loss = jnp.sum(
-            replace_cotangent(raw_moments, credit_outputs.cotangent)
-            - jax.lax.stop_gradient(raw_moments)
-        )
+        promoting_loss = promoting_link_loss(raw_moments, credit_outputs.cotangent)
         outputs = EmitterOutputs(
             observation=observation,
             instrument=evidence_scale(noised_instrument, gain),
@@ -94,7 +90,7 @@ class Emitter(eqx.Module):
             noised_instrument=noised_instrument,
             local_variance=local_variance,
             credit_outputs=credit_outputs,
-            loss=credit_outputs.dummy_loss + promoting_loss,
+            loss=credit_outputs.loss + promoting_loss,
         )
         return new_state, outputs
 

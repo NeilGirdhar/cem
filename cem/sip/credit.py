@@ -6,13 +6,12 @@ See `sip-credit-circuit` in `~/src/typst/thesis.typ`.
 from typing import Self
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray
 
 from cem.npn.gaussian import GaussianNPN
-from cem.sip.messages import mean_and_precision
+from cem.sip.messages import mean_and_precision, promoting_link_loss
 from cem.structure.graph import FixedParameter
 
 
@@ -33,7 +32,7 @@ class CreditOutputs(eqx.Module):
     """One step of credit assignment."""
 
     cotangent: JaxRealArray  # shape (n, 2): column 0 mean, column 1 precision
-    dummy_loss: JaxRealArray  # shape (): baseline-map promoting-link surrogate
+    loss: JaxRealArray  # shape (): baseline-map promoting-link surrogate
 
 
 class Credit(eqx.Module):
@@ -108,7 +107,7 @@ class Credit(eqx.Module):
 
         error = goal - baseline + 0.5 * jnp.sum(raw_precision * new_traces.quadratic)
         precision_cotangent = -0.5 * new_traces.quadratic * error
-        dummy_loss = -jax.lax.stop_gradient(error) * baseline
+        loss = promoting_link_loss(baseline, error)
 
         cotangent = jnp.stack([mean_cotangent, precision_cotangent], axis=-1)
-        return new_state, CreditOutputs(cotangent=cotangent, dummy_loss=dummy_loss)
+        return new_state, CreditOutputs(cotangent=cotangent, loss=loss)
