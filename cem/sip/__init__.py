@@ -9,6 +9,7 @@ from cem.sip.messages import (
     suppressing_link_loss,
 )
 from cem.sip.mismatch import Mismatch, MismatchOutputs
+from cem.sip.td_error import TDError, TDErrorOutputs, TDTraces
 
 __all__ = [
     "Credit",
@@ -18,6 +19,9 @@ __all__ = [
     "EmitterOutputs",
     "Mismatch",
     "MismatchOutputs",
+    "TDError",
+    "TDErrorOutputs",
+    "TDTraces",
     "evidence_scale",
     "mean_and_precision",
     "promoting_link_loss",

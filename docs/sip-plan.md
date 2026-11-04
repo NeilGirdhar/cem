@@ -17,8 +17,8 @@ Leaves first, then features, then models
 
 - [x] `Credit` — committed, unit-tested.
 - [x] `Emitter` — committed, unit-tested. Unlocks test 12.
-- [ ] `Mismatch` — not started. With `Emitter + Credit`, unlocks tests 1–12.
-- [ ] `TDError` — not started. Unlocks tests 13–15.
+- [x] `Mismatch` — committed, unit-tested. Experiments 4–7 still to write.
+- [x] `TDError` — committed, unit-tested. Experiments 13–15 still to write.
 - [ ] `SIPFeature`, `TDFeature` — wire the leaves into per-node features.
 - [ ] `ExplanatoryCoupling`, `SIPValueModel`, `SIPAgent` — the `Model`s that
   compose features into the test surfaces for tests 16–17.
