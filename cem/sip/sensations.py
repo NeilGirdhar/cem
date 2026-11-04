@@ -51,8 +51,8 @@ class Sensations(ExplanatoryCoupling):
         `sizes[0]` is both the environment observation dimension and the
         layer-0 feature width. `predictor_features[i]` is the external
         predictor dimension layer `i` consumes; its effective predictor
-        dimension is `predictor_features[i] + sum(sizes[i + 1:])` to make
-        room for the higher layers' previous messages.
+        dimension is `predictor_features[i] + sizes[i + 1]` to make room
+        for the one-layer-above previous message.
         """
         if len(sizes) == 0:
             msg = "sizes must be non-empty"
@@ -61,7 +61,8 @@ class Sensations(ExplanatoryCoupling):
             msg = "predictor_features must have the same length as sizes"
             raise ValueError(msg)
         effective_predictor_features = [
-            predictor_features[i] + sum(sizes[i + 1 :]) for i in range(len(sizes))
+            predictor_features[i] + (sizes[i + 1] if i + 1 < len(sizes) else 0)
+            for i in range(len(sizes))
         ]
         input_feature = SensationInputFeature.create(
             sizes[0],
@@ -96,8 +97,9 @@ class Sensations(ExplanatoryCoupling):
         is the previous layer's `observation_mismatch`, and its Credit goal
         is the previous layer's `dissonance`. Each layer's predictor is the
         external `predictors[i]` concatenated with the stored
-        `last_message_index` of every layer above it (previous-step values,
-        since higher layers have not yet been processed this step).
+        `last_message_index` of the layer directly above it (its previous-
+        step value, since higher layers have not yet been processed this
+        step).
         """
         layer_count = 1 + len(self.interior_features)
         if len(predictors) != layer_count:
@@ -138,11 +140,9 @@ class Sensations(ExplanatoryCoupling):
         layer: int,
         external: InstrumentedMessage,
     ) -> InstrumentedMessage:
-        """Concatenate `external` with the stored messages of every layer above `layer`."""
-        higher = [
-            state.get(self.interior_features[j - 1].last_message_index)
-            for j in range(layer + 1, 1 + len(self.interior_features))
-        ]
-        if not higher:
+        """Concatenate `external` with the stored message of the layer directly above."""
+        above_layer = layer + 1
+        if above_layer >= 1 + len(self.interior_features):
             return external
-        return concat_instrumented_messages(external, *higher)
+        above = state.get(self.interior_features[above_layer - 1].last_message_index)
+        return concat_instrumented_messages(external, above)

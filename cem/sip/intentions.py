@@ -54,8 +54,8 @@ class Intentions(ExplanatoryCoupling):
         `readout_features[-1]`, and lower layers prepend
         `2 * sizes[i + 1]`. `predictor_features[i]` is the external
         predictor dim; the effective predictor dim is
-        `predictor_features[i] + sum(sizes[i + 1:])` to make room for the
-        higher layers' last messages.
+        `predictor_features[i] + sizes[i + 1]` to make room for the
+        one-layer-above last message.
         """
         if len(sizes) == 0:
             msg = "sizes must be non-empty"
@@ -72,7 +72,9 @@ class Intentions(ExplanatoryCoupling):
             content_features = readout_features[i]
             if i < top_index:
                 content_features += 2 * sizes[i + 1]
-            effective_predictor_features = predictor_features[i] + sum(sizes[i + 1 :])
+            effective_predictor_features = predictor_features[i] + (
+                sizes[i + 1] if i < top_index else 0
+            )
             feature_sizes = SIPFeatureSizes(
                 observation_content=content_features,
                 predictor=effective_predictor_features,
@@ -98,10 +100,10 @@ class Intentions(ExplanatoryCoupling):
         layer's content is its readout concatenated with the
         `observation_mismatch` of the layer above. Each layer's predictor
         is the external `predictors[i]` concatenated with the stored
-        `last_message_index` of every layer above `i`. `advantages[i]` is
-        the Credit goal for layer `i`. Returns per-layer outputs indexed
-        with the same convention as `features` (`outputs[0]` is the
-        bottom, whose `observation` is the action).
+        `last_message_index` of the layer directly above `i`.
+        `advantages[i]` is the Credit goal for layer `i`. Returns per-
+        layer outputs indexed with the same convention as `features`
+        (`outputs[0]` is the bottom, whose `observation` is the action).
         """
         n_layers = len(self.features)
         if len(readouts) != n_layers:
@@ -148,11 +150,9 @@ class Intentions(ExplanatoryCoupling):
         layer: int,
         external: InstrumentedMessage,
     ) -> InstrumentedMessage:
-        """Concatenate `external` with the stored messages of every layer above `layer`."""
-        higher = [
-            state.get(self.features[j].last_message_index)
-            for j in range(layer + 1, len(self.features))
-        ]
-        if not higher:
+        """Concatenate `external` with the stored message of the layer directly above."""
+        above_layer = layer + 1
+        if above_layer >= len(self.features):
             return external
-        return concat_instrumented_messages(external, *higher)
+        above = state.get(self.features[above_layer].last_message_index)
+        return concat_instrumented_messages(external, above)
