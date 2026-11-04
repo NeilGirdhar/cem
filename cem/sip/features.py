@@ -2,9 +2,13 @@
 
 See `features` and `sip-td-error-circuit` in `~/src/typst/thesis.typ`.
 
-`SIPFeature` is the identification node (Emitter + Mismatch), playing the
-sensation/intention/prospect role. `TDFeature` is the reward node (TDError),
-with unit gain and no local noise.
+`SIPFeature` is the identification node (Emitter + Mismatch), used in
+sensation and intention couplings. `SensationInputFeature` is the
+specialized sensation-stack input (no observation_map, no Credit).
+`ProspectFeature` is the reward-critic predictor (Emitter + Credit, no
+Mismatch). `TDFeature` is the reward node (TDError), with unit gain and no
+local noise. `RecruiterFeature` wraps a controllable `SIPFeature` with no
+gain parent.
 """
 
 from collections.abc import Mapping
@@ -297,6 +301,89 @@ class RecruiterFeature(eqx.Module):
         )
 
 
+class ProspectFeatureOutputs(eqx.Module):
+    """One step of a prospect feature."""
+
+    observation: NormalNP  # post-noise
+    instrument: NormalNP  # post-noise
+    loss: JaxRealArray  # scalar; emitter loss (credit + promoting link)
+
+
+class ProspectFeature(eqx.Module):
+    """One prospect node: `Emitter` + `Credit`, no `Mismatch`.
+
+    Prospect features predict reward and inject local noise under `Credit`;
+    they have no mismatch circuit because confounding purification is handled
+    downstream by the `RewardCritic`'s `TDFeature`. The feature accepts its
+    own observation content and predictor instruments and writes its outgoing
+    `InstrumentedMessage` into `state`.
+    """
+
+    emitter: Emitter
+    last_message_index: eqx.nn.StateIndex[InstrumentedMessage]
+
+    @classmethod
+    def create(
+        cls,
+        n: int,
+        *,
+        observation_content_features: int,
+        predictor_features: int,
+        controllable: bool = True,
+        trace_decay_rate: float = 0.0,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        observation_map = GaussianNPN.create(
+            in_features=observation_content_features, out_features=n, streams=streams
+        )
+        instrument_map = GaussianNPN.create(
+            in_features=predictor_features, out_features=n, streams=streams
+        )
+        baseline_map = GaussianNPN.create(
+            in_features=observation_content_features, out_features=1, streams=streams
+        )
+        emitter = Emitter.create(
+            observation_map=observation_map,
+            instrument_map=instrument_map,
+            credit=Credit.create(n, baseline_map, trace_decay_rate=trace_decay_rate),
+            controllable=controllable,
+        )
+        return cls(
+            emitter=emitter,
+            last_message_index=eqx.nn.StateIndex(_absent_message(n)),
+        )
+
+    def step(
+        self,
+        state: eqx.nn.State,
+        key: KeyArray,
+        *,
+        observation_content: NormalNP,
+        predictor_instruments: NormalNP,
+        goal: JaxRealArray,
+    ) -> tuple[eqx.nn.State, ProspectFeatureOutputs]:
+        """Advance the prospect feature one time step."""
+        new_state, emitter_outputs = self.emitter.step(
+            state,
+            key,
+            observation_content=observation_content,
+            predictor_instruments=predictor_instruments,
+            gain_observation=None,
+            goal=goal,
+        )
+        new_state = new_state.set(
+            self.last_message_index,
+            InstrumentedMessage(
+                observation=emitter_outputs.observation, instrument=emitter_outputs.instrument
+            ),
+        )
+        return new_state, ProspectFeatureOutputs(
+            observation=emitter_outputs.observation,
+            instrument=emitter_outputs.instrument,
+            loss=emitter_outputs.loss,
+        )
+
+
 class TDFeatureOutputs(eqx.Module):
     """One step of a reward feature."""
 
@@ -304,6 +391,7 @@ class TDFeatureOutputs(eqx.Module):
     advantage: JaxRealArray  # TD error in reward, replaces observation mismatch
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
+    dissonance: JaxRealArray  # scalar; reconstruction + confounding
     uncertainty_loss: JaxRealArray  # scalar
     loss: JaxRealArray  # scalar; combined surrogate
 
@@ -318,6 +406,7 @@ class TDFeature(eqx.Module):
     """
 
     td_error: TDError
+    last_dissonance_index: eqx.nn.StateIndex[JaxRealArray]
 
     @classmethod
     def create(
@@ -334,7 +423,8 @@ class TDFeature(eqx.Module):
                 predictor_features=predictor_features,
                 discount=discount,
                 streams=streams,
-            )
+            ),
+            last_dissonance_index=eqx.nn.StateIndex(jnp.asarray(0.0, dtype=jnp.float64)),
         )
 
     def step(
@@ -355,11 +445,14 @@ class TDFeature(eqx.Module):
             streams=streams,
             inference=inference,
         )
+        dissonance = td_outputs.reconstruction_cost + td_outputs.confounding_cost
+        new_state = new_state.set(self.last_dissonance_index, dissonance)
         return new_state, TDFeatureOutputs(
             observation=reward_observation,
             advantage=td_outputs.advantage,
             reconstruction_cost=td_outputs.reconstruction_cost,
             confounding_cost=td_outputs.confounding_cost,
+            dissonance=dissonance,
             uncertainty_loss=td_outputs.uncertainty_loss,
             loss=td_outputs.loss,
         )

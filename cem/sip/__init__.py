@@ -4,6 +4,8 @@ from cem.sip.credit import Credit, CreditOutputs, CreditTraces
 from cem.sip.emitter import Emitter, EmitterOutputs
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import (
+    ProspectFeature,
+    ProspectFeatureOutputs,
     RecruiterFeature,
     SensationInputFeature,
     SIPFeature,
@@ -23,6 +25,7 @@ from cem.sip.messages import (
     suppressing_link_loss,
 )
 from cem.sip.mismatch import Mismatch, MismatchOutputs
+from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.sensations import Sensations
 from cem.sip.td_error import TDError, TDErrorOutputs, TDTraces
 
@@ -37,7 +40,11 @@ __all__ = [
     "Intentions",
     "Mismatch",
     "MismatchOutputs",
+    "ProspectFeature",
+    "ProspectFeatureOutputs",
     "RecruiterFeature",
+    "RewardCritic",
+    "RewardCriticOutputs",
     "SIPFeature",
     "SIPFeatureOutputs",
     "SIPFeatureSizes",
