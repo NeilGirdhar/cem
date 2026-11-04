@@ -19,11 +19,11 @@ def _run(variant_label: str, dataset_kind: DatasetKind, seed: int, loss: float) 
     telemetry = LossTelemetry(selected_node="target")
     inference = InferenceResults(
         count=1,
-        telemetries={telemetry: jnp.array([loss * _INFERENCE_BATCH_SIZE])},
+        telemetries={telemetry: jnp.asarray([loss * _INFERENCE_BATCH_SIZE])},
     )
     training = TrainingResults(
         count=1,
-        telemetries={telemetry: jnp.array([0.0])},
+        telemetries={telemetry: jnp.asarray([0.0])},
         final_state=cast("SolutionState", None),
     )
     return Run(

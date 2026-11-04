@@ -41,7 +41,7 @@ def test_supervised_calibration_experiment_is_registered() -> None:
 
 
 def test_calibration_plotter_bins_by_variance_and_emits_per_dataset_series() -> None:
-    iris_snapshot = jnp.array(
+    iris_snapshot = jnp.asarray(
         [
             # [predicted_mean, predicted_variance, observed_value]
             [0.0, 0.1, 1.0],
@@ -50,7 +50,7 @@ def test_calibration_plotter_bins_by_variance_and_emits_per_dataset_series() -> 
             [0.0, 0.4, 4.0],
         ]
     )
-    bike_snapshot = jnp.array(
+    bike_snapshot = jnp.asarray(
         [
             [0.0, 0.05, 0.3],
             [0.0, 0.15, 0.6],

@@ -94,8 +94,8 @@ class CalibrationScatterPlotter(Plotter):
         for dataset, title in _DATASET_TITLES.items():
             if dataset not in batches:
                 continue
-            all_variance = np.concatenate([pv for pv, _ in batches[dataset]])
-            all_residual = np.concatenate([rs for _, rs in batches[dataset]])
+            all_variance = np.concat([pv for pv, _ in batches[dataset]])
+            all_residual = np.concat([rs for _, rs in batches[dataset]])
             predicted_means, empirical_means = _bin_by_quantile(
                 all_variance, all_residual, self.bins
             )

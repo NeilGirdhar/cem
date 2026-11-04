@@ -36,10 +36,10 @@ def _inputs(n: int) -> _StepInputs:
     return _StepInputs(
         raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
         local_variance=jnp.zeros(n),
-        predictor_observations=_message(jnp.array([0.3, -0.2]), jnp.array([1.0, 1.0])),
-        predictor_instruments=_message(jnp.array([0.5, 0.1]), jnp.array([1.0, 1.0])),
+        predictor_observations=_message(jnp.asarray([0.3, -0.2]), jnp.asarray([1.0, 1.0])),
+        predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.asarray([1.0, 1.0])),
         gain_observation=_message(jnp.ones(n), jnp.ones(n)),
-        gain_instrument=_message(jnp.array([0.4]), jnp.array([1.0])),
+        gain_instrument=_message(jnp.asarray([0.4]), jnp.asarray([1.0])),
     )
 
 
@@ -171,8 +171,8 @@ def _recruiter_inputs(n: int) -> _StepInputs:
     return _StepInputs(
         raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
         local_variance=jnp.zeros(n),
-        predictor_observations=_message(jnp.array([0.3, -0.2]), jnp.ones(2)),
-        predictor_instruments=_message(jnp.array([0.5, 0.1]), jnp.ones(2)),
+        predictor_observations=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+        predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain_observation=None,
         gain_instrument=None,
     )

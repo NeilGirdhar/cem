@@ -57,7 +57,7 @@ def test_local_variance_matches_inherited_moments(
     n = 3
     emitter = _emitter(n, content_dim=1, instrument_dim=4, controllable=True, streams=streams)
     predictor_instruments = _message(
-        jnp.array([0.4, -0.3, 0.1, 0.2]), jnp.array([1.0, 2.0, 0.5, 1.0])
+        jnp.asarray([0.4, -0.3, 0.1, 0.2]), jnp.asarray([1.0, 2.0, 0.5, 1.0])
     )
     inherited_mean, inherited_precision = _inherited(emitter, predictor_instruments)
     expected = jnp.maximum(0.0, jnp.reciprocal(inherited_precision) - jnp.square(inherited_mean))
@@ -65,7 +65,7 @@ def test_local_variance_matches_inherited_moments(
     _, outputs = emitter.step(
         state,
         jr.key(0),
-        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
+        observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
         predictor_instruments=predictor_instruments,
         gain_observation=_message(jnp.ones(n), jnp.ones(n)),
         goal=jnp.asarray(0.0),
@@ -82,12 +82,12 @@ def test_same_displacement_shifts_both_means(streams: Mapping[str, RngStream]) -
     n = 2
     emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=True, streams=streams)
     state = eqx.nn.State(emitter)
-    predictor_instruments = _message(jnp.array([1.0, -1.0]), jnp.array([0.5, 0.25]))
+    predictor_instruments = _message(jnp.asarray([1.0, -1.0]), jnp.asarray([0.5, 0.25]))
     inherited_mean, _ = _inherited(emitter, predictor_instruments)
     _, outputs = emitter.step(
         state,
         jr.key(7),
-        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
+        observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
         predictor_instruments=predictor_instruments,
         gain_observation=_message(jnp.ones(n), jnp.ones(n)),
         goal=jnp.asarray(0.0),
@@ -107,12 +107,12 @@ def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> No
     n = 2
     emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=False, streams=streams)
     state = eqx.nn.State(emitter)
-    gain = jnp.array([2.0, 0.5])
+    gain = jnp.asarray([2.0, 0.5])
     _, outputs = emitter.step(
         state,
         jr.key(0),
-        observation_content=_message(jnp.array([0.4]), jnp.ones(1)),
-        predictor_instruments=_message(jnp.array([0.1, 0.2]), jnp.array([1.0, 1.0])),
+        observation_content=_message(jnp.asarray([0.4]), jnp.ones(1)),
+        predictor_instruments=_message(jnp.asarray([0.1, 0.2]), jnp.asarray([1.0, 1.0])),
         gain_observation=_message(gain, jnp.ones(n)),
         goal=jnp.asarray(0.0),
     )
@@ -139,8 +139,8 @@ def test_credit_cotangent_reaches_observation_map(
         _, outputs = em.step(
             state,
             jr.key(0),
-            observation_content=_message(jnp.array([0.5]), jnp.ones(1)),
-            predictor_instruments=_message(jnp.array([0.1, -0.2]), jnp.array([1.0, 1.0])),
+            observation_content=_message(jnp.asarray([0.5]), jnp.ones(1)),
+            predictor_instruments=_message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 1.0])),
             gain_observation=_message(jnp.ones(n), jnp.ones(n)),
             goal=jnp.asarray(1.0),
         )

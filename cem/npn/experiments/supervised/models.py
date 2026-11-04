@@ -156,7 +156,7 @@ class PerceptronSupervisedModel(Model):
             replacement = jnp.zeros_like(observation.x)
         x = jnp.where(presence > 0, observation.x, replacement)
         if self.include_missingness_mask:
-            x = jnp.concatenate((x, presence), axis=-1)
+            x = jnp.concat((x, presence), axis=-1)
         y_hat = self.link.infer(x, streams=streams, inference=inference)
         config = self.target.infer(_y_flat_observed(observation.y), y_hat)
         return ModelResult(

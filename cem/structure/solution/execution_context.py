@@ -84,7 +84,7 @@ class ExecutionContext[T: Telemetry]:
         if not more_results:
             self._telemetries = result
             return
-        self._telemetries = tree.map(lambda *xs: jnp.concatenate(xs, axis=0), result, *more_results)
+        self._telemetries = tree.map(lambda *xs: jnp.concat(xs, axis=0), result, *more_results)
 
     def episodes_done(self) -> int:
         return self._episodes_done

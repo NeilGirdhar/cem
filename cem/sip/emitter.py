@@ -61,9 +61,7 @@ class Emitter(eqx.Module):
         inherited_mean, inherited_precision = mean_and_precision(inherited_instrument)
 
         if self.controllable:
-            local_variance = jnp.maximum(
-                0.0, jnp.reciprocal(inherited_precision) - jnp.square(inherited_mean)
-            )
+            local_variance = jnp.maximum(0.0, 1 / inherited_precision - jnp.square(inherited_mean))
             displacement = jnp.sqrt(local_variance) * jr.normal(key, inherited_mean.shape)
             noised_raw_observation = _shift_mean(raw_observation, displacement)
             noised_instrument = _shift_mean(inherited_instrument, displacement)

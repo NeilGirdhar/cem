@@ -33,8 +33,8 @@ def _td_error(n: int, streams: Mapping[str, RngStream], *, discount: float = 1.0
 def _inputs(n: int) -> _StepInputs:
     return _StepInputs(
         reward_observation=_message(jnp.ones(n), jnp.ones(n)),
-        predictor_observations=_message(jnp.array([0.3, -0.2]), jnp.array([1.0, 1.0])),
-        predictor_instruments=_message(jnp.array([0.5, 0.1]), jnp.array([1.0, 1.0])),
+        predictor_observations=_message(jnp.asarray([0.3, -0.2]), jnp.asarray([1.0, 1.0])),
+        predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.asarray([1.0, 1.0])),
     )
 
 
@@ -98,8 +98,8 @@ def test_second_step_delayed_prediction_matches_first_step_current_prediction(
     # the first step's predictor_observations.
     second = _StepInputs(
         reward_observation=_message(jnp.zeros(n), jnp.ones(n)),
-        predictor_observations=_message(jnp.array([-0.5, 0.4]), jnp.array([1.0, 1.0])),
-        predictor_instruments=_message(jnp.array([0.2, -0.3]), jnp.array([1.0, 1.0])),
+        predictor_observations=_message(jnp.asarray([-0.5, 0.4]), jnp.asarray([1.0, 1.0])),
+        predictor_instruments=_message(jnp.asarray([0.2, -0.3]), jnp.asarray([1.0, 1.0])),
     )
     _, second_outputs = td.step(**second, state=state, streams=streams, inference=True)
 

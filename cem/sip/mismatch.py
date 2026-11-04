@@ -149,9 +149,9 @@ class Mismatch(eqx.Module):
         gain = None if gain_observation is None else mean_and_precision(gain_observation)[0]
         return _Moments(
             target_mean=raw_mean,
-            target_variance=jnp.reciprocal(raw_precision) + local_variance,
+            target_variance=1 / raw_precision + local_variance,
             pred_mean=pred_mean,
-            pred_variance=jnp.reciprocal(pred_precision),
+            pred_variance=1 / pred_precision,
             gain=gain,
         )
 
@@ -171,7 +171,7 @@ class Mismatch(eqx.Module):
             parts.extend(
                 [gain_instrument.mean_times_precision, gain_instrument.negative_half_precision]
             )
-        witness_input = jnp.concatenate(parts)
+        witness_input = jnp.concat(parts)
         return self.witness_map.infer(witness_input, streams=streams, inference=inference).reshape(
             -1, 2
         )

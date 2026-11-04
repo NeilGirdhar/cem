@@ -182,7 +182,7 @@ class TDError(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxRealArray:
-        witness_input = jnp.concatenate(
+        witness_input = jnp.concat(
             [
                 predictor_instruments.mean_times_precision,
                 predictor_instruments.negative_half_precision,
@@ -205,13 +205,13 @@ class TDError(eqx.Module):
         gamma = self.discount.value
         boot_mean = jax.lax.stop_gradient(reward_mean) + gamma * jax.lax.stop_gradient(cur_mean)
         boot_variance = jax.lax.stop_gradient(variance_from_precision(reward_precision)) + (
-            jnp.square(gamma) * jax.lax.stop_gradient(jnp.reciprocal(cur_precision))
+            jnp.square(gamma) * jax.lax.stop_gradient(1 / cur_precision)
         )
         return _Moments(
             boot_mean=boot_mean,
             boot_variance=boot_variance,
             del_mean=del_mean,
-            del_variance=jnp.reciprocal(del_precision),
+            del_variance=1 / del_precision,
         )
 
     def _witness_training(

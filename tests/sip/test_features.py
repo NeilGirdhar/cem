@@ -49,14 +49,14 @@ def _sip_feature(
 def _sip_inputs(n: int) -> _SIPStepInputs:
     return _SIPStepInputs(
         key=jr.key(0),
-        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
+        observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
         predictors=FeaturePredictors(
-            observations=_message(jnp.array([0.3, -0.2]), jnp.ones(2)),
-            instruments=_message(jnp.array([0.5, 0.1]), jnp.ones(2)),
+            observations=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+            instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
         gain=FeatureGain(
             observation=_message(jnp.ones(n), jnp.ones(n)),
-            instrument=_message(jnp.array([0.4]), jnp.ones(1)),
+            instrument=_message(jnp.asarray([0.4]), jnp.ones(1)),
         ),
         goal=jnp.asarray(0.5),
     )
@@ -75,8 +75,8 @@ def _td_inputs(n: int) -> _TDStepInputs:
     return _TDStepInputs(
         reward_observation=_message(jnp.ones(n), jnp.ones(n)),
         predictors=FeaturePredictors(
-            observations=_message(jnp.array([0.3, -0.2]), jnp.ones(2)),
-            instruments=_message(jnp.array([0.5, 0.1]), jnp.ones(2)),
+            observations=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+            instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
     )
 
@@ -219,10 +219,10 @@ def test_recruiter_feature_observation_equals_pre_gain(
     _, outputs = feature.step(
         state,
         jr.key(0),
-        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
+        observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
         predictors=FeaturePredictors(
-            observations=_message(jnp.array([0.3, -0.2]), jnp.ones(2)),
-            instruments=_message(jnp.array([0.5, 0.1]), jnp.ones(2)),
+            observations=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+            instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
         goal=jnp.asarray(0.5),
         streams=streams,
@@ -232,8 +232,8 @@ def test_recruiter_feature_observation_equals_pre_gain(
     _, emitter_outputs = feature.feature.emitter.step(
         fresh_state,
         jr.key(0),
-        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
-        predictor_instruments=_message(jnp.array([0.5, 0.1]), jnp.ones(2)),
+        observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
+        predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain_observation=None,
         goal=jnp.asarray(0.5),
     )
@@ -265,10 +265,10 @@ def test_recruiter_feature_step_runs_without_gain(
     _, outputs = feature.step(
         state,
         jr.key(0),
-        observation_content=_message(jnp.array([0.3]), jnp.ones(1)),
+        observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
         predictors=FeaturePredictors(
-            observations=_message(jnp.array([0.3, -0.2]), jnp.ones(2)),
-            instruments=_message(jnp.array([0.5, 0.1]), jnp.ones(2)),
+            observations=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+            instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
         goal=jnp.asarray(0.5),
         streams=streams,
