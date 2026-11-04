@@ -45,6 +45,7 @@ def test_prospect_feature_outputs_have_expected_shapes(
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
         predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        gain=None,
         goal=jnp.asarray(0.5),
     )
     assert outputs.observation.mean_times_precision.shape == (n,)
@@ -63,6 +64,7 @@ def test_prospect_feature_stores_message_into_state(
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
         predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        gain=None,
         goal=jnp.asarray(0.5),
     )
     stored = new_state.get(feature.last_message_index)
@@ -162,6 +164,7 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
             k,
             observation_content=oc,
             predictor_instruments=pi,
+            gain=None,
             goal=goal,
         )
         prospects.append(out)
@@ -220,6 +223,7 @@ def test_reward_critic_feeds_td_dissonance_back_as_prospect_goal(
         keys[0],
         observation_content=observation_content[0],
         predictor_instruments=predictor_instruments[0],
+        gain=None,
         goal=stored_goal,
     )
     assert jnp.allclose(

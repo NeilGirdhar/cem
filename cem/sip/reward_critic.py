@@ -102,6 +102,7 @@ class RewardCritic(eqx.Module):
         *,
         observation_content: Sequence[NormalNP],
         predictor_instruments: Sequence[NormalNP],
+        gains: Sequence[InstrumentedMessage | None] | None = None,
         reward_observation: NormalNP,
         streams: Mapping[str, RngStream],
         inference: bool,
@@ -109,10 +110,10 @@ class RewardCritic(eqx.Module):
         """Run the prospects, then the TD feature.
 
         Each prospect is advanced with its own `observation_content[i]`,
-        `predictor_instruments[i]`, and the TD feature's previous-step
-        `dissonance` as goal (read from `last_dissonance_index`). The
-        prospect outputs are concatenated on each channel to form the TD
-        feature's predictor.
+        `predictor_instruments[i]`, optional `gains[i]`, and the TD feature's
+        previous-step `dissonance` as goal (read from
+        `last_dissonance_index`). The prospect outputs are concatenated on
+        each channel to form the TD feature's predictor.
         """
         if len(observation_content) != len(self.prospect_features):
             msg = "observation_content must have one entry per prospect"
@@ -120,14 +121,20 @@ class RewardCritic(eqx.Module):
         if len(predictor_instruments) != len(self.prospect_features):
             msg = "predictor_instruments must have one entry per prospect"
             raise ValueError(msg)
+        if gains is None:
+            gains = [None] * len(self.prospect_features)
+        if len(gains) != len(self.prospect_features):
+            msg = "gains must have one entry per prospect"
+            raise ValueError(msg)
         prospect_goal = state.get(self.td_feature.last_dissonance_index)
         keys = jr.split(key, len(self.prospect_features))
         prospect_outputs: list[ProspectFeatureOutputs] = []
-        for feature, feature_key, obs_content, pred_inst in zip(
+        for feature, feature_key, obs_content, pred_inst, gain in zip(
             self.prospect_features,
             keys,
             observation_content,
             predictor_instruments,
+            gains,
             strict=True,
         ):
             state, out = feature.step(
@@ -135,6 +142,7 @@ class RewardCritic(eqx.Module):
                 feature_key,
                 observation_content=obs_content,
                 predictor_instruments=pred_inst,
+                gain=gain,
                 goal=prospect_goal,
             )
             prospect_outputs.append(out)

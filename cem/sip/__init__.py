@@ -27,6 +27,7 @@ from cem.sip.messages import (
 from cem.sip.mismatch import Mismatch, MismatchOutputs
 from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.sensations import Sensations
+from cem.sip.sip_agent import SIPAgent, SIPAgentOutputs
 from cem.sip.td_error import TDError, TDErrorOutputs, TDTraces
 
 __all__ = [
@@ -45,6 +46,8 @@ __all__ = [
     "RecruiterFeature",
     "RewardCritic",
     "RewardCriticOutputs",
+    "SIPAgent",
+    "SIPAgentOutputs",
     "SIPFeature",
     "SIPFeatureOutputs",
     "SIPFeatureSizes",

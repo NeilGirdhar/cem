@@ -360,15 +360,22 @@ class ProspectFeature(eqx.Module):
         *,
         observation_content: NormalNP,
         predictor_instruments: NormalNP,
+        gain: InstrumentedMessage | None,
         goal: JaxRealArray,
     ) -> tuple[eqx.nn.State, ProspectFeatureOutputs]:
-        """Advance the prospect feature one time step."""
+        """Advance the prospect feature one time step.
+
+        Passes `gain.observation` to the emitter for evidence scaling when a
+        gain parent is wired in; the instrument half is unused because there
+        is no mismatch circuit. `gain=None` skips evidence scaling.
+        """
+        gain_observation = None if gain is None else gain.observation
         new_state, emitter_outputs = self.emitter.step(
             state,
             key,
             observation_content=observation_content,
             predictor_instruments=predictor_instruments,
-            gain_observation=None,
+            gain_observation=gain_observation,
             goal=goal,
         )
         new_state = new_state.set(
@@ -407,6 +414,7 @@ class TDFeature(eqx.Module):
 
     td_error: TDError
     last_dissonance_index: eqx.nn.StateIndex[JaxRealArray]
+    last_advantage_index: eqx.nn.StateIndex[JaxRealArray]
 
     @classmethod
     def create(
@@ -425,6 +433,7 @@ class TDFeature(eqx.Module):
                 streams=streams,
             ),
             last_dissonance_index=eqx.nn.StateIndex(jnp.asarray(0.0, dtype=jnp.float64)),
+            last_advantage_index=eqx.nn.StateIndex(jnp.zeros(n, dtype=jnp.float64)),
         )
 
     def step(
@@ -447,6 +456,7 @@ class TDFeature(eqx.Module):
         )
         dissonance = td_outputs.reconstruction_cost + td_outputs.confounding_cost
         new_state = new_state.set(self.last_dissonance_index, dissonance)
+        new_state = new_state.set(self.last_advantage_index, td_outputs.advantage)
         return new_state, TDFeatureOutputs(
             observation=reward_observation,
             advantage=td_outputs.advantage,
