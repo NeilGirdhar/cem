@@ -2,6 +2,7 @@
 
 from typing import Final
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 from efax import NormalNP
@@ -11,6 +12,19 @@ MAX_VARIANCE: Final[float] = 1e12
 """Fallback variance for absent (κ = 0) external messages. Large but finite so
 downstream cross-entropy terms stay well-defined. Module-patch to override for
 experiments that need a different ceiling."""
+
+
+class InstrumentedMessage(eqx.Module):
+    """A Gaussian message paired with its instrument half.
+
+    SIP signals travel on two co-indexed channels: an observation side carrying
+    the content and an instrument side carrying the causal-identification
+    counterpart. This pair is the message exchanged between features and
+    between a feature and its recruiter.
+    """
+
+    observation: NormalNP
+    instrument: NormalNP
 
 
 def mean_and_precision(distribution: NormalNP) -> tuple[JaxRealArray, JaxRealArray]:

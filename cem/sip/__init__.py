@@ -4,8 +4,6 @@ from cem.sip.credit import Credit, CreditOutputs, CreditTraces
 from cem.sip.emitter import Emitter, EmitterOutputs
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import (
-    FeatureGain,
-    FeaturePredictors,
     RecruiterFeature,
     SIPFeature,
     SIPFeatureOutputs,
@@ -15,6 +13,7 @@ from cem.sip.features import (
 )
 from cem.sip.intentions import Intentions
 from cem.sip.messages import (
+    InstrumentedMessage,
     evidence_scale,
     mean_and_precision,
     promoting_link_loss,
@@ -31,8 +30,7 @@ __all__ = [
     "Emitter",
     "EmitterOutputs",
     "ExplanatoryCoupling",
-    "FeatureGain",
-    "FeaturePredictors",
+    "InstrumentedMessage",
     "Intentions",
     "Mismatch",
     "MismatchOutputs",

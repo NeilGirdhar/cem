@@ -7,7 +7,7 @@ from efax import NormalNP
 from tjax import RngStream
 
 from cem.npn.gaussian import normal_from_mean_and_presence
-from cem.sip.features import FeaturePredictors
+from cem.sip.messages import InstrumentedMessage
 from cem.sip.sensations import Sensations
 
 
@@ -15,10 +15,10 @@ def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
     return normal_from_mean_and_presence(mean, precision)
 
 
-def _predictors(size: int) -> FeaturePredictors:
-    return FeaturePredictors(
-        observations=_message(jnp.zeros(size), jnp.ones(size)),
-        instruments=_message(jnp.zeros(size), jnp.ones(size)),
+def _predictors(size: int) -> InstrumentedMessage:
+    return InstrumentedMessage(
+        observation=_message(jnp.zeros(size), jnp.ones(size)),
+        instrument=_message(jnp.zeros(size), jnp.ones(size)),
     )
 
 

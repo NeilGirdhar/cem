@@ -12,7 +12,8 @@ from efax import NormalNP
 from tjax import JaxRealArray, KeyArray, RngStream
 
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
-from cem.sip.features import FeaturePredictors, SIPFeature, SIPFeatureOutputs, SIPFeatureSizes
+from cem.sip.features import SIPFeature, SIPFeatureOutputs, SIPFeatureSizes
+from cem.sip.messages import InstrumentedMessage
 
 
 class Sensations(ExplanatoryCoupling):
@@ -63,7 +64,7 @@ class Sensations(ExplanatoryCoupling):
         key: KeyArray,
         *,
         observation: NormalNP,
-        predictors: Sequence[FeaturePredictors],
+        predictors: Sequence[InstrumentedMessage],
         goals: Sequence[JaxRealArray],
         streams: Mapping[str, RngStream],
         inference: bool,

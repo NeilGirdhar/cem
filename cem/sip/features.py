@@ -17,22 +17,9 @@ from tjax import JaxRealArray, KeyArray, RngStream
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
+from cem.sip.messages import InstrumentedMessage
 from cem.sip.mismatch import Mismatch
 from cem.sip.td_error import TDError
-
-
-class FeaturePredictors(eqx.Module):
-    """Signals from a feature's causal parents."""
-
-    observations: NormalNP
-    instruments: NormalNP
-
-
-class FeatureGain(eqx.Module):
-    """Signals from a feature's recruiter (gain) parent."""
-
-    observation: NormalNP
-    instrument: NormalNP
 
 
 class SIPFeatureSizes(eqx.Module):
@@ -105,8 +92,8 @@ class SIPFeature(eqx.Module):
         key: KeyArray,
         *,
         observation_content: NormalNP,
-        predictors: FeaturePredictors,
-        gain: FeatureGain | None,
+        predictors: InstrumentedMessage,
+        gain: InstrumentedMessage | None,
         goal: JaxRealArray,
         streams: Mapping[str, RngStream],
         inference: bool,
@@ -123,15 +110,15 @@ class SIPFeature(eqx.Module):
             state,
             key,
             observation_content=observation_content,
-            predictor_instruments=predictors.instruments,
+            predictor_instruments=predictors.instrument,
             gain_observation=gain_observation,
             goal=goal,
         )
         mismatch_outputs = self.mismatch.step(
             raw_observation=emitter_outputs.raw_observation,
             local_variance=emitter_outputs.local_variance,
-            predictor_observations=predictors.observations,
-            predictor_instruments=predictors.instruments,
+            predictor_observations=predictors.observation,
+            predictor_instruments=predictors.instrument,
             gain_observation=gain_observation,
             gain_instrument=gain_instrument,
             streams=streams,
@@ -186,7 +173,7 @@ class RecruiterFeature(eqx.Module):
         key: KeyArray,
         *,
         observation_content: NormalNP,
-        predictors: FeaturePredictors,
+        predictors: InstrumentedMessage,
         goal: JaxRealArray,
         streams: Mapping[str, RngStream],
         inference: bool,
@@ -249,7 +236,7 @@ class TDFeature(eqx.Module):
         state: eqx.nn.State,
         *,
         reward_observation: NormalNP,
-        predictors: FeaturePredictors,
+        predictors: InstrumentedMessage,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, TDFeatureOutputs]:
@@ -257,8 +244,8 @@ class TDFeature(eqx.Module):
         new_state, td_outputs = self.td_error.step(
             state,
             reward_observation=reward_observation,
-            predictor_observations=predictors.observations,
-            predictor_instruments=predictors.instruments,
+            predictor_observations=predictors.observation,
+            predictor_instruments=predictors.instrument,
             streams=streams,
             inference=inference,
         )
