@@ -13,7 +13,11 @@ from tjax import JaxRealArray, KeyArray, RngStream
 
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import SIPFeature, SIPFeatureOutputs, SIPFeatureSizes
-from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.sip.messages import (
+    InstrumentedMessage,
+    concat_instrumented_messages,
+    concat_messages,
+)
 
 
 class Intentions(ExplanatoryCoupling):
@@ -21,11 +25,14 @@ class Intentions(ExplanatoryCoupling):
 
     Processed top-down: the top layer takes its observation content from its
     readout alone; every lower layer concatenates its readout with the
-    `observation_mismatch` demand signal from the layer above. The goal
-    signal fed to each feature's Credit is the per-layer advantage. All
-    features are controllable `SIPFeature`s that inject local noise to
-    explore. Layer 0 is the bottom (processed last); its outgoing
-    observation is the action.
+    `observation_mismatch` demand signal from the layer above. Each layer's
+    effective predictor is the externally supplied predictor concatenated
+    with the stored `last_message_index` of the layers above it (fetched
+    through `state.get`; in top-down order those are the current step's
+    values). The goal fed to each feature's Credit is the per-layer
+    advantage. All features are controllable `SIPFeature`s that inject
+    local noise to explore. Layer 0 is the bottom (processed last) and its
+    outgoing observation is the action.
     """
 
     features: tuple[SIPFeature, ...]
@@ -41,10 +48,14 @@ class Intentions(ExplanatoryCoupling):
     ) -> Self:
         """Build a top-down intention stack from per-layer sizes.
 
-        `sizes[0]` is the width of the bottom (action) layer and `sizes[-1]`
-        is the width of the top. `readout_features[i]` and
-        `predictor_features[i]` are the externally-supplied readout and
-        predictor dimensions for layer `i`.
+        `sizes[0]` is the bottom (action) layer width; `sizes[-1]` is the
+        top. `readout_features[i]` is the readout dim consumed by layer
+        `i`; the top layer's observation-content dim is
+        `readout_features[-1]`, and lower layers prepend
+        `2 * sizes[i + 1]`. `predictor_features[i]` is the external
+        predictor dim; the effective predictor dim is
+        `predictor_features[i] + sum(sizes[i + 1:])` to make room for the
+        higher layers' last messages.
         """
         if len(sizes) == 0:
             msg = "sizes must be non-empty"
@@ -61,9 +72,10 @@ class Intentions(ExplanatoryCoupling):
             content_features = readout_features[i]
             if i < top_index:
                 content_features += 2 * sizes[i + 1]
+            effective_predictor_features = predictor_features[i] + sum(sizes[i + 1 :])
             feature_sizes = SIPFeatureSizes(
                 observation_content=content_features,
-                predictor=predictor_features[i],
+                predictor=effective_predictor_features,
                 gain=0,
             )
             features.append(SIPFeature.create(n, feature_sizes, controllable=True, streams=streams))
@@ -84,10 +96,12 @@ class Intentions(ExplanatoryCoupling):
 
         The top layer's observation content is its readout; each lower
         layer's content is its readout concatenated with the
-        `observation_mismatch` of the layer above. `advantages[i]` is the
-        Credit goal for layer `i`. Returns per-layer outputs indexed with
-        the same convention as `features` (`outputs[0]` is the bottom, whose
-        `observation` is the action).
+        `observation_mismatch` of the layer above. Each layer's predictor
+        is the external `predictors[i]` concatenated with the stored
+        `last_message_index` of every layer above `i`. `advantages[i]` is
+        the Credit goal for layer `i`. Returns per-layer outputs indexed
+        with the same convention as `features` (`outputs[0]` is the
+        bottom, whose `observation` is the action).
         """
         n_layers = len(self.features)
         if len(readouts) != n_layers:
@@ -106,7 +120,7 @@ class Intentions(ExplanatoryCoupling):
             state,
             keys[top_index],
             observation_content=readouts[top_index],
-            predictors=predictors[top_index],
+            predictors=self._predictor_for(state, top_index, predictors[top_index]),
             gain=None,
             goal=advantages[top_index],
             streams=streams,
@@ -120,10 +134,25 @@ class Intentions(ExplanatoryCoupling):
                 state,
                 keys[i],
                 observation_content=content,
-                predictors=predictors[i],
+                predictors=self._predictor_for(state, i, predictors[i]),
                 gain=None,
                 goal=advantages[i],
                 streams=streams,
                 inference=inference,
             )
         return state, tuple(out for out in outputs if out is not None)
+
+    def _predictor_for(
+        self,
+        state: eqx.nn.State,
+        layer: int,
+        external: InstrumentedMessage,
+    ) -> InstrumentedMessage:
+        """Concatenate `external` with the stored messages of every layer above `layer`."""
+        higher = [
+            state.get(self.features[j].last_message_index)
+            for j in range(layer + 1, len(self.features))
+        ]
+        if not higher:
+            return external
+        return concat_instrumented_messages(external, *higher)

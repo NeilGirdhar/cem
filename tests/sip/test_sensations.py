@@ -7,7 +7,7 @@ from efax import NormalNP
 from tjax import RngStream
 
 from cem.npn.gaussian import normal_from_mean_and_presence
-from cem.sip.messages import InstrumentedMessage
+from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 from cem.sip.sensations import Sensations
 
 
@@ -130,11 +130,15 @@ def test_sensations_infer_feeds_dissonance_from_below_as_goal(
     )
 
     # Re-run layer 0, then layer 1 with the explicit goal = outputs[0].dissonance.
+    # Layer 0's effective predictor concats its external predictor with the
+    # (absent) last-message of the single interior layer above it.
     fresh = eqx.nn.State(sensations)
+    top_prev = fresh.get(sensations.interior_features[0].last_message_index)
+    layer0_predictor = concat_instrumented_messages(predictors[0], top_prev)
     fresh, layer0 = sensations.input_feature.step(
         fresh,
         observation=observation,
-        predictors=predictors[0],
+        predictors=layer0_predictor,
         gain=None,
         streams=streams,
         inference=True,
@@ -144,7 +148,7 @@ def test_sensations_infer_feeds_dissonance_from_below_as_goal(
         fresh,
         keys[0],
         observation_content=layer0.observation_mismatch,
-        predictors=predictors[1],
+        predictors=predictors[1],  # top layer has no higher layers to concat
         gain=None,
         goal=jnp.asarray(layer0.dissonance),
         streams=streams,

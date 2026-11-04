@@ -19,18 +19,20 @@ from cem.sip.features import (
     SIPFeatureOutputs,
     SIPFeatureSizes,
 )
-from cem.sip.messages import InstrumentedMessage
+from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 
 
 class Sensations(ExplanatoryCoupling):
     """Bottom-up explanatory coupling.
 
-    Layer 0 is a `SensationInputFeature`: the environment observation flows in
-    unchanged (no `observation_map`, no `Credit`). Each higher layer is a
+    Layer 0 is a `SensationInputFeature`: the environment observation flows
+    in unchanged (no `observation_map`, no `Credit`). Each higher layer is a
     non-controllable `SIPFeature` whose observation content is the previous
-    layer's `observation_mismatch` (a `2 * sizes[i - 1]`-dimensional demand
-    signal) and whose goal is the previous layer's `dissonance` scalar, so
-    higher layers are credited for reducing the dissonance below them.
+    layer's `observation_mismatch` and whose Credit goal is the previous
+    layer's `dissonance`. Each layer's effective predictor is the externally
+    supplied predictor concatenated with the previous-step instrumented
+    messages of the layers above (fetched through `last_message_index`), so
+    higher sensations condition lower ones.
     """
 
     input_feature: SensationInputFeature
@@ -47,9 +49,10 @@ class Sensations(ExplanatoryCoupling):
         """Build a bottom-up sensation stack from per-layer sizes.
 
         `sizes[0]` is both the environment observation dimension and the
-        layer-0 feature width (the sensation input has no `observation_map`
-        to decouple them). `predictor_features[i]` is the dimension of the
-        externally-supplied predictor signals that layer `i` consumes.
+        layer-0 feature width. `predictor_features[i]` is the external
+        predictor dimension layer `i` consumes; its effective predictor
+        dimension is `predictor_features[i] + sum(sizes[i + 1:])` to make
+        room for the higher layers' previous messages.
         """
         if len(sizes) == 0:
             msg = "sizes must be non-empty"
@@ -57,16 +60,19 @@ class Sensations(ExplanatoryCoupling):
         if len(predictor_features) != len(sizes):
             msg = "predictor_features must have the same length as sizes"
             raise ValueError(msg)
+        effective_predictor_features = [
+            predictor_features[i] + sum(sizes[i + 1 :]) for i in range(len(sizes))
+        ]
         input_feature = SensationInputFeature.create(
             sizes[0],
-            predictor_features=predictor_features[0],
+            predictor_features=effective_predictor_features[0],
             streams=streams,
         )
         interior: list[SIPFeature] = []
         for i in range(1, len(sizes)):
             feature_sizes = SIPFeatureSizes(
                 observation_content=2 * sizes[i - 1],
-                predictor=predictor_features[i],
+                predictor=effective_predictor_features[i],
                 gain=0,
             )
             interior.append(
@@ -88,8 +94,10 @@ class Sensations(ExplanatoryCoupling):
 
         Layer 0 consumes `observation` directly; each higher layer's content
         is the previous layer's `observation_mismatch`, and its Credit goal
-        is the previous layer's `dissonance`. Returns the per-layer outputs
-        in bottom-up order.
+        is the previous layer's `dissonance`. Each layer's predictor is the
+        external `predictors[i]` concatenated with the stored
+        `last_message_index` of every layer above it (previous-step values,
+        since higher layers have not yet been processed this step).
         """
         layer_count = 1 + len(self.interior_features)
         if len(predictors) != layer_count:
@@ -98,7 +106,7 @@ class Sensations(ExplanatoryCoupling):
         state, input_out = self.input_feature.step(
             state,
             observation=observation,
-            predictors=predictors[0],
+            predictors=self._predictor_for(state, 0, predictors[0]),
             gain=None,
             streams=streams,
             inference=inference,
@@ -107,15 +115,15 @@ class Sensations(ExplanatoryCoupling):
         if not self.interior_features:
             return state, tuple(outputs)
         keys = jr.split(key, len(self.interior_features))
-        for feature, feature_key, feature_predictors in zip(
-            self.interior_features, keys, predictors[1:], strict=True
+        for i, (feature, feature_key, feature_predictors) in enumerate(
+            zip(self.interior_features, keys, predictors[1:], strict=True), start=1
         ):
             prev = outputs[-1]
             state, out = feature.step(
                 state,
                 feature_key,
                 observation_content=prev.observation_mismatch,
-                predictors=feature_predictors,
+                predictors=self._predictor_for(state, i, feature_predictors),
                 gain=None,
                 goal=jnp.asarray(prev.dissonance),
                 streams=streams,
@@ -123,3 +131,18 @@ class Sensations(ExplanatoryCoupling):
             )
             outputs.append(out)
         return state, tuple(outputs)
+
+    def _predictor_for(
+        self,
+        state: eqx.nn.State,
+        layer: int,
+        external: InstrumentedMessage,
+    ) -> InstrumentedMessage:
+        """Concatenate `external` with the stored messages of every layer above `layer`."""
+        higher = [
+            state.get(self.interior_features[j - 1].last_message_index)
+            for j in range(layer + 1, 1 + len(self.interior_features))
+        ]
+        if not higher:
+            return external
+        return concat_instrumented_messages(external, *higher)

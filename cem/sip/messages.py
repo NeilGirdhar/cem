@@ -64,6 +64,14 @@ def concat_messages(*messages: NormalNP) -> NormalNP:
     )
 
 
+def concat_instrumented_messages(*messages: InstrumentedMessage) -> InstrumentedMessage:
+    """Concatenate instrumented messages along the component axis on each channel."""
+    return InstrumentedMessage(
+        observation=concat_messages(*[m.observation for m in messages]),
+        instrument=concat_messages(*[m.instrument for m in messages]),
+    )
+
+
 def evidence_scale(message: NormalNP, gain: JaxRealArray) -> NormalNP:
     """Scale a Gaussian message's evidence by `gain`.
 

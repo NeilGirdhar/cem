@@ -54,7 +54,7 @@ class SIPFeature(eqx.Module):
 
     emitter: Emitter
     mismatch: Mismatch
-    last_observation_index: eqx.nn.StateIndex[NormalNP]
+    last_message_index: eqx.nn.StateIndex[InstrumentedMessage]
 
     @classmethod
     def create(
@@ -90,7 +90,7 @@ class SIPFeature(eqx.Module):
         return cls(
             emitter=emitter,
             mismatch=mismatch,
-            last_observation_index=eqx.nn.StateIndex(_absent_observation(n)),
+            last_message_index=eqx.nn.StateIndex(_absent_message(n)),
         )
 
     def step(
@@ -131,7 +131,12 @@ class SIPFeature(eqx.Module):
             streams=streams,
             inference=inference,
         )
-        new_state = new_state.set(self.last_observation_index, emitter_outputs.observation)
+        new_state = new_state.set(
+            self.last_message_index,
+            InstrumentedMessage(
+                observation=emitter_outputs.observation, instrument=emitter_outputs.instrument
+            ),
+        )
         return new_state, SIPFeatureOutputs(
             observation=emitter_outputs.observation,
             instrument=emitter_outputs.instrument,
@@ -157,7 +162,7 @@ class SensationInputFeature(eqx.Module):
 
     instrument_map: GaussianNPN
     mismatch: Mismatch
-    last_observation_index: eqx.nn.StateIndex[NormalNP]
+    last_message_index: eqx.nn.StateIndex[InstrumentedMessage]
 
     @classmethod
     def create(
@@ -178,7 +183,7 @@ class SensationInputFeature(eqx.Module):
                 gain_features=gain_features,
                 streams=streams,
             ),
-            last_observation_index=eqx.nn.StateIndex(_absent_observation(n)),
+            last_message_index=eqx.nn.StateIndex(_absent_message(n)),
         )
 
     def step(
@@ -220,7 +225,10 @@ class SensationInputFeature(eqx.Module):
             streams=streams,
             inference=inference,
         )
-        state = state.set(self.last_observation_index, out_observation)
+        state = state.set(
+            self.last_message_index,
+            InstrumentedMessage(observation=out_observation, instrument=out_instrument),
+        )
         return state, SIPFeatureOutputs(
             observation=out_observation,
             instrument=out_instrument,
@@ -310,7 +318,6 @@ class TDFeature(eqx.Module):
     """
 
     td_error: TDError
-    last_observation_index: eqx.nn.StateIndex[NormalNP]
 
     @classmethod
     def create(
@@ -327,8 +334,7 @@ class TDFeature(eqx.Module):
                 predictor_features=predictor_features,
                 discount=discount,
                 streams=streams,
-            ),
-            last_observation_index=eqx.nn.StateIndex(_absent_observation(n)),
+            )
         )
 
     def step(
@@ -349,7 +355,6 @@ class TDFeature(eqx.Module):
             streams=streams,
             inference=inference,
         )
-        new_state = new_state.set(self.last_observation_index, reward_observation)
         return new_state, TDFeatureOutputs(
             observation=reward_observation,
             advantage=td_outputs.advantage,
@@ -360,9 +365,8 @@ class TDFeature(eqx.Module):
         )
 
 
-def _absent_observation(n: int) -> NormalNP:
+def _absent_message(n: int) -> InstrumentedMessage:
     """Absent-message placeholder (mean 0, precision 0) for the first-step read."""
-    return normal_from_mean_and_presence(
-        jnp.zeros(n, dtype=jnp.float64),
-        jnp.zeros(n, dtype=jnp.float64),
-    )
+    zero = jnp.zeros(n, dtype=jnp.float64)
+    channel = normal_from_mean_and_presence(zero, zero)
+    return InstrumentedMessage(observation=channel, instrument=channel)

@@ -8,7 +8,11 @@ from tjax import RngStream
 
 from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.intentions import Intentions
-from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.sip.messages import (
+    InstrumentedMessage,
+    concat_instrumented_messages,
+    concat_messages,
+)
 
 
 def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
@@ -101,17 +105,21 @@ def test_intentions_infer_cascades_top_mismatch_as_lower_content(
         fresh,
         keys[1],
         observation_content=readouts[1],
-        predictors=predictors[1],
+        predictors=predictors[1],  # top has no higher layers to concat
         gain=None,
         goal=advantages[1],
         streams=streams,
         inference=True,
     )
+    # Bottom's effective predictor concats its external predictor with the
+    # top layer's just-written last message.
+    top_message = fresh.get(intentions.features[1].last_message_index)
+    bottom_predictor = concat_instrumented_messages(predictors[0], top_message)
     _, bottom_out = intentions.features[0].step(
         fresh,
         keys[0],
         observation_content=concat_messages(readouts[0], top_out.observation_mismatch),
-        predictors=predictors[0],
+        predictors=bottom_predictor,
         gain=None,
         goal=advantages[0],
         streams=streams,
