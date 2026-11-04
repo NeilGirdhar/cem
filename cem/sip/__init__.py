@@ -2,6 +2,15 @@
 
 from cem.sip.credit import Credit, CreditOutputs, CreditTraces
 from cem.sip.emitter import Emitter, EmitterOutputs
+from cem.sip.features import (
+    FeatureGain,
+    FeaturePredictors,
+    SIPFeature,
+    SIPFeatureOutputs,
+    SIPFeatureSizes,
+    TDFeature,
+    TDFeatureOutputs,
+)
 from cem.sip.messages import (
     evidence_scale,
     mean_and_precision,
@@ -17,10 +26,17 @@ __all__ = [
     "CreditTraces",
     "Emitter",
     "EmitterOutputs",
+    "FeatureGain",
+    "FeaturePredictors",
     "Mismatch",
     "MismatchOutputs",
+    "SIPFeature",
+    "SIPFeatureOutputs",
+    "SIPFeatureSizes",
     "TDError",
     "TDErrorOutputs",
+    "TDFeature",
+    "TDFeatureOutputs",
     "TDTraces",
     "evidence_scale",
     "mean_and_precision",
