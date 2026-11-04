@@ -32,6 +32,11 @@ Features (per causal node):
   "prospect feature" role when wired into `RewardCritic`.
 - `TDFeature` — one value node: `TDError` only; reward features use fixed
   unit gain and no local noise, so they skip the emitter.
+- `RecruiterFeature` — one recruiter node: a controllable `SIPFeature` with
+  no gain parent. Steps with `gain_observation=None, gain_instrument=None`
+  (and its underlying `Mismatch` is created with `gain_instrument_features=0`
+  so the witness map ignores the missing gain parent). Supplies gain to its
+  consumer features.
 
 Composition `Module`s (plain `eqx.Module`s, not `Model` subclasses):
 

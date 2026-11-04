@@ -20,6 +20,14 @@ Leaves first, then features, then models
 - [x] `Mismatch` — committed, unit-tested. Experiments 4–7 still to write.
 - [x] `TDError` — committed, unit-tested. Experiments 13–15 still to write.
 - [x] `SIPFeature`, `TDFeature` — committed, unit-tested.
+- [ ] Recruiter support — accept `gain_observation: NormalNP | None` and
+  `gain_instrument: NormalNP | None` in `Emitter`, `Mismatch`, `Credit`, and
+  the feature wrappers; one `is None` branch per site drops gain multiplies
+  and sets the norm-constraint RHS to `1.0`. Witness-map input size is set
+  at create time, so recruiter `Mismatch`es still take
+  `gain_instrument_features=0`. Add a `RecruiterFeature` composition
+  (controllable `SIPFeature` with no gain parent) that supplies gain to
+  its consumer features.
 - [ ] `ExplanatoryCoupling`, `RewardCritic`, `SIPAgent` — plain `eqx.Module`s
   (not `Model` subclasses) that wire features together per the thesis's
   architecture figures (prediction, demand, readout, dissonance, advantage).
