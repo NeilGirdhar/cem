@@ -38,7 +38,6 @@ def test_step_advances_traces_from_zero(streams: Mapping[str, RngStream]) -> Non
     gain = jnp.array([1.0, 0.5])
     raw_mean = jnp.array([1.0, 0.0])
     raw_precision = jnp.array([0.25, 0.75])
-    emitted_precision = gain * raw_precision
 
     new_state, _ = credit.step(
         initial_state,
@@ -46,7 +45,6 @@ def test_step_advances_traces_from_zero(streams: Mapping[str, RngStream]) -> Non
         noised_instrument=_message(inst_mean, inst_precision),
         observation_content=_message(jnp.array([0.0]), jnp.array([1.0])),
         raw_observation=_message(raw_mean, raw_precision),
-        observation=_message(gain * raw_mean, emitted_precision),
         goal=jnp.asarray(0.0),
     )
     traces = new_state.get(credit.trace_index)
@@ -54,8 +52,7 @@ def test_step_advances_traces_from_zero(streams: Mapping[str, RngStream]) -> Non
     # Zero decay means prev=0 drops out and we see one step of contribution.
     assert jnp.allclose(traces.linear, gain * (inst_precision * inst_mean))
     assert jnp.allclose(traces.quadratic, gain * jnp.square(inst_mean))
-    # Emitted precision already has gain scaling folded in (thesis).
-    assert jnp.allclose(traces.obs_precision, emitted_precision)
+    assert jnp.allclose(traces.obs_precision, gain * raw_precision)
 
 
 def test_step_mean_cotangent_equals_goal_times_linear_minus_shrinkage(
@@ -70,7 +67,6 @@ def test_step_mean_cotangent_equals_goal_times_linear_minus_shrinkage(
     gain = jnp.array([1.0, 1.0])
     raw_mean = jnp.array([3.0, -2.0])
     raw_precision = jnp.array([0.5, 1.5])
-    emitted_precision = gain * raw_precision
     goal = jnp.asarray(2.5)
 
     _, outputs = credit.step(
@@ -79,12 +75,11 @@ def test_step_mean_cotangent_equals_goal_times_linear_minus_shrinkage(
         noised_instrument=_message(inst_mean, inst_precision),
         observation_content=_message(jnp.array([0.0]), jnp.array([1.0])),
         raw_observation=_message(raw_mean, raw_precision),
-        observation=_message(gain * raw_mean, emitted_precision),
         goal=goal,
     )
 
     expected_linear_trace = gain * (inst_precision * inst_mean)
-    expected_obs_precision_trace = emitted_precision
+    expected_obs_precision_trace = gain * raw_precision
     expected_mean_cotangent = goal * expected_linear_trace - raw_mean * expected_obs_precision_trace
     assert jnp.allclose(outputs.cotangent[:, 0], expected_mean_cotangent)
 
@@ -101,7 +96,6 @@ def test_step_precision_cotangent_uses_quadratic_trace_and_prediction_error(
     gain = jnp.array([1.0, 1.0])
     raw_mean = jnp.array([0.0, 0.0])
     raw_precision = jnp.array([1.0, 1.0])
-    emitted_precision = gain * raw_precision
     content_mean = jnp.array([0.0])
     content_precision = jnp.array([1.0])
     goal = jnp.asarray(4.0)
@@ -112,7 +106,6 @@ def test_step_precision_cotangent_uses_quadratic_trace_and_prediction_error(
         noised_instrument=_message(inst_mean, inst_precision),
         observation_content=_message(content_mean, content_precision),
         raw_observation=_message(raw_mean, raw_precision),
-        observation=_message(gain * raw_mean, emitted_precision),
         goal=goal,
     )
 
@@ -142,7 +135,6 @@ def test_step_loss_is_scalar_and_promotes_baseline(
         noised_instrument=_message(jnp.ones(n), jnp.ones(n)),
         observation_content=_message(jnp.array([1.0]), jnp.array([1.0])),
         raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
-        observation=_message(jnp.zeros(n), jnp.ones(n)),
         goal=jnp.asarray(1.0),
     )
 
@@ -167,7 +159,6 @@ def test_decay_reduces_previous_trace(streams: Mapping[str, RngStream]) -> None:
         noised_instrument=_message(inst_mean, inst_precision),
         observation_content=_message(jnp.array([0.0]), jnp.array([1.0])),
         raw_observation=_message(jnp.zeros(n), raw_precision + 1e-8),
-        observation=_message(jnp.zeros(n), gain * (raw_precision + 1e-8)),
         goal=jnp.asarray(0.0),
     )
     first_linear = state.get(credit.trace_index).linear
@@ -179,7 +170,6 @@ def test_decay_reduces_previous_trace(streams: Mapping[str, RngStream]) -> None:
         noised_instrument=_message(jnp.zeros(n), jnp.ones(n)),
         observation_content=_message(jnp.array([0.0]), jnp.array([1.0])),
         raw_observation=_message(jnp.zeros(n), raw_precision + 1e-8),
-        observation=_message(jnp.zeros(n), gain * (raw_precision + 1e-8)),
         goal=jnp.asarray(0.0),
     )
     second_linear = state.get(credit.trace_index).linear

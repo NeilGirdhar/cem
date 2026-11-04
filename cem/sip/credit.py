@@ -70,7 +70,6 @@ class Credit(eqx.Module):
         noised_instrument: NormalNP,
         observation_content: NormalNP,
         raw_observation: NormalNP,
-        observation: NormalNP,
         goal: JaxRealArray,
     ) -> tuple[eqx.nn.State, CreditOutputs]:
         """Advance the credit circuit one time step.
@@ -85,16 +84,14 @@ class Credit(eqx.Module):
         inst_mean, inst_precision = mean_and_precision(noised_instrument)
         raw_mean, raw_precision = mean_and_precision(raw_observation)
         gain, _ = mean_and_precision(gain_observation)
-        _, observation_precision = mean_and_precision(observation)
 
-        # Precision of the post-gain `observation` already has gain folded in
-        # (thesis note at <sip-eligibility-traces>; see also the clarification
-        # in ~/src/typst/todo.txt), so the common `gain * contribution` factor
-        # is skipped for the obs-precision trace only.
+        def advance(old: JaxRealArray, contribution: JaxRealArray) -> JaxRealArray:
+            return decay * old + gain * contribution
+
         new_traces = CreditTraces(
-            linear=decay * traces.linear + gain * inst_precision * inst_mean,
-            quadratic=decay * traces.quadratic + gain * jnp.square(inst_mean),
-            obs_precision=decay * traces.obs_precision + observation_precision,
+            linear=advance(traces.linear, inst_precision * inst_mean),
+            quadratic=advance(traces.quadratic, jnp.square(inst_mean)),
+            obs_precision=advance(traces.obs_precision, raw_precision),
         )
         new_state = state.set(self.trace_index, new_traces)
 

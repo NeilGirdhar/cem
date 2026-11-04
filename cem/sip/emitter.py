@@ -77,7 +77,6 @@ class Emitter(eqx.Module):
             noised_instrument=noised_instrument,
             observation_content=observation_content,
             raw_observation=raw_observation,
-            observation=observation,
             goal=goal,
         )
 
