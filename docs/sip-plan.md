@@ -9,20 +9,63 @@ Interactive, piece by piece. Each piece ships its module, its unit tests, any nu
 experiment it unblocks, and the JSON output that the thesis consumes via `chart()`. Order is
 set turn by turn, not pre-sequenced.
 
+## Classes
+
+Naming convention: bare names for domain-specific nouns (`Emitter`, `Mismatch`, …); the `SIP`
+prefix only for generic ones that would otherwise collide with common ML terms (`SIPFeature`,
+`SIPValueModel`, `SIPAgent`). `ExplanatoryCoupling` is a thesis term and takes no prefix.
+
+Circuit sub-modules (leaves first):
+
+- `Credit` — eligibility-based update rule;
+  `update(traces, stimulus, response, goal) → (new_traces, cotangent)`.
+    - Traces live in the recurrent `state` carry, not in the module.
+- `Mismatch` — reconstruction and observation errors, witness and witness-gain maps, loss
+  weights, dissonance.
+- `TDError` — Gaussian bootstrap target, one-step delay, advantage, uncertainty penalty.
+    - Delay buffer lives in the recurrent `state` carry.
+- `Emitter` — forward dynamics (observation map, instrument map, noise top-up, injection).
+    - Contains `Credit`.
+
+Features (per causal node):
+
+- `SIPFeature` — one identification node: `Emitter` + `Mismatch`. Plays the "prospect feature"
+  role when wired into `SIPValueModel`.
+- `TDFeature` — one value node: `Emitter` + `TDError`.
+
+`Model` subclasses:
+
+- `ExplanatoryCoupling` — wired stack of `SIPFeature`s; identification `Model` for tests 1–12,
+  16. Also reused as a sub-`Module` inside `SIPAgent`.
+- `SIPValueModel` — collection of prospect `SIPFeature`s + one `TDFeature`; tests 13–15.
+- `SIPAgent` — two `ExplanatoryCoupling`s (observation and intention; the intention coupling
+  is the policy) + one `SIPValueModel`; test 17.
+
 ## Target code layout
 
-In `cem/sip/`:
+- `cem/sip/` — the circuit.
+    - `messages.py` — SIP-specific Gaussian helpers (evidence scaling, amplitude gating,
+      mismatch-message encoding). Pure functions, no classes.
+    - `credit.py` — `Credit`.
+    - `mismatch.py` — `Mismatch`.
+    - `td_error.py` — `TDError`.
+    - `emitter.py` — `Emitter`.
+    - `features.py` — `SIPFeature`, `TDFeature`.
+    - `models.py` — `ExplanatoryCoupling`, `SIPValueModel`, `SIPAgent`.
+- `cem/sip/experiments/` — experiments and test fixtures.
+    - `datasets.py` — `Problem` / `DataSource` for the identification tests.
+    - `scenarios.py` — parametrized SCM generator (confounding, instrument strength,
+      heteroskedasticity, endogenous gain, chain depth, bypass paths, nonlinearity).
+    - `baselines.py` — 2SLS and OLS reference implementations.
+    - `evaluation.py` — paired-sample runner, multi-seed aggregation, cross-fitting splits.
+    - `instruments.py` — tests 1–3.
+    - `prediction.py` — tests 4–7.
+    - `emitter_credit.py` — tests 8–12.
+    - `value_learning.py` — tests 13–15.
+    - `system.py` — tests 16–17.
 
-| Module | Contents |
-|---|---|
-| `messages.py` | Gaussian helpers on `n × 2` natural parameters: moment ↔ natural ↔ expectation conversions, cross-entropy, evidence scaling, amplitude gating, mismatch-message encoding |
-| `links.py` | Promoting and suppressing links as surrogate losses `stop_gradient(cotangent) · quantity`, so autodiff delivers exactly the chapter's cotangents |
-| `emitter.py` | Observation map, bias-free instrument map, instantaneous noise top-up, shared noise injection, evidence scaling, instrument mismatch, three eligibility traces, mean credit and shrinkage, precision credit and shrinkage |
-| `mismatch.py` | Target observation, prediction map, reconstruction error, observation mismatch, witness residuals, witness map × witness-gain map, confounding errors, loss weights, witness multiplier, dissonance and disutility outputs |
-| `td_error.py` | Gaussian bootstrap target, one-step delay, advantage, uncertainty penalty, unit gain, init `(0, 1)` |
-| `training.py` | Online and minibatch loops using `jax.lax.scan`; per-group optimizer routing through `DisGradientTransformation` |
-| `scenarios.py` | Parametrized SCM generator: confounding, instrument strength, heteroskedasticity, endogenous gain, chain depth, bypass paths, nonlinearity |
-| `experiments/` | One module per test group, each returning a result dataclass and chart series |
+Implementation gates: `Emitter` alone covers test 12; `Emitter + Mismatch + Credit` covers tests
+1–12; `TDError` adds 13–15; tests 16–17 wire the full stack together and need no new modules.
 
 ## SIP-specific plug points
 
