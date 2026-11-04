@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "uv_build"
-requires = [ "uv-build>=0.13,<0.14" ]
+requires = [ "uv-build>=0.13.7,<0.14" ]
 
 [project]
 name = "cem"
@@ -34,19 +34,19 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "array-api-extra>=0.6",
-  "datasets>=3.2",
-  "efax>=2.4",
-  "equinox>=0.13.7",
-  "jax[cuda]>=0.9",
-  "more-itertools>=10.6",
-  "optuna>=4.2",
-  "rich>=13.9.4",
-  "scipy>=1.16",
-  "threadpoolctl>=3.5",
-  "tjax>=1.5.2",
-  "typer>=0.15.1",
-  "wandb>=0.19.4"
+  "array-api-extra>=0.11.5",
+  "datasets>=5.1",
+  "efax>=2.6",
+  "equinox>=0.13.8",
+  "jax[cuda]>=0.12.0.1",
+  "more-itertools>=11.2.1",
+  "optuna>=5",
+  "rich>=15",
+  "scipy>=1.18.1",
+  "threadpoolctl>=3.7",
+  "tjax>=2.0.1",
+  "typer>=0.27.3",
+  "wandb>=0.31",
 ]
 urls.Documentation = "https://github.com/NeilGirdhar/cem#readme"
 urls.Issues = "https://github.com/NeilGirdhar/cem/issues"
@@ -56,15 +56,15 @@ scripts.cem = "cem.commands.app:app"
 [dependency-groups]
 dev = [
   "jupyter>=1.1.1",
-  "lefthook>=2",
-  "pyproject-fmt>=2.30",
-  "pyrefly>=1",
-  "pytest>=8.3.4",
-  "ruff>=0.16.5",
-  "rumdl>=0.3",
-  "taplo>=0.9",
-  "ty>=0.0.80",
-  "vulture>=2.14",
+  "lefthook>=2.2.2",
+  "pyproject-fmt>=2.30.6",
+  "pyrefly>=1.4",
+  "pytest>=9.2",
+  "ruff>=0.17.3",
+  "rumdl>=0.3.2",
+  "taplo>=0.9.3",
+  "ty>=0.0.97",
+  "vulture>=2.16",
 ]
 
 [tool.uv]

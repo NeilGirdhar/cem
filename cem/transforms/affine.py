@@ -3,8 +3,8 @@ from typing import Self
 
 import equinox as eqx
 import jax.numpy as jnp
-import numpy as np
 from jax.nn.initializers import variance_scaling
+from jax.typing import DTypeLike
 from tjax import JaxArray, RngStream
 
 from cem.structure.graph import LearnableParameter
@@ -29,10 +29,8 @@ def _init_weight(
     return w_re + 1j * w_im
 
 
-def _bias_dtype(*, complex_matrix: bool) -> np.dtype:
-    if complex_matrix:
-        return jnp.complex128
-    return jnp.float64
+def _bias_dtype(*, complex_matrix: bool) -> DTypeLike:
+    return jnp.complex128 if complex_matrix else jnp.float64
 
 
 class Affine(eqx.Module):
