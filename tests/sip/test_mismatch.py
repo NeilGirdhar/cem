@@ -58,33 +58,33 @@ def test_dissonance_and_disutility_are_sum_and_difference(
     n = 2
     mismatch = _mismatch(n, streams)
     outputs = mismatch.step(**_inputs(n), streams=streams, inference=True)
-    assert jnp.allclose(outputs.dissonance, outputs.reconstruction_loss + outputs.confounding_loss)
-    assert jnp.allclose(outputs.disutility, outputs.reconstruction_loss - outputs.confounding_loss)
+    assert jnp.allclose(outputs.dissonance, outputs.reconstruction_cost + outputs.confounding_cost)
+    assert jnp.allclose(outputs.disutility, outputs.reconstruction_cost - outputs.confounding_cost)
 
 
-def test_reconstruction_loss_trains_prediction_map(streams: Mapping[str, RngStream]) -> None:
-    """The prediction map's last-layer weight has a nonzero gradient from reconstruction loss."""
+def test_reconstruction_cost_trains_prediction_map(streams: Mapping[str, RngStream]) -> None:
+    """The prediction map's last-layer weight has a nonzero gradient from reconstruction cost."""
     n = 2
     mismatch = _mismatch(n, streams)
     inputs = _inputs(n)
 
     def loss_fn(m: Mismatch) -> jnp.ndarray:
-        return m.step(**inputs, streams=streams, inference=True).reconstruction_loss
+        return m.step(**inputs, streams=streams, inference=True).reconstruction_cost
 
     grads = eqx.filter_grad(loss_fn)(mismatch)
     assert jnp.any(jnp.abs(grads.prediction_map.layers[-1].weight.value) > 0)
 
 
-def test_confounding_loss_does_not_train_witness_map(
+def test_confounding_cost_does_not_train_witness_map(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """Confounding loss's gradient to witness params is zero (witness stop-gradded)."""
+    """Confounding cost's gradient to witness params is zero (witness stop-gradded)."""
     n = 2
     mismatch = _mismatch(n, streams)
     inputs = _inputs(n)
 
     def loss_fn(m: Mismatch) -> jnp.ndarray:
-        return m.step(**inputs, streams=streams, inference=True).confounding_loss
+        return m.step(**inputs, streams=streams, inference=True).confounding_cost
 
     grads = eqx.filter_grad(loss_fn)(mismatch)
     assert jnp.allclose(grads.witness_map.layers[-1].weight.value, 0.0)
@@ -127,8 +127,8 @@ def test_combined_loss_does_not_train_loss_weights(streams: Mapping[str, RngStre
         return m.step(**inputs, streams=streams, inference=True).loss
 
     grads = eqx.filter_grad(loss_fn)(mismatch)
-    assert jnp.allclose(grads.reconstruction_loss_weight.value, 0.0)
-    assert jnp.allclose(grads.confounding_loss_weight.value, 0.0)
+    assert jnp.allclose(grads.reconstruction_cost_weight.value, 0.0)
+    assert jnp.allclose(grads.confounding_cost_weight.value, 0.0)
 
 
 def test_multiplier_ascends_when_constraint_violated(
