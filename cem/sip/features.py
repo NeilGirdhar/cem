@@ -19,7 +19,7 @@ import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray, KeyArray, RngStream
 
-from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
+from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 from cem.sip.messages import InstrumentedMessage, evidence_scale, mean_and_precision
@@ -93,7 +93,7 @@ class SIPFeature(eqx.Module):
         return cls(
             emitter=emitter,
             mismatch=mismatch,
-            last_message_index=eqx.nn.StateIndex(_absent_message(n)),
+            last_message_index=eqx.nn.StateIndex(InstrumentedMessage.initial(n)),
         )
 
     def step(
@@ -177,7 +177,7 @@ class SensationInputFeature(eqx.Module):
                 gain_features=gain_features,
                 streams=streams,
             ),
-            last_message_index=eqx.nn.StateIndex(_absent_message(n)),
+            last_message_index=eqx.nn.StateIndex(InstrumentedMessage.initial(n)),
         )
 
     def step(
@@ -332,7 +332,7 @@ class ProspectFeature(eqx.Module):
         )
         return cls(
             emitter=emitter,
-            last_message_index=eqx.nn.StateIndex(_absent_message(n)),
+            last_message_index=eqx.nn.StateIndex(InstrumentedMessage.initial(n)),
         )
 
     def step(
@@ -441,10 +441,3 @@ class TDFeature(eqx.Module):
             uncertainty_loss=td_outputs.uncertainty_loss,
             loss=td_outputs.loss,
         )
-
-
-def _absent_message(n: int) -> InstrumentedMessage:
-    """Absent-message placeholder (mean 0, precision 0) for the first-step read."""
-    zero = jnp.zeros(n, dtype=jnp.float64)
-    channel = normal_from_mean_and_presence(zero, zero)
-    return InstrumentedMessage(observation=channel, instrument=channel)

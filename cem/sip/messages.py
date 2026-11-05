@@ -30,9 +30,26 @@ class InstrumentedMessage(eqx.Module):
 
     @classmethod
     def standard(cls, size: int) -> InstrumentedMessage:
+        """Standard normal on both halves: mean 0, precision 1."""
         return InstrumentedMessage(
             observation=normal_from_mean_and_presence(jnp.zeros(size), jnp.ones(size)),
             instrument=normal_from_mean_and_presence(jnp.zeros(size), jnp.ones(size)),
+        )
+
+    @classmethod
+    def initial(cls, size: int) -> InstrumentedMessage:
+        """First-step prior: standard normal observation, null instrument.
+
+        The observation side is a proper standard normal (precision 1) so
+        downstream reads that invert precision are well-posed. The instrument
+        side is the null probe (precision 0): no experimental noise has been
+        injected yet, and the next-level witness / instrument maps correctly
+        see zero on both natural-parameter channels.
+        """
+        zero = jnp.zeros(size)
+        return InstrumentedMessage(
+            observation=normal_from_mean_and_presence(zero, jnp.ones(size)),
+            instrument=normal_from_mean_and_presence(zero, zero),
         )
 
 

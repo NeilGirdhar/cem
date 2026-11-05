@@ -18,13 +18,24 @@ All circuit leaves, features, and whole-agent wiring are in place with unit test
 - [x] Couplings: `ExplanatoryCoupling` marker, `Sensations` (bottom-up), `Intentions` (top-down).
   Both concat the one layer directly above into each level's predictor.
 - [x] `RewardCritic` runs prospects in parallel, concats their outputs into the TD feature's
-  predictor, and feeds the TD feature's previous dissonance back as every prospect's goal.
+  predictor, and feeds the TD feature's previous dissonance back as every prospect's goal. One
+  prospect per sensation feature and one per intention feature; the predictor instrument is the
+  matching feature's instrument, so each prospect attributes reward credit through one specific
+  component.
 - [x] `SIPAgent` wires one `Sensations`, one `Intentions`, and one `RewardCritic` through a shared
-  `eqx.nn.State`: sensations first with the environment observation and intention-efference
-  predictors; intentions top-down with sensation readouts, sensation-instrument predictors, and
-  the TD feature's previous advantage; reward critic last with a diffuse sensation and intention
-  readout and matching-level predictor instruments. The action is the bottom intention's
-  observation.
+  `eqx.nn.State`. `SIPAgent.create` takes `level_sizes` (shared interior widths; `[]` for the
+  single-level agent), `env_observation_features`, and `env_action_features`; sensation level 0
+  has width `env_observation_features + env_action_features`, intention level 0 has width
+  `env_action_features`. Each step: sensations first with sensation-level-0 input =
+  `concat(env observation, previous action)` — the eligibility trace — and intention-efference
+  external predictors; intentions top-down with sensation readouts, sensation-message external
+  predictors, and the TD feature's previous advantage; reward critic last with a diffuse readout
+  (every sensation and intention observation) and per-feature predictor instruments. The action
+  is the bottom intention's observation.
+- [x] First-step prior unified via `InstrumentedMessage.initial(n)`: observation half is a
+  standard normal (precision 1, so raw-observation reads are well-posed), instrument half is
+  the null probe (precision 0, no fake experimental noise). Replaces the former
+  `_absent_message` helper.
 
 ## What is missing
 
@@ -119,9 +130,6 @@ Open questions and follow-ups that are not blockers but want a note so they are 
 - [ ] **Witness norm constraint.** The unit-RHS special case (`E[||w||²] ≤ 1`) is hardcoded in
   `Mismatch` and `TDError`. The thesis's general form has the gain's mean on the RHS; check
   whether the general form matters once recruiters supply a non-trivial gain.
-- [ ] **Initial-step absent-message semantics.** Features initialize `last_message_index` with
-  mean 0 / precision 0 (`_absent_message`); TD traces initialize with mean 0 / precision 1
-  (`InstrumentedMessage.standard`). Confirm the asymmetry is wanted, or unify.
 - [ ] **JIT / vmap.** `SIPAgent.step` has not been exercised under `eqx.filter_jit` or vmapped
   over a batch of agents. Expect the usual pytree / static-field surprises; worth a smoke test
   before it blocks an experiment.
