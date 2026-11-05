@@ -24,6 +24,7 @@ from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 from cem.sip.messages import InstrumentedMessage, evidence_scale, mean_and_precision
 from cem.sip.mismatch import Mismatch
+from cem.sip.settings import CreditSettings, MismatchSettings, TDSettings
 from cem.sip.td_error import TDError
 
 
@@ -63,7 +64,8 @@ class SIPFeature(eqx.Module):
         sizes: SIPFeatureSizes,
         *,
         controllable: bool,
-        trace_decay_rate: float = 0.0,
+        credit_settings: CreditSettings,
+        mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         """Build an identification feature with separate widths for its three parent inputs.
@@ -84,18 +86,19 @@ class SIPFeature(eqx.Module):
         emitter = Emitter.create(
             observation_map=observation_map,
             instrument_map=instrument_map,
-            credit=Credit.create(n, baseline_map, trace_decay_rate=trace_decay_rate),
+            credit=Credit.create(n, baseline_map, credit_settings=credit_settings),
             controllable=controllable,
         )
-        mismatch = Mismatch.create(
+        mismatch_circuit = Mismatch.create(
             n,
             predictor_features=sizes.predictor,
             gain_features=sizes.gain,
+            mismatch_settings=mismatch_settings,
             streams=streams,
         )
         return cls(
             emitter=emitter,
-            mismatch=mismatch,
+            mismatch=mismatch_circuit,
             last_message_index=eqx.nn.StateIndex(InstrumentedMessage.initial(n)),
         )
 
@@ -159,6 +162,7 @@ class SensationInputFeature(eqx.Module):
         *,
         predictor_features: int,
         gain_features: int = 0,
+        mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
@@ -169,6 +173,7 @@ class SensationInputFeature(eqx.Module):
                 n,
                 predictor_features=predictor_features,
                 gain_features=gain_features,
+                mismatch_settings=mismatch_settings,
                 streams=streams,
             ),
             last_message_index=eqx.nn.StateIndex(InstrumentedMessage.initial(n)),
@@ -233,7 +238,8 @@ class RecruiterFeature(eqx.Module):
         *,
         observation_content_features: int,
         predictor_features: int,
-        trace_decay_rate: float = 0.0,
+        credit_settings: CreditSettings,
+        mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         sizes = SIPFeatureSizes(
@@ -243,7 +249,12 @@ class RecruiterFeature(eqx.Module):
         )
         return cls(
             feature=SIPFeature.create(
-                n, sizes, controllable=True, trace_decay_rate=trace_decay_rate, streams=streams
+                n,
+                sizes,
+                controllable=True,
+                credit_settings=credit_settings,
+                mismatch_settings=mismatch_settings,
+                streams=streams,
             )
         )
 
@@ -291,7 +302,7 @@ class ProspectFeature(eqx.Module):
         *,
         observation_content_features: int,
         predictor_features: int,
-        trace_decay_rate: float = 0.0,
+        credit_settings: CreditSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         observation_map = GaussianNPN.create(
@@ -306,7 +317,7 @@ class ProspectFeature(eqx.Module):
         emitter = Emitter.create(
             observation_map=observation_map,
             instrument_map=instrument_map,
-            credit=Credit.create(n, baseline_map, trace_decay_rate=trace_decay_rate),
+            credit=Credit.create(n, baseline_map, credit_settings=credit_settings),
             controllable=False,
         )
         return cls(
@@ -371,14 +382,14 @@ class TDFeature(eqx.Module):
         n: int,
         *,
         predictor_features: int,
-        discount: float = 1.0,
+        td_settings: TDSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
             td_error=TDError.create(
                 n,
                 predictor_features=predictor_features,
-                discount=discount,
+                td_settings=td_settings,
                 streams=streams,
             ),
             last_dissonance_index=eqx.nn.StateIndex(jnp.asarray(0.0, dtype=jnp.float64)),

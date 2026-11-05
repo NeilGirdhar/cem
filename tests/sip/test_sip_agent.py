@@ -5,23 +5,74 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import RngStream
 
-from cem.sip.sip_agent import SIPAgent
+from cem.sip import (
+    CreditSettings,
+    EnvironmentFeatures,
+    MismatchSettings,
+    SIPAgent,
+    SIPAgentSettings,
+    TDSettings,
+)
 
-from .tools import _message
+from .tools import CREDIT_SETTINGS, _message
 
 ENV_OBS = 2
 ENV_ACT = 2
-INTERIOR = [3]
+INTERIOR = (3,)
 
 
 def _agent(streams: Mapping[str, RngStream]) -> SIPAgent:
     return SIPAgent.create(
-        INTERIOR,
-        env_observation_features=ENV_OBS,
-        env_action_features=ENV_ACT,
-        environment_reward_features=1,
+        SIPAgentSettings(
+            environment=EnvironmentFeatures(observation_features=ENV_OBS, action_features=ENV_ACT),
+            level_sizes=INTERIOR,
+            credit_settings=CREDIT_SETTINGS,
+        ),
         streams=streams,
     )
+
+
+def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream]) -> None:
+    settings = SIPAgentSettings(
+        environment=EnvironmentFeatures(
+            observation_features=ENV_OBS,
+            action_features=ENV_ACT,
+            reward_features=2,
+        ),
+        level_sizes=INTERIOR,
+        prospect_sizes=(2, 4),
+        credit_settings=CreditSettings(trace_decay_rate=0.25),
+        mismatch_settings=MismatchSettings(
+            prediction_hidden_features=5, witness_hidden_features=(7,)
+        ),
+        td_settings=TDSettings(
+            discount=0.8, prediction_hidden_features=(9,), witness_hidden_features=8
+        ),
+    )
+    agent = SIPAgent.create(settings, streams=streams)
+    sensations = agent.sensations.interior_features
+    intentions = agent.intentions.features
+    prospects = agent.reward_critic.prospect_features
+    for feature in (*sensations, *intentions, *prospects):
+        assert jnp.isclose(
+            feature.emitter.credit.trace_decay_rate.value, settings.credit_settings.trace_decay_rate
+        )
+
+    mismatches = (
+        agent.sensations.input_feature.mismatch,
+        *(f.mismatch for f in sensations),
+        *(f.mismatch for f in intentions),
+    )
+    for mismatch in mismatches:
+        assert mismatch.prediction_map.layers[0].bias.value.shape == (5,)
+        assert mismatch.witness_map.layers[0].bias.value.shape == (7,)
+
+    td_error = agent.reward_critic.td_feature.td_error
+    assert jnp.isclose(td_error.discount.value, settings.td_settings.discount)
+    assert td_error.prediction_map.layers[0].bias.value.shape == (9,)
+    assert td_error.witness_map.layers[0].bias.value.shape == (8,)
+    assert td_error.prediction_map.layers[-1].bias.value.shape == (6,)
+    assert td_error.prediction_map.input_pool.dummy_mean.value.shape == (12,)
 
 
 def test_sip_agent_create_matches_coupling_shapes(

@@ -17,6 +17,7 @@ from cem.sip.features import (
     SIPFeatureSizes,
 )
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
+from cem.sip.settings import CreditSettings, MismatchSettings
 
 
 class Sensations(ExplanatoryCoupling):
@@ -34,6 +35,8 @@ class Sensations(ExplanatoryCoupling):
         sizes: Sequence[int],
         *,
         predictor_features: Sequence[int],
+        credit_settings: CreditSettings,
+        mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         """Build a bottom-up sensation stack from per-layer sizes.
@@ -57,6 +60,7 @@ class Sensations(ExplanatoryCoupling):
         input_feature = SensationInputFeature.create(
             sizes[0],
             predictor_features=effective_predictor_features[0],
+            mismatch_settings=mismatch_settings,
             streams=streams,
         )
         interior: list[SIPFeature] = []
@@ -67,7 +71,14 @@ class Sensations(ExplanatoryCoupling):
                 gain=0,
             )
             interior.append(
-                SIPFeature.create(sizes[i], feature_sizes, controllable=False, streams=streams)
+                SIPFeature.create(
+                    sizes[i],
+                    feature_sizes,
+                    controllable=False,
+                    credit_settings=credit_settings,
+                    mismatch_settings=mismatch_settings,
+                    streams=streams,
+                )
             )
         return cls(input_feature=input_feature, interior_features=tuple(interior))
 

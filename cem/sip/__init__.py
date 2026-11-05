@@ -27,20 +27,30 @@ from cem.sip.messages import (
 from cem.sip.mismatch import Mismatch, MismatchOutputs
 from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.sensations import Sensations
+from cem.sip.settings import (
+    CreditSettings,
+    EnvironmentFeatures,
+    MismatchSettings,
+    SIPAgentSettings,
+    TDSettings,
+)
 from cem.sip.sip_agent import SIPAgent, SIPAgentOutputs
 from cem.sip.td_error import TDError, TDErrorOutputs, TDTraces
 
 __all__ = [
     "Credit",
     "CreditOutputs",
+    "CreditSettings",
     "CreditTraces",
     "Emitter",
     "EmitterOutputs",
+    "EnvironmentFeatures",
     "ExplanatoryCoupling",
     "InstrumentedMessage",
     "Intentions",
     "Mismatch",
     "MismatchOutputs",
+    "MismatchSettings",
     "ProspectFeature",
     "ProspectFeatureOutputs",
     "RecruiterFeature",
@@ -48,6 +58,7 @@ __all__ = [
     "RewardCriticOutputs",
     "SIPAgent",
     "SIPAgentOutputs",
+    "SIPAgentSettings",
     "SIPFeature",
     "SIPFeatureOutputs",
     "SIPFeatureSizes",
@@ -57,6 +68,7 @@ __all__ = [
     "TDErrorOutputs",
     "TDFeature",
     "TDFeatureOutputs",
+    "TDSettings",
     "TDTraces",
     "concat_instrumented_messages",
     "concat_messages",

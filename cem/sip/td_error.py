@@ -17,6 +17,7 @@ from cem.sip.messages import (
     promoting_link_loss,
     variance_from_precision,
 )
+from cem.sip.settings import TDSettings
 from cem.structure.graph import FixedParameter, LearnableParameter
 
 
@@ -71,29 +72,27 @@ class TDError(eqx.Module):
         n: int,
         *,
         predictor_features: int,
-        discount: float = 1.0,
-        prediction_hidden_features: int | tuple[int, ...] = (),
-        witness_hidden_features: int | tuple[int, ...] = (),
+        td_settings: TDSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
             prediction_map=GaussianNPN.create(
                 in_features=predictor_features,
                 out_features=n,
-                hidden_features=prediction_hidden_features,
+                hidden_features=td_settings.prediction_hidden_features,
                 streams=streams,
             ),
             witness_map=MLP.create(
                 in_features=2 * predictor_features,
                 out_features=2 * n,
-                hidden_features=witness_hidden_features,
+                hidden_features=td_settings.witness_hidden_features,
                 streams=streams,
             ),
             reconstruction_cost_weight=LearnableParameter(jnp.zeros(n, dtype=jnp.float64)),
             confounding_cost_weight=LearnableParameter(jnp.zeros((n, 2), dtype=jnp.float64)),
             uncertainty_loss_weight=LearnableParameter(jnp.zeros(n, dtype=jnp.float64)),
             witness_multiplier=LearnableParameter(jnp.asarray(0.0, dtype=jnp.float64)),
-            discount=FixedParameter(jnp.asarray(discount, dtype=jnp.float64)),
+            discount=FixedParameter(jnp.asarray(td_settings.discount, dtype=jnp.float64)),
             delay_index=eqx.nn.StateIndex(TDTraces.initial(predictor_features)),
         )
 

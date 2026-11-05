@@ -1,13 +1,16 @@
+import math
 from collections.abc import Mapping
 
 import equinox as eqx
 import jax.numpy as jnp
+import pytest
 from tjax import RngStream
 
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit, CreditTraces
+from cem.sip.settings import CreditSettings
 
-from .tools import _message
+from .tools import CREDIT_SETTINGS, _message
 
 
 def _baseline_npn(obs_content_dim: int, streams: Mapping[str, RngStream]) -> GaussianNPN:
@@ -26,9 +29,15 @@ def test_traces_zeros_initialization() -> None:
     assert jnp.allclose(traces.obs_precision, jnp.zeros(3))
 
 
+@pytest.mark.parametrize("rate", [0.0, -0.1, math.inf, math.nan])
+def test_credit_settings_reject_invalid_decay_rates(rate: float) -> None:
+    with pytest.raises(ValueError, match="finite and positive"):
+        CreditSettings(trace_decay_rate=rate)
+
+
 def test_step_advances_traces_from_zero(streams: Mapping[str, RngStream]) -> None:
     n = 2
-    credit = Credit.create(n, _baseline_npn(1, streams), trace_decay_rate=0.0)
+    credit = Credit.create(n, _baseline_npn(1, streams), credit_settings=CREDIT_SETTINGS)
     initial_state = eqx.nn.State(credit)
 
     inst_mean = jnp.asarray([2.0, -3.0])
@@ -47,7 +56,7 @@ def test_step_advances_traces_from_zero(streams: Mapping[str, RngStream]) -> Non
     )
     traces = new_state.get(credit.trace_index)
 
-    # Zero decay means prev=0 drops out and we see one step of contribution.
+    # The initial traces are zero, so this step contains only the new contribution.
     assert jnp.allclose(traces.linear, gain * (inst_precision * inst_mean))
     assert jnp.allclose(traces.quadratic, gain * jnp.square(inst_mean))
     assert jnp.allclose(traces.obs_precision, gain * raw_precision)
@@ -57,7 +66,7 @@ def test_step_mean_cotangent_equals_goal_times_linear_minus_shrinkage(
     streams: Mapping[str, RngStream],
 ) -> None:
     n = 2
-    credit = Credit.create(n, _baseline_npn(1, streams), trace_decay_rate=0.0)
+    credit = Credit.create(n, _baseline_npn(1, streams), credit_settings=CREDIT_SETTINGS)
     initial_state = eqx.nn.State(credit)
 
     inst_mean = jnp.asarray([2.0, -1.0])
@@ -86,7 +95,7 @@ def test_step_precision_cotangent_uses_quadratic_trace_and_prediction_error(
     streams: Mapping[str, RngStream],
 ) -> None:
     n = 2
-    credit = Credit.create(n, _baseline_npn(1, streams), trace_decay_rate=0.0)
+    credit = Credit.create(n, _baseline_npn(1, streams), credit_settings=CREDIT_SETTINGS)
     initial_state = eqx.nn.State(credit)
 
     inst_mean = jnp.asarray([1.0, 2.0])
@@ -124,7 +133,7 @@ def test_step_loss_is_scalar_and_promotes_baseline(
     streams: Mapping[str, RngStream],
 ) -> None:
     n = 1
-    credit = Credit.create(n, _baseline_npn(1, streams), trace_decay_rate=0.0)
+    credit = Credit.create(n, _baseline_npn(1, streams), credit_settings=CREDIT_SETTINGS)
     initial_state = eqx.nn.State(credit)
 
     _, outputs = credit.step(
@@ -142,7 +151,9 @@ def test_step_loss_is_scalar_and_promotes_baseline(
 def test_decay_reduces_previous_trace(streams: Mapping[str, RngStream]) -> None:
     n = 1
     decay_rate = jnp.log(2.0).item()  # exp(-ln 2) = 0.5
-    credit = Credit.create(n, _baseline_npn(1, streams), trace_decay_rate=decay_rate)
+    credit = Credit.create(
+        n, _baseline_npn(1, streams), credit_settings=CreditSettings(trace_decay_rate=decay_rate)
+    )
     state = eqx.nn.State(credit)
 
     inst_mean = jnp.asarray([2.0])

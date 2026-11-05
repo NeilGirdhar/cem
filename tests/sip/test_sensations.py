@@ -8,7 +8,7 @@ from tjax import RngStream
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 from cem.sip.sensations import Sensations
 
-from .tools import _message
+from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _message
 
 
 def _predictors(size: int) -> InstrumentedMessage:
@@ -22,6 +22,8 @@ def test_sensations_create_input_feature_has_no_observation_map(
     sensations = Sensations.create(
         [3, 2, 4],
         predictor_features=[2, 2, 2],
+        credit_settings=CREDIT_SETTINGS,
+        mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
     assert not hasattr(sensations.input_feature, "observation_map")
@@ -36,6 +38,8 @@ def test_sensations_create_interior_content_sizes_follow_mismatch_cascade(
     sensations = Sensations.create(
         sizes,
         predictor_features=[2, 2, 2],
+        credit_settings=CREDIT_SETTINGS,
+        mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
     assert len(sensations.interior_features) == len(sizes) - 1
@@ -51,6 +55,8 @@ def test_sensations_infer_returns_one_output_per_layer(
     sensations = Sensations.create(
         sizes,
         predictor_features=[1, 1],
+        credit_settings=CREDIT_SETTINGS,
+        mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
     state = eqx.nn.State(sensations)
@@ -76,6 +82,8 @@ def test_sensations_input_feature_passes_observation_through_unchanged(
     sensations = Sensations.create(
         sizes,
         predictor_features=[1],
+        credit_settings=CREDIT_SETTINGS,
+        mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
     env_observation = _message(jnp.asarray([0.1, 0.2, 0.3, 0.4]), jnp.ones(sizes[0]))
@@ -106,6 +114,8 @@ def test_sensations_infer_feeds_dissonance_from_below_as_goal(
     sensations = Sensations.create(
         sizes,
         predictor_features=[1, 1],
+        credit_settings=CREDIT_SETTINGS,
+        mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
     key = jr.key(0)

@@ -3,6 +3,10 @@ from efax import NormalNP
 
 from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip import InstrumentedMessage
+from cem.sip.settings import CreditSettings, MismatchSettings
+
+CREDIT_SETTINGS = CreditSettings(trace_decay_rate=0.1)
+MISMATCH_SETTINGS = MismatchSettings()
 
 
 def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:

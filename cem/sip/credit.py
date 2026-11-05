@@ -9,6 +9,7 @@ from tjax import JaxRealArray
 
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.messages import mean_and_precision, promoting_link_loss
+from cem.sip.settings import CreditSettings
 from cem.structure.graph import FixedParameter
 
 
@@ -48,7 +49,7 @@ class Credit(eqx.Module):
         n: int,
         goal_baseline_map: GaussianNPN,
         *,
-        trace_decay_rate: float = 0.0,
+        credit_settings: CreditSettings,
     ) -> Self:
         """Initialize credit assignment with three zero traces per emitter channel.
 
@@ -56,7 +57,9 @@ class Credit(eqx.Module):
         fraction of the previous traces equal to the exponential of the negated decay rate.
         """
         return cls(
-            trace_decay_rate=FixedParameter(jnp.asarray(trace_decay_rate, dtype=jnp.float64)),
+            trace_decay_rate=FixedParameter(
+                jnp.asarray(credit_settings.trace_decay_rate, dtype=jnp.float64)
+            ),
             goal_baseline_map=goal_baseline_map,
             trace_index=eqx.nn.StateIndex(CreditTraces.zeros(n)),
         )

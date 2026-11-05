@@ -3,7 +3,7 @@
 See the agent architecture section of the thesis.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Self
 
 import equinox as eqx
@@ -18,6 +18,7 @@ from cem.sip.intentions import Intentions
 from cem.sip.messages import concat_messages
 from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.sensations import Sensations
+from cem.sip.settings import SIPAgentSettings
 
 
 class SIPAgentOutputs(eqx.Module):
@@ -42,13 +43,8 @@ class SIPAgent(eqx.Module):
     @classmethod
     def create(
         cls,
-        level_sizes: Sequence[int],
+        agent_settings: SIPAgentSettings,
         *,
-        env_observation_features: int,
-        env_action_features: int,
-        prospect_sizes: Sequence[int] | None = None,
-        environment_reward_features: int = 1,
-        discount: float = 1.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
         """Build a SIP agent for the given environment widths and interior level widths.
@@ -57,14 +53,21 @@ class SIPAgent(eqx.Module):
         `prospect_sizes` includes the environment level and gives the width on each side.
         When omitted, the prospect widths on both sides match the sensation widths.
         """
-        assert env_observation_features > 0
-        assert env_action_features > 0
-        level_sizes = tuple(level_sizes)
-        sensation_sizes = (env_observation_features + env_action_features, *level_sizes)
-        intention_sizes = (env_action_features, *level_sizes)
+        environment = agent_settings.environment
+        assert environment.observation_features > 0
+        assert environment.action_features > 0
+        sensation_sizes = (
+            environment.observation_features + environment.action_features,
+            *agent_settings.level_sizes,
+        )
+        intention_sizes = (environment.action_features, *agent_settings.level_sizes)
         # Give each sensation and intention feature its own prospect so the critic can
         # use its instrument to estimate that feature's effect on reward.
-        per_side_sizes = tuple(prospect_sizes) if prospect_sizes is not None else sensation_sizes
+        per_side_sizes = (
+            sensation_sizes
+            if agent_settings.prospect_sizes is None
+            else agent_settings.prospect_sizes
+        )
         if len(per_side_sizes) != len(sensation_sizes):
             msg = "prospect_sizes must have one entry per level (1 + len(level_sizes))"
             raise ValueError(msg)
@@ -73,16 +76,20 @@ class SIPAgent(eqx.Module):
         n_levels = len(sensation_sizes)
         # Augment reward with one curiosity (confounding cost) and one tracking
         # (reconstruction cost) channel per sensation feature.
-        reward_features = environment_reward_features + 2 * n_levels
+        reward_features = environment.reward_features + 2 * n_levels
         sensations = Sensations.create(
             sensation_sizes,
             # Each sensation receives the previous message from the matching intention.
             predictor_features=list(intention_sizes),
+            credit_settings=agent_settings.credit_settings,
+            mismatch_settings=agent_settings.mismatch_settings,
             streams=streams,
         )
         intentions = Intentions.create(
             intention_sizes,
             readout_features=sensation_sizes,
+            credit_settings=agent_settings.credit_settings,
+            mismatch_settings=agent_settings.mismatch_settings,
             streams=streams,
         )
         reward_critic = RewardCritic.create(
@@ -92,7 +99,8 @@ class SIPAgent(eqx.Module):
             # Match one instrument source to each prospect, with sensations before intentions.
             predictor_features=list(sensation_sizes) + list(intention_sizes),
             reward_features=reward_features,
-            discount=discount,
+            credit_settings=agent_settings.credit_settings,
+            td_settings=agent_settings.td_settings,
             streams=streams,
         )
         return cls(

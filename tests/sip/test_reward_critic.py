@@ -8,8 +8,9 @@ from tjax import RngStream
 from cem.sip.features import ProspectFeature
 from cem.sip.messages import InstrumentedMessage, concat_messages
 from cem.sip.reward_critic import RewardCritic
+from cem.sip.settings import TDSettings
 
-from .tools import _message
+from .tools import CREDIT_SETTINGS, _message
 
 
 def _prospect(n: int, streams: Mapping[str, RngStream]) -> ProspectFeature:
@@ -17,6 +18,7 @@ def _prospect(n: int, streams: Mapping[str, RngStream]) -> ProspectFeature:
         n,
         observation_content_features=2,
         predictor_features=2,
+        credit_settings=CREDIT_SETTINGS,
         streams=streams,
     )
 
@@ -93,6 +95,8 @@ def _critic(streams: Mapping[str, RngStream]) -> RewardCritic:
         observation_content_features=[2, 2],
         predictor_features=[2, 2],
         reward_features=1,
+        credit_settings=CREDIT_SETTINGS,
+        td_settings=TDSettings(),
         streams=streams,
     )
 

@@ -64,6 +64,17 @@ Each intention level receives the matching sensation's current observation as it
 Its predictor is the previous instrumented message from the intention directly below.
 The bottom intention has no predictor inputs.
 
+## Agent construction
+
+Pass `SIPAgentSettings` and random streams to `SIPAgent.create`. The settings group environment
+widths in `EnvironmentFeatures` and circuit settings in `CreditSettings`, `MismatchSettings`,
+and `TDSettings`. The agent derives connection widths from the environment and feature widths.
+
+`CreditSettings` requires a finite, positive trace decay rate shared by the agent's credit
+circuits. Mismatch and TD settings select the prediction and witness hidden widths. The TD
+settings also supply the discount. By default, the maps have no hidden layers and the discount
+is one.
+
 ## Target code layout
 
 - `cem/sip/` — the circuit.
@@ -80,6 +91,7 @@ The bottom intention has no predictor inputs.
     - `intentions.py` — `Intentions`.
     - `reward_critic.py` — `RewardCritic`.
     - `sip_agent.py` — `SIPAgent`.
+    - `settings.py` — agent and circuit construction settings.
 - `cem/sip/experiments/` — experiments and test fixtures.
     - `datasets.py` — `Problem` / `DataSource` for the identification tests.
     - `scenarios.py` — parametrized SCM generator (confounding, instrument strength,

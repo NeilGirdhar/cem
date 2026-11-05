@@ -11,7 +11,7 @@ from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 from cem.sip.messages import mean_and_precision
 
-from .tools import _message
+from .tools import CREDIT_SETTINGS, _message
 
 
 def _emitter(
@@ -31,7 +31,7 @@ def _emitter(
     baseline_map = GaussianNPN.create(
         in_features=content_dim, out_features=1, hidden_features=(), streams=streams
     )
-    credit = Credit.create(n, baseline_map, trace_decay_rate=0.0)
+    credit = Credit.create(n, baseline_map, credit_settings=CREDIT_SETTINGS)
     return Emitter.create(
         observation_map=observation_map,
         instrument_map=instrument_map,

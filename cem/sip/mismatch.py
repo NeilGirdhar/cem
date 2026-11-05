@@ -12,6 +12,7 @@ from tjax import JaxRealArray, RngStream
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.perceptron.mlp import MLP
 from cem.sip.messages import InstrumentedMessage, mean_and_precision, promoting_link_loss
+from cem.sip.settings import MismatchSettings
 from cem.structure.graph import LearnableParameter
 
 
@@ -56,21 +57,20 @@ class Mismatch(eqx.Module):
         *,
         predictor_features: int,
         gain_features: int,
-        prediction_hidden_features: int | tuple[int, ...] = (),
-        witness_hidden_features: int | tuple[int, ...] = (),
+        mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
             prediction_map=GaussianNPN.create(
                 in_features=predictor_features,
                 out_features=n,
-                hidden_features=prediction_hidden_features,
+                hidden_features=mismatch_settings.prediction_hidden_features,
                 streams=streams,
             ),
             witness_map=MLP.create(
                 in_features=2 * (predictor_features + gain_features),
                 out_features=2 * n,
-                hidden_features=witness_hidden_features,
+                hidden_features=mismatch_settings.witness_hidden_features,
                 streams=streams,
             ),
             reconstruction_cost_weight=LearnableParameter(jnp.zeros(n, dtype=jnp.float64)),

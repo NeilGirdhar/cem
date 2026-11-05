@@ -9,7 +9,7 @@ from tjax import JaxRealArray, RngStream
 from cem.sip import InstrumentedMessage
 from cem.sip.mismatch import Mismatch
 
-from .tools import _i_message, _message
+from .tools import MISMATCH_SETTINGS, _i_message, _message
 
 
 class _StepInputs(TypedDict):
@@ -24,6 +24,7 @@ def _mismatch(n: int, streams: Mapping[str, RngStream]) -> Mismatch:
         n,
         predictor_features=2,
         gain_features=1,
+        mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
 
@@ -163,7 +164,13 @@ def test_multiplier_ascends_when_constraint_violated(
 
 
 def _recruiter_mismatch(n: int, streams: Mapping[str, RngStream]) -> Mismatch:
-    return Mismatch.create(n, predictor_features=2, gain_features=0, streams=streams)
+    return Mismatch.create(
+        n,
+        predictor_features=2,
+        gain_features=0,
+        mismatch_settings=MISMATCH_SETTINGS,
+        streams=streams,
+    )
 
 
 def _recruiter_inputs(n: int) -> _StepInputs:

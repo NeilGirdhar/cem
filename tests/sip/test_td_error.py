@@ -8,6 +8,7 @@ from tjax import RngStream
 
 from cem.sip import InstrumentedMessage
 from cem.sip.messages import mean_and_precision
+from cem.sip.settings import TDSettings
 from cem.sip.td_error import TDError
 
 from .tools import _i_message, _message
@@ -22,7 +23,7 @@ def _td_error(n: int, streams: Mapping[str, RngStream], *, discount: float = 1.0
     return TDError.create(
         n,
         predictor_features=2,
-        discount=discount,
+        td_settings=TDSettings(discount=discount),
         streams=streams,
     )
 

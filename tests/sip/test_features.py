@@ -15,8 +15,9 @@ from cem.sip.features import (
     TDFeature,
 )
 from cem.sip.messages import InstrumentedMessage
+from cem.sip.settings import TDSettings
 
-from .tools import _message
+from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _message
 
 
 class _SIPStepInputs(TypedDict):
@@ -40,7 +41,14 @@ def _sip_feature(
         predictor=2,
         gain=1,
     )
-    return SIPFeature.create(n, sizes, controllable=controllable, streams=streams)
+    return SIPFeature.create(
+        n,
+        sizes,
+        controllable=controllable,
+        credit_settings=CREDIT_SETTINGS,
+        mismatch_settings=MISMATCH_SETTINGS,
+        streams=streams,
+    )
 
 
 def _sip_inputs(n: int) -> _SIPStepInputs:
@@ -63,7 +71,7 @@ def _td_feature(n: int, streams: Mapping[str, RngStream], *, discount: float = 1
     return TDFeature.create(
         n,
         predictor_features=2,
-        discount=discount,
+        td_settings=TDSettings(discount=discount),
         streams=streams,
     )
 
@@ -195,6 +203,8 @@ def _recruiter_feature(n: int, streams: Mapping[str, RngStream]) -> RecruiterFea
         n,
         observation_content_features=1,
         predictor_features=2,
+        credit_settings=CREDIT_SETTINGS,
+        mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
 
@@ -273,7 +283,9 @@ def test_recruiter_feature_step_runs_without_gain(
 
 
 def _sensation_input(n: int, streams: Mapping[str, RngStream]) -> SensationInputFeature:
-    return SensationInputFeature.create(n, predictor_features=2, streams=streams)
+    return SensationInputFeature.create(
+        n, predictor_features=2, mismatch_settings=MISMATCH_SETTINGS, streams=streams
+    )
 
 
 def test_sensation_input_observation_pass_through(

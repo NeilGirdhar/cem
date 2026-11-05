@@ -15,6 +15,7 @@ from cem.sip.features import (
     TDFeatureOutputs,
 )
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
+from cem.sip.settings import CreditSettings, TDSettings
 
 
 class RewardCriticOutputs(eqx.Module):
@@ -42,8 +43,8 @@ class RewardCritic(eqx.Module):
         observation_content_features: Sequence[int],
         predictor_features: Sequence[int],
         reward_features: int = 1,
-        discount: float = 1.0,
-        trace_decay_rate: float = 0.0,
+        credit_settings: CreditSettings,
+        td_settings: TDSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         """Build `len(prospect_sizes)` prospects plus one TD feature.
@@ -67,7 +68,7 @@ class RewardCritic(eqx.Module):
                 size,
                 observation_content_features=obs_cf,
                 predictor_features=pred_f,
-                trace_decay_rate=trace_decay_rate,
+                credit_settings=credit_settings,
                 streams=streams,
             )
             for size, obs_cf, pred_f in zip(
@@ -77,13 +78,13 @@ class RewardCritic(eqx.Module):
                 strict=True,
             )
         )
-        td = TDFeature.create(
+        td_feature = TDFeature.create(
             reward_features,
             predictor_features=sum(prospect_sizes),
-            discount=discount,
+            td_settings=td_settings,
             streams=streams,
         )
-        return cls(prospect_features=prospects, td_feature=td)
+        return cls(prospect_features=prospects, td_feature=td_feature)
 
     def step(
         self,

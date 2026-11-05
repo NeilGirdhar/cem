@@ -11,6 +11,7 @@ from tjax import JaxRealArray, KeyArray, RngStream
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import SIPFeature, SIPFeatureOutputs, SIPFeatureSizes
 from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.sip.settings import CreditSettings, MismatchSettings
 
 
 class Intentions(ExplanatoryCoupling):
@@ -27,6 +28,8 @@ class Intentions(ExplanatoryCoupling):
         sizes: Sequence[int],
         *,
         readout_features: Sequence[int],
+        credit_settings: CreditSettings,
+        mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         """Build a top-down intention stack from per-layer sizes.
@@ -52,7 +55,16 @@ class Intentions(ExplanatoryCoupling):
                 predictor=sizes[i - 1] if i > 0 else 0,
                 gain=0,
             )
-            features.append(SIPFeature.create(n, feature_sizes, controllable=True, streams=streams))
+            features.append(
+                SIPFeature.create(
+                    n,
+                    feature_sizes,
+                    controllable=True,
+                    credit_settings=credit_settings,
+                    mismatch_settings=mismatch_settings,
+                    streams=streams,
+                )
+            )
         return cls(features=tuple(features))
 
     def infer(

@@ -3,10 +3,6 @@
 Tracks remaining work for `cem/sip/`. The stable design — classes, module layout, plug points,
 tested claims — lives in [`sip.md`](sip.md).
 
-## Correctness foundations
-
-- [ ] Require and validate a positive `trace_decay_rate` in constructors that build credit circuits.
-
 ## Adaptive loss weighting
 
 - [ ] Adapt the reconstruction and confounding loss weights in `Mismatch` and `TDError`, and
