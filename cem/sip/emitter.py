@@ -1,6 +1,6 @@
 """SIP emitter circuit: observation map, instrument map, noise top-up, gain.
 
-See `sip-emitter` in `~/src/typst/thesis.typ`.
+See `sip-emitter` in the thesis.
 """
 
 from typing import Self
@@ -33,11 +33,9 @@ class EmitterOutputs(eqx.Module):
 
 
 class Emitter(eqx.Module):
-    """One feature's emitter: constructs its observation and instrument.
+    """A circuit that jointly learns a feature's observation and its corresponding instrument.
 
-    Transforms observation content and the predictor instrument through neural maps,
-    injects fresh noise at controllable features to create experimental variation,
-    and evidence-scales both messages by gain.
+    See `sip-emitter` in the thesis.
     """
 
     observation_map: GaussianNPN

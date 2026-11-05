@@ -1,6 +1,6 @@
 """SIP sensation coupling: bottom-up stack of sensation features.
 
-See `sensation-coupling` in `~/src/typst/thesis.typ`.
+See `sensation-coupling` in the thesis.
 """
 
 from collections.abc import Mapping, Sequence
@@ -23,16 +23,9 @@ from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 
 
 class Sensations(ExplanatoryCoupling):
-    """Bottom-up explanatory coupling.
+    """A bottom-up stack of sensation features: abstract levels explain concrete ones.
 
-    Layer 0 is a `SensationInputFeature`: the environment observation flows
-    in unchanged (no `observation_map`, no `Credit`). Each higher layer is a
-    non-controllable `SIPFeature` whose observation content is the previous
-    layer's `observation_mismatch` and whose Credit goal is the previous
-    layer's `dissonance`. Each layer's effective predictor is the externally
-    supplied predictor concatenated with the previous-step instrumented
-    message of the layer directly above (fetched through
-    `last_message_index`), so the next sensation up conditions this one.
+    See `sensation-coupling` in the thesis.
     """
 
     input_feature: SensationInputFeature

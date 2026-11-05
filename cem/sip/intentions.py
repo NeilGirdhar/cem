@@ -1,6 +1,6 @@
 """SIP intention coupling: top-down stack of intention features.
 
-See `intention-coupling` in `~/src/typst/thesis.typ`.
+See `intention-coupling` in the thesis.
 """
 
 from collections.abc import Mapping, Sequence
@@ -21,18 +21,9 @@ from cem.sip.messages import (
 
 
 class Intentions(ExplanatoryCoupling):
-    """Top-down explanatory coupling.
+    """A top-down stack of intention features: abstract intents produce concrete actions.
 
-    Processed top-down: the top layer takes its observation content from its
-    readout alone; every lower layer concatenates its readout with the
-    `observation_mismatch` demand signal from the layer above. Each layer's
-    effective predictor is the externally supplied predictor concatenated
-    with the stored `last_message_index` of the layer directly above it
-    (fetched through `state.get`; in top-down order that is the current
-    step's value). The goal fed to each feature's Credit is the per-layer
-    advantage. All features are controllable `SIPFeature`s that inject
-    local noise to explore. Layer 0 is the bottom (processed last) and its
-    outgoing observation is the action.
+    See `intention-coupling` in the thesis.
     """
 
     features: tuple[SIPFeature, ...]

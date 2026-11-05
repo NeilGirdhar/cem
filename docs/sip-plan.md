@@ -140,7 +140,7 @@ Open questions and follow-ups that are not blockers but want a note so they are 
   forces the TD advantage to be summed and broadcast rather than routed per-feature.
 - [ ] **Controllable pseudo-rewards.** Learn a projection from the raw reward features (extrinsic
   reward plus curiosity and tracking) to pseudo-reward features chosen to be maximally
-  controllable by specific intention features. Design notes are in `~/src/typst/todo.txt` under
+  controllable by specific intention features. Design notes in the thesis todo under
   "Controllable pseudo-rewards".
 - [ ] **Multi-loss gradient transform.** `TDError`, `Mismatch`, and the loss-weight learnables all
   currently stop-gradient their softplus readouts because Adam under a single scalar loss would

@@ -17,13 +17,7 @@ experiments that need a different ceiling."""
 
 
 class InstrumentedMessage(eqx.Module):
-    """A Gaussian message paired with its instrument half.
-
-    SIP signals travel on two co-indexed channels: an observation side carrying
-    the content and an instrument side carrying the causal-identification
-    counterpart. This pair is the message exchanged between features and
-    between a feature and its recruiter.
-    """
+    """A Gaussian observation paired with its instrument, exchanged between SIP features."""
 
     observation: NormalNP
     instrument: NormalNP
@@ -115,8 +109,7 @@ def promoting_link_loss(quantity: JaxRealArray, cotangent: JaxRealArray) -> JaxR
 
     Follows the thesis convention `cotangent(X) := -dL/dX`. The returned scalar's
     autodiff gradient with respect to `quantity` is `-cotangent`, so JAX descent
-    moves `quantity` in direction `+cotangent`. See `promoting-link` in
-    `~/src/typst/thesis.typ`.
+    moves `quantity` in direction `+cotangent`. See `promoting-link` in the thesis.
     """
     return -jnp.sum(jax.lax.stop_gradient(cotangent) * quantity)
 
@@ -126,6 +119,6 @@ def suppressing_link_loss(quantity: JaxRealArray, cotangent: JaxRealArray) -> Ja
 
     The returned scalar's autodiff gradient with respect to `quantity` is
     `+cotangent`, so JAX descent moves `quantity` in direction `-cotangent`. See
-    `suppressing-link` in `~/src/typst/thesis.typ`.
+    `suppressing-link` in the thesis.
     """
     return jnp.sum(jax.lax.stop_gradient(cotangent) * quantity)

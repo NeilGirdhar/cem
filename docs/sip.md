@@ -1,9 +1,8 @@
 # SIP design
 
-The classes, module layout, and tested claims for chapter 5 of the thesis
-(`~/src/typst/thesis.typ`), as implemented under `cem/sip/`. For the in-flight rewrite progress and
-process, see [`sip-plan.md`](sip-plan.md); for the framework SIP plugs into, see
-[`architecture.md`](architecture.md).
+The classes, module layout, and tested claims for chapter 5 of the thesis, as implemented under
+`cem/sip/`. For the in-flight rewrite progress and process, see [`sip-plan.md`](sip-plan.md); for
+the framework SIP plugs into, see [`architecture.md`](architecture.md).
 
 ## Classes
 
@@ -12,72 +11,39 @@ prefix only for generic ones that would otherwise collide with common ML terms (
 `SIPAgent`). `ExplanatoryCoupling`, `Sensations`, `Intentions` and `RewardCritic` are thesis terms
 and take no prefix.
 
-Circuit sub-modules (leaves first):
+Circuit sub-modules:
 
-- `Credit` — eligibility-based update rule;
-  `update(traces, stimulus, response, goal) → (new_traces, cotangent)`.
-    - Traces live in the recurrent `state` carry, not in the module.
-- `Mismatch` — reconstruction and confounding costs, one joint witness MLP over the concatenated
-  predictor and gain instrument natural parameters, loss weights, dissonance.
-- `TDError` — Gaussian bootstrap target, one-step delay, advantage, uncertainty penalty.
-    - Delay buffer lives in the recurrent `state` carry.
-- `Emitter` — forward dynamics (observation map, instrument map, noise top-up, injection).
-    - Contains `Credit`.
+- `Credit` — eligibility-based parameter-update rule.
+- `Mismatch` — witness over predictor and gain instruments producing reconstruction and confounding
+  costs.
+- `TDError` — Gaussian bootstrap value error with uncertainty penalty.
+- `Emitter` — forward dynamics: observation map, instrument map, noise top-up, injection.
 
 Features (per causal node):
 
-- `SIPFeature` — one identification node: `Emitter` and `Mismatch`. Used in sensation and intention
-  couplings. Each `step` writes its outgoing `InstrumentedMessage` into `state` through
-  `last_message_index`, so the next step and any sibling in the same coupling can read the previous
-  (or just-written) message.
-- `SensationInputFeature` — the sensation-stack input. Drops `observation_map` (the environment
-  observation is the raw observation) and `Credit` (a sensor only reports), keeping
-  `instrument_map` and `Mismatch`; also writes its outgoing `InstrumentedMessage` into `state`.
-- `ProspectFeature` — one reward-critic node: `Emitter` and `Credit`, no `Mismatch` (confounding
-  purification happens downstream in the `RewardCritic`'s `TDFeature`). Takes its own observation
-  content and predictor instrument and writes its outgoing `InstrumentedMessage` into `state`.
-- `TDFeature` — one value node: `TDError` only; reward features use fixed unit gain and no local
-  noise, so they skip the emitter. Its observation is the pass-through reward, so it has no
-  `last_message_index`. Writes its scalar `dissonance` and vector `advantage` into `state` for
-  one-step feedback to prospects and intentions.
-- `RecruiterFeature` — one recruiter node: a controllable `SIPFeature` with no gain parent. Its
-  `step` fixes `gain=None` internally, and the underlying `Mismatch` is created with
-  `gain_features=0` so the witness map ignores the missing gain parent. Supplies gain to its
-  consumer features.
+- `SIPFeature` — identification node (emission plus mismatch).
+- `SensationInputFeature` — sensation-stack entry point; the environment observation lands here.
+- `ProspectFeature` — candidate causal factor for the reward critic.
+- `TDFeature` — the reward critic's TD core.
+- `RecruiterFeature` — feature that supplies gain to its consumers.
 
-Messages and helpers in `messages.py`:
+Messages (`messages.py`):
 
-- `InstrumentedMessage` — a Gaussian message paired with its instrument half; the pair exchanged
-  between features and between a feature and its recruiter.
-- `concat_messages`, `concat_instrumented_messages` — concatenation along the component axis
-  (treating each input as an independent-component diagonal Gaussian); used to join readouts with
-  demand signals and to join external predictors with the stored message of the layer directly
-  above.
+- `InstrumentedMessage` — paired observation and instrument Gaussian message, the unit exchanged
+  between features.
+- `concat_messages`, `concat_instrumented_messages` — component-axis concatenation.
 - `mean_and_precision`, `variance_from_precision`, `evidence_scale`, `promoting_link_loss`,
-  `suppressing_link_loss` — Gaussian-message utilities used throughout the circuit.
+  `suppressing_link_loss` — Gaussian-message utilities.
 
-Composition `Module`s (plain `eqx.Module`s, not `Model` subclasses):
+Composition modules (plain `eqx.Module`s, not `Model` subclasses):
 
-- `ExplanatoryCoupling` — marker base for `Sensations` and `Intentions`. Each subclass declares its
-  own feature-stack schema.
-- `Sensations` — bottom-up coupling. Layer 0 is a `SensationInputFeature`; layers 1+ are
-  non-controllable `SIPFeature`s. The environment observation is layer 0's content; each higher
-  layer's content is the previous layer's `observation_mismatch`, and its Credit goal is the
-  previous layer's `dissonance`. Each layer's effective predictor is the external predictor
-  concatenated with the stored message of the layer directly above (previous-step value, since
-  higher layers have not yet been processed this step).
-- `Intentions` — top-down coupling of controllable `SIPFeature`s. The top layer takes its content
-  from the readout alone; lower layers concatenate their readout with the above layer's
-  `observation_mismatch`. Each layer's Credit goal is the externally supplied advantage. The
-  effective predictor concat follows the same rule as `Sensations`; in top-down order the
-  above-layer message is the just-written current-step value. Layer 0 is the bottom (processed
-  last) and its outgoing `observation` is the action.
-- `RewardCritic` — `ProspectFeature`s running in parallel plus one `TDFeature`, wired for reward
-  prediction and purification. The prospect outputs are concatenated into the TD feature's
-  predictor; the TD feature's previous `dissonance` feeds back as every prospect's goal; tests
-  13–15.
-- `SIPAgent` — a `Sensations`, an `Intentions` (the policy), and a `RewardCritic`, wired for
-  readout, affordance, advantage, and dissonance links; test 17.
+- `ExplanatoryCoupling` — marker base for `Sensations` and `Intentions`.
+- `Sensations` — bottom-up stack of identification features that parse the environment.
+- `Intentions` — top-down stack of controllable identification features; the bottom level emits the
+  action.
+- `RewardCritic` — prospects in parallel feeding one `TDFeature` (tests 13–15).
+- `SIPAgent` — a `Sensations`, an `Intentions`, and a `RewardCritic` sharing state; the
+  environment-facing module (test 17).
 
 Implementation gates: `Emitter` alone covers test 12; `Emitter`, `Mismatch`, and `Credit` cover
 tests 1–12; `TDError` adds 13–15; tests 16–17 wire the full stack together and need no new modules.
@@ -167,8 +133,8 @@ full configuration and writes chart JSON.
     constrained-regression optimum. Include contextual baselines, and a condition where the
     eligibility traces contain insufficient variation to distinguish coefficients.
 11. **Temporal credit through shared parameters.** One parameter is reused across time steps; the
-    credit must sum its contributions correctly. Include the counterexample recorded in
-    `~/src/typst/todo.txt` as a condition the test must either pass or reveal.
+    credit must sum its contributions correctly. Include the shared-parameter counterexample from
+    the thesis todo as a condition the test must either pass or reveal.
 12. **Noise generation (emitter test).** The rule is instantaneous:
     `V_local = max(0, σ̃²_inh − μ̃²_inh)`. Check (i) the conditional local variance against this
     rule, (ii) that the same perturbation enters observation and instrument, and (iii) the squared

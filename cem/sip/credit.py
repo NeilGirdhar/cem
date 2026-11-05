@@ -1,6 +1,6 @@
 """SIP credit circuit: eligibility-based update rule for one emitter.
 
-See `sip-credit-circuit` in `~/src/typst/thesis.typ`.
+See `sip-credit-circuit` in the thesis.
 """
 
 from typing import Self
@@ -16,7 +16,7 @@ from cem.structure.graph import FixedParameter
 
 
 class CreditTraces(eqx.Module):
-    """Three eligibility traces per channel, held in the Equinox state carry."""
+    """Three eligibility traces per emitter channel."""
 
     linear: JaxRealArray  # shape (n,)
     quadratic: JaxRealArray  # shape (n,)
@@ -36,12 +36,9 @@ class CreditOutputs(eqx.Module):
 
 
 class Credit(eqx.Module):
-    """Eligibility-based update rule for one emitter's `n` channels.
+    """A circuit that trains an emitter's observation from the goals that follow its experiments.
 
-    Lives inside `Emitter`. Each step reads the current traces from the Equinox
-    state carry, advances them, and returns a cotangent for the emitter's
-    observation plus a dummy loss that trains the goal-baseline NPN through a
-    promoting link.
+    See `sip-credit-circuit` in the thesis.
     """
 
     trace_decay_rate: FixedParameter[JaxRealArray]

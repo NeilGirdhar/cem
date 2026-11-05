@@ -1,7 +1,6 @@
 """SIP agent: Sensations, Intentions, and RewardCritic wired together.
 
-See `causal-agent-arch-figure` and the agent architecture section of
-`~/src/typst/thesis.typ`.
+See `causal-agent-arch-figure` and the agent architecture section of the thesis.
 """
 
 from collections.abc import Mapping, Sequence
@@ -31,42 +30,9 @@ class SIPAgentOutputs(eqx.Module):
 
 
 class SIPAgent(eqx.Module):
-    """One SIP agent: `Sensations`, `Intentions`, and `RewardCritic`.
+    """A SIP agent: a `Sensations`, an `Intentions`, and a `RewardCritic`.
 
-    The three sub-circuits share one `eqx.nn.State` and shuttle their
-    messages through it:
-
-    - Sensations run first. Layer 0's content is the environment
-      observation concatenated with the previous step's action (the
-      eligibility trace, read from the bottom intention's
-      `last_message_index`). Each sensation level's external predictor is
-      the matching intention level's previous-step `last_message_index`
-      (its efference).
-    - Intentions run top-down. Readouts are the current sensations'
-      observations (the affordance readout — @affordance in the thesis).
-      Each intention level's external predictor is the matching sensation's
-      just-emitted instrumented message. The Credit goal (advantage) at
-      every level is the TD feature's previous-step advantage scalar.
-    - The reward critic runs last. There is one prospect per sensation
-      feature and one per intention feature (`2 * (1 + len(level_sizes))`
-      total, sensations first, then intentions). Each prospect sees the
-      same diffuse readout (the concatenation of every sensation and
-      intention observation), but its predictor instrument is the
-      instrument half of the single feature it corresponds to — so each
-      prospect answers "did this specific component cause reward?" and the
-      TD witness isolates per-feature causal credit. The critic predicts
-      a reward vector of width `environment_reward_features + 2 * L`
-      (with `L = 1 + len(level_sizes)` the number of sensation levels):
-      environment reward first, then one curiosity channel per sensation
-      (its confounding cost) and one tracking channel per sensation (its
-      reconstruction cost). Prospect goals and TD advantage feed back with
-      a one-step delay through the TD feature's `last_dissonance_index`
-      and `last_advantage_index`. The intention-side goal is the scalar
-      sum of the augmented advantage broadcast to every intention level;
-      the learned-controllable-view refinement is tracked in
-      `~/src/typst/todo.txt` under "Controllable pseudo-rewards".
-    - The agent's action is the bottom intention's outgoing observation,
-      which the environment consumes.
+    See `causal-agent-arch-figure` in the thesis; covers test 17.
     """
 
     sensations: Sensations

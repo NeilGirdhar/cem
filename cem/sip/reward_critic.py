@@ -1,6 +1,6 @@
 """SIP reward critic: n prospects plus one TD feature.
 
-See `reward-critic` in `~/src/typst/thesis.typ`.
+See `reward-critic` in the thesis.
 """
 
 from collections.abc import Mapping, Sequence
@@ -29,14 +29,9 @@ class RewardCriticOutputs(eqx.Module):
 
 
 class RewardCritic(eqx.Module):
-    """A bank of `ProspectFeature`s feeding one `TDFeature`.
+    """A bank of prospects feeding one reward feature's TD-error circuit.
 
-    The prospects run in parallel (they do not exchange messages with each
-    other); their outgoing `observation` and `instrument` are concatenated
-    into one `InstrumentedMessage` that becomes the TD feature's predictor.
-    The TD feature's `dissonance` (reconstruction and confounding) is the
-    prospect features' goal, fed back with a one-step delay through the
-    TD feature's `last_dissonance_index`.
+    See `reward-critic` in the thesis.
     """
 
     prospect_features: tuple[ProspectFeature, ...]

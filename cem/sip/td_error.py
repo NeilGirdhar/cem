@@ -1,6 +1,6 @@
 """SIP TD-error circuit: reward prediction with bootstrap TD and confounding witness.
 
-See `sip-td-error-circuit` in `~/src/typst/thesis.typ`.
+See `sip-td-error-circuit` in the thesis.
 """
 
 from collections.abc import Mapping
@@ -24,12 +24,7 @@ from cem.structure.graph import FixedParameter, LearnableParameter
 
 
 class TDTraces(eqx.Module):
-    """One-step delay buffer: the previous step's predictor inputs.
-
-    Held in the Equinox state carry. We re-run the prediction and witness maps
-    on these inputs each step to recover the delayed prediction and witness
-    with a live gradient to the circuit's parameters.
-    """
+    """One-step delay buffer for the TD-error circuit's predictor inputs."""
 
     predictor: InstrumentedMessage
 
@@ -57,14 +52,9 @@ class _Moments(eqx.Module):
 
 
 class TDError(eqx.Module):
-    """One reward feature's TD-error circuit.
+    """A circuit that adapts `Mismatch` for reward features, learning value and credit over time.
 
-    Delays prediction and witness by one step through the state carry. The
-    bootstrap target convolves the current reward observation with the current
-    prediction, both stopped. Learning trains the delayed prediction to match
-    this target under reconstruction, purification, and an uncertainty penalty,
-    and the witness to find instrument-predictable residuals under a unit-norm
-    bound. The outgoing advantage is the bootstrap-vs-delayed mean difference.
+    See `sip-td-error-circuit` in the thesis.
     """
 
     prediction_map: GaussianNPN

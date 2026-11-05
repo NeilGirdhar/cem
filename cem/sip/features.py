@@ -1,6 +1,6 @@
 """SIP features: compose circuit leaves into per-node units.
 
-See `features` and `sip-td-error-circuit` in `~/src/typst/thesis.typ`.
+See `features` and `sip-td-error-circuit` in the thesis.
 
 `SIPFeature` is the identification node (Emitter and Mismatch), used in
 sensation and intention couplings. `SensationInputFeature` is the
@@ -47,12 +47,9 @@ class SIPFeatureOutputs(eqx.Module):
 
 
 class SIPFeature(eqx.Module):
-    """One identification node: Emitter and Mismatch.
+    """A feature carrying the full identification pair: an `Emitter` and a `Mismatch`.
 
-    Exposes the thesis's five-input / five-output feature interface. The
-    emitter builds the feature's observation and instrument from innovation
-    content; the mismatch circuit measures reconstruction and purification
-    error against the parents and emits the outgoing demand signal.
+    See `features` in the thesis.
     """
 
     emitter: Emitter
@@ -143,16 +140,7 @@ class SIPFeature(eqx.Module):
 
 
 class SensationInputFeature(eqx.Module):
-    """A sensation-stack input: raw environment observation and mismatch.
-
-    Drops the `observation_map` and `Credit` that `SIPFeature` carries: the
-    environment observation serves directly as both content and raw
-    observation, and there is nothing to credit on a sensor that only
-    reports. Keeps the `instrument_map` (building the outgoing instrument
-    from the predictor's instrument) and the `Mismatch` circuit. Not
-    controllable, so no local noise, but a gain parent is still supported
-    through evidence scaling on the outgoing messages.
-    """
+    """The bottom sensation feature: the environment observation is its own observation."""
 
     instrument_map: GaussianNPN
     mismatch: Mismatch
@@ -228,14 +216,7 @@ class SensationInputFeature(eqx.Module):
 
 
 class RecruiterFeature(eqx.Module):
-    """One recruiter node: a controllable `SIPFeature` with no gain parent.
-
-    Recruiters sit at the top of the gain chain, so they have no incoming
-    gain signals. The underlying `SIPFeature` is created with `gain=0` so
-    its witness map omits gain features, and every step passes `gain=None`.
-    A recruiter's own `observation` and `instrument` outputs serve as the
-    `gain_observation` and `gain_instrument` of consumer features.
-    """
+    """A feature that sets how strongly others participate; its observation is their gain."""
 
     feature: SIPFeature
 
@@ -292,14 +273,7 @@ class ProspectFeatureOutputs(eqx.Module):
 
 
 class ProspectFeature(eqx.Module):
-    """One prospect node: `Emitter` and `Credit`, no `Mismatch`.
-
-    Prospect features predict reward and inject local noise under `Credit`;
-    they have no mismatch circuit because confounding purification is handled
-    downstream by the `RewardCritic`'s `TDFeature`. The feature accepts its
-    own observation content and predictor instrument and writes its outgoing
-    `InstrumentedMessage` into `state`.
-    """
+    """A feature that causally predicts reward: an `Emitter` and a `Credit`, no `Mismatch`."""
 
     emitter: Emitter
     last_message_index: eqx.nn.StateIndex[InstrumentedMessage]
@@ -380,13 +354,7 @@ class TDFeatureOutputs(eqx.Module):
 
 
 class TDFeature(eqx.Module):
-    """One reward node: TDError circuit alone.
-
-    Reward features use fixed unit gain and are not controllable, so they
-    skip the emitter's noise top-up, evidence scaling, and credit circuit.
-    The feature's observation is the environment-supplied reward; the
-    outgoing signal is the TD-error advantage.
-    """
+    """A reward feature: the signal the agent seeks to increase, learned by a `TDError` circuit."""
 
     td_error: TDError
     last_dissonance_index: eqx.nn.StateIndex[JaxRealArray]

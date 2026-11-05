@@ -1,6 +1,6 @@
 """SIP mismatch circuit: prediction map, witness, and purification losses.
 
-See `sip-mismatch-circuit` in `~/src/typst/thesis.typ`.
+See `sip-mismatch-circuit` in the thesis.
 """
 
 from collections.abc import Mapping
@@ -39,12 +39,9 @@ class _Moments(eqx.Module):
 
 
 class Mismatch(eqx.Module):
-    """One feature's mismatch circuit: predict, witness, purify.
+    """A circuit that learns a causal predictor of a feature's observation.
 
-    The prediction map fits the target observation; one joint witness MLP takes
-    the natural parameters of the predictor and gain instruments and searches
-    for instrument-predictable residuals; a Lagrange multiplier constrains the
-    witness's gain-weighted squared norm.
+    See `sip-mismatch-circuit` in the thesis.
     """
 
     prediction_map: GaussianNPN
