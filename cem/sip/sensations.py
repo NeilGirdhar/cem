@@ -1,7 +1,4 @@
-"""SIP sensation coupling: bottom-up stack of sensation features.
-
-See `sensation-coupling` in the thesis.
-"""
+"""SIP sensation coupling: bottom-up stack of sensation features."""
 
 from collections.abc import Mapping, Sequence
 from typing import Self
@@ -23,7 +20,7 @@ from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 
 
 class Sensations(ExplanatoryCoupling):
-    """A bottom-up stack of sensation features: abstract levels explain concrete ones.
+    """Build increasingly abstract explanations of the observation in a bottom-up stack.
 
     See `sensation-coupling` in the thesis.
     """
@@ -133,7 +130,10 @@ class Sensations(ExplanatoryCoupling):
         layer: int,
         external: InstrumentedMessage,
     ) -> InstrumentedMessage:
-        """Concatenate `external` with the stored message of the layer directly above."""
+        """Add the upper layer's previous message to the external predictor when available.
+
+        Bottom-up inference reads the upper layer's state before advancing it.
+        """
         above_layer = layer + 1
         if above_layer >= 1 + len(self.interior_features):
             return external

@@ -1,13 +1,10 @@
-"""SIP explanatory coupling base class.
-
-See `explanatory-couplings` in the thesis.
-"""
+"""SIP explanatory coupling base class."""
 
 import equinox as eqx
 
 
 class ExplanatoryCoupling(eqx.Module):
-    """A feature stack that exchanges predictions and mismatch between adjacent levels.
+    """Base class for feature stacks that exchange predictions and mismatch across levels.
 
     See `explanatory-couplings` in the thesis.
     """

@@ -1,7 +1,4 @@
-"""SIP emitter circuit: observation map, instrument map, noise top-up, gain.
-
-See `sip-emitter` in the thesis.
-"""
+"""SIP emitter circuit: observation map, instrument map, noise top-up, gain."""
 
 from typing import Self
 
@@ -22,7 +19,7 @@ from cem.sip.messages import (
 
 
 class EmitterOutputs(eqx.Module):
-    """One step of the emitter circuit."""
+    """The outgoing message and the signals used to score and train its observation."""
 
     message: InstrumentedMessage
     raw_observation: NormalNP
@@ -33,7 +30,7 @@ class EmitterOutputs(eqx.Module):
 
 
 class Emitter(eqx.Module):
-    """A circuit that jointly learns a feature's observation and its corresponding instrument.
+    """Emit a feature's observation with an instrument that tracks its experimental variation.
 
     See `sip-emitter` in the thesis.
     """
@@ -53,10 +50,14 @@ class Emitter(eqx.Module):
         gain_observation: NormalNP | None,
         goal: JaxRealArray,
     ) -> tuple[eqx.nn.State, EmitterOutputs]:
-        """Advance the emitter one time step.
+        """Emit an instrumented observation and compute credit for the raw observation.
 
-        Pass `gain_observation=None` for a recruiter feature at the top of the
-        gain chain; evidence scaling is skipped and `Credit` sees unit gain.
+        For a controllable emitter, add the same random displacement to the observation and
+        its instrument. The fresh noise fills the positive gap between inherited instrument
+        variance and squared inherited instrument mean.
+
+        Apply gain to the precision of both outgoing messages. With no gain observation, emit
+        both at their original precision and use unit gain for credit.
         """
         raw_observation = self.observation_map.infer(*mean_and_precision(observation_content))
         inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictor_instrument))

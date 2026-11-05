@@ -1,7 +1,4 @@
-"""SIP reward critic: n prospects plus one TD feature.
-
-See `reward-critic` in the thesis.
-"""
+"""SIP reward critic: n prospects plus one TD feature."""
 
 from collections.abc import Mapping, Sequence
 from typing import Self
@@ -21,7 +18,7 @@ from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 
 
 class RewardCriticOutputs(eqx.Module):
-    """One step of the reward critic."""
+    """Prospect messages, reward credit signals, and the combined training loss."""
 
     prospects: tuple[ProspectFeatureOutputs, ...]
     td: TDFeatureOutputs
@@ -29,7 +26,7 @@ class RewardCriticOutputs(eqx.Module):
 
 
 class RewardCritic(eqx.Module):
-    """A bank of prospects feeding one reward feature's TD-error circuit.
+    """Learn to predict return from prospects and supply credit for reward-seeking behaviour.
 
     See `reward-critic` in the thesis.
     """

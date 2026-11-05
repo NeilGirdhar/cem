@@ -1,7 +1,4 @@
-"""SIP TD-error circuit: reward prediction with bootstrap TD and confounding witness.
-
-See `sip-td-error-circuit` in the thesis.
-"""
+"""SIP TD-error circuit: reward prediction with bootstrap TD and confounding witness."""
 
 from collections.abc import Mapping
 from typing import Self
@@ -34,17 +31,19 @@ class TDTraces(eqx.Module):
 
 
 class TDErrorOutputs(eqx.Module):
-    """One step of the TD-error circuit."""
+    """The advantage signal and the losses for value prediction and its confounding witness."""
 
     advantage: JaxRealArray  # shape (n,); outgoing TD-error mean signal
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
     uncertainty_loss: JaxRealArray  # scalar
     witness_loss: JaxRealArray  # scalar
-    loss: JaxRealArray  # scalar; combined surrogate for first-pass training
+    loss: JaxRealArray  # scalar training surrogate
 
 
 class _Moments(eqx.Module):
+    """Gaussian statistics for comparing the bootstrap target with the delayed prediction."""
+
     boot_mean: JaxRealArray
     boot_variance: JaxRealArray
     del_mean: JaxRealArray
@@ -52,7 +51,7 @@ class _Moments(eqx.Module):
 
 
 class TDError(eqx.Module):
-    """A circuit that adapts `Mismatch` for reward features, learning value and credit over time.
+    """Learn to predict return and assign credit through temporal-difference error.
 
     See `sip-td-error-circuit` in the thesis.
     """
@@ -107,7 +106,13 @@ class TDError(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, TDErrorOutputs]:
-        """Advance the TD-error circuit one time step."""
+        """Score the previous step's value prediction against the current bootstrap target.
+
+        Evaluate the prediction and witness on the stored predictor so the witness tests the
+        instruments associated with the prediction being scored. Return the difference between
+        the target mean and the delayed prediction mean as advantage, and save the current
+        predictor for the next step.
+        """
         delayed = state.get(self.delay_index)
         delayed_prediction = self.prediction_map.infer(
             *mean_and_precision(delayed.predictor.observation)
@@ -120,9 +125,8 @@ class TDError(eqx.Module):
         moments = self._moments(reward_observation, current_prediction, delayed_prediction)
         witness_residuals = _witness_residuals(moments)
 
-        # Loss weights are LearnableParameters now, but their adaptive rule
-        # lives in the (not-yet-implemented) multi-loss gradient transform.
-        # Stop-gradient the readout so single-loss Adam doesn't collapse them.
+        # Hold the loss weights fixed under differentiation so the combined objective
+        # cannot reduce positive loss terms by shrinking their weights toward zero.
         r_weight = jax.nn.softplus(jax.lax.stop_gradient(self.reconstruction_cost_weight.value))
         c_weight = jax.nn.softplus(jax.lax.stop_gradient(self.confounding_cost_weight.value))
         u_weight = jax.nn.softplus(jax.lax.stop_gradient(self.uncertainty_loss_weight.value))
@@ -160,6 +164,7 @@ class TDError(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxRealArray:
+        """Map predictor instrument natural parameters to mean and variance weights for reward."""
         witness_input = jnp.concat(
             [
                 predictor_instruments.mean_times_precision,
@@ -176,6 +181,12 @@ class TDError(eqx.Module):
         current_prediction: NormalNP,
         delayed_prediction: NormalNP,
     ) -> _Moments:
+        """Form a fixed Gaussian target from observed reward and discounted current value.
+
+        Add the variances as for independent terms, scaling value variance by the squared
+        discount. Stop gradients through both target terms so the fit updates the delayed
+        prediction.
+        """
         reward_mean, reward_precision = mean_and_precision(reward_observation)
         cur_mean, cur_precision = mean_and_precision(current_prediction)
         del_mean, del_precision = mean_and_precision(delayed_prediction)
@@ -197,9 +208,14 @@ class TDError(eqx.Module):
         witness_residuals: JaxRealArray,
         confounding_witness: JaxRealArray,
     ) -> tuple[JaxRealArray, JaxRealArray]:
+        """Train the witness on fixed TD residuals under a unit-gain squared-norm bound.
+
+        Return the witness loss and a separate loss that raises the multiplier when the bound
+        is exceeded.
+        """
         covariance = -jnp.sum(jax.lax.stop_gradient(witness_residuals) * confounding_witness)
-        # Unit-gain special case of the thesis's E[||w||²] ≤ E[mean(gain)] bound
-        # (sip-norm-constraint): with gain = 1, the RHS is 1.
+        # At unit gain, the witness's expected squared norm is bounded by one.
+        # See `sip-norm-constraint` in the thesis.
         constraint_violation = jnp.sum(jnp.square(confounding_witness)) - 1.0
         lambda_value = jax.nn.softplus(self.witness_multiplier.value)
         witness_loss = covariance + jax.lax.stop_gradient(lambda_value) * constraint_violation

@@ -1,7 +1,4 @@
-"""SIP credit circuit: eligibility-based update rule for one emitter.
-
-See `sip-credit-circuit` in the thesis.
-"""
+"""SIP credit circuit: eligibility-based update rule for one emitter."""
 
 from typing import Self
 
@@ -16,7 +13,7 @@ from cem.structure.graph import FixedParameter
 
 
 class CreditTraces(eqx.Module):
-    """Three eligibility traces per emitter channel."""
+    """Per-channel traces that retain evidence for assigning credit to past experiments."""
 
     linear: JaxRealArray  # shape (n,)
     quadratic: JaxRealArray  # shape (n,)
@@ -29,14 +26,14 @@ class CreditTraces(eqx.Module):
 
 
 class CreditOutputs(eqx.Module):
-    """One step of credit assignment."""
+    """Credit for the observation's mean and precision, with a loss for the goal baseline."""
 
     cotangent: JaxRealArray  # shape (n, 2): column 0 mean, column 1 precision
     loss: JaxRealArray  # shape (): baseline-map promoting-link surrogate
 
 
 class Credit(eqx.Module):
-    """A circuit that trains an emitter's observation from the goals that follow its experiments.
+    """Assign credit to an emitter's experiments when later goals arrive.
 
     See `sip-credit-circuit` in the thesis.
     """
@@ -53,6 +50,11 @@ class Credit(eqx.Module):
         *,
         trace_decay_rate: float = 0.0,
     ) -> Self:
+        """Initialize credit assignment with three zero traces per emitter channel.
+
+        The baseline map must emit one component for the scalar goal. Each step retains a
+        fraction of the previous traces equal to the exponential of the negated decay rate.
+        """
         return cls(
             trace_decay_rate=FixedParameter(jnp.asarray(trace_decay_rate, dtype=jnp.float64)),
             goal_baseline_map=goal_baseline_map,
@@ -69,12 +71,15 @@ class Credit(eqx.Module):
         raw_observation: NormalNP,
         goal: JaxRealArray,
     ) -> tuple[eqx.nn.State, CreditOutputs]:
-        """Advance the credit circuit one time step.
+        """Update eligibility traces and return credit for the raw observation's mean and precision.
 
-        `goal` has shape `()`. All Gaussian inputs have shape `(n,)` in natural
-        parameters, except `observation_content`, whose shape is the baseline
-        NPN's input dimension. Pass `gain_observation=None` for a recruiter
-        feature at the top of the gain chain.
+        The traces carry experiments across steps so a later goal can credit them. The mean
+        update uses the goal directly. The precision update compares it with a learned baseline
+        and accounts for the accumulated squared instrument.
+
+        Supply one scalar goal and one Gaussian component per emitter channel, except that
+        `observation_content` has the baseline map's input width. With no gain observation,
+        new trace contributions have unit gain.
         """
         traces = state.get(self.trace_index)
         decay = jnp.exp(-self.trace_decay_rate.value)

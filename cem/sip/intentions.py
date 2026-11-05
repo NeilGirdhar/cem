@@ -1,7 +1,4 @@
-"""SIP intention coupling: top-down stack of intention features.
-
-See `intention-coupling` in the thesis.
-"""
+"""SIP intention coupling: top-down stack of intention features."""
 
 from collections.abc import Mapping, Sequence
 from typing import Self
@@ -21,7 +18,7 @@ from cem.sip.messages import (
 
 
 class Intentions(ExplanatoryCoupling):
-    """A top-down stack of intention features: abstract intents produce concrete actions.
+    """Turn abstract intentions into concrete actions through a top-down feature stack.
 
     See `intention-coupling` in the thesis.
     """
@@ -141,7 +138,10 @@ class Intentions(ExplanatoryCoupling):
         layer: int,
         external: InstrumentedMessage,
     ) -> InstrumentedMessage:
-        """Concatenate `external` with the stored message of the layer directly above."""
+        """Add the upper layer's current message to the external predictor when available.
+
+        Top-down inference has already advanced the upper layer when this reads its state.
+        """
         above_layer = layer + 1
         if above_layer >= len(self.features):
             return external

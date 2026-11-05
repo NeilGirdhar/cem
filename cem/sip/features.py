@@ -1,6 +1,6 @@
 """SIP features: compose circuit leaves into per-node units.
 
-See `features` and `sip-td-error-circuit` in the thesis.
+See `sip-td-error-circuit` in the thesis.
 
 `SIPFeature` is the identification node (Emitter and Mismatch), used in
 sensation and intention couplings. `SensationInputFeature` is the
@@ -28,7 +28,7 @@ from cem.sip.td_error import TDError
 
 
 class SIPFeatureSizes(eqx.Module):
-    """Per-parent feature sizes for building one identification feature."""
+    """Input widths for an identification feature's observation content, predictor, and gain."""
 
     observation_content: int
     predictor: int
@@ -36,7 +36,7 @@ class SIPFeatureSizes(eqx.Module):
 
 
 class SIPFeatureOutputs(eqx.Module):
-    """One step of an identification feature."""
+    """An instrumented observation, its demand for explanation, and the training costs."""
 
     message: InstrumentedMessage  # post-gain, noised
     observation_mismatch: NormalNP  # 2n unit-presence demand signal
@@ -47,7 +47,7 @@ class SIPFeatureOutputs(eqx.Module):
 
 
 class SIPFeature(eqx.Module):
-    """A feature carrying the full identification pair: an `Emitter` and a `Mismatch`.
+    """Emit an instrumented observation and learn to predict it from parent features.
 
     See `features` in the thesis.
     """
@@ -66,6 +66,12 @@ class SIPFeature(eqx.Module):
         trace_decay_rate: float = 0.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
+        """Build an identification feature with separate widths for its three parent inputs.
+
+        Observation content supplies the emitted observation and the credit baseline. The
+        predictor supplies the causal prediction and its instrument. The gain width controls
+        whether the witness also receives a gain instrument.
+        """
         observation_map = GaussianNPN.create(
             in_features=sizes.observation_content, out_features=n, streams=streams
         )
@@ -105,11 +111,11 @@ class SIPFeature(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
-        """Advance the feature one time step.
+        """Emit an instrumented observation and score the predictor against it.
 
-        `gain=None` marks a recruiter feature at the top of the gain chain:
-        the underlying `Mismatch` must have been created with `gain=0` so its
-        witness map omits the missing gain parent.
+        Score the raw observation with its added local variance and save the emitted message
+        in state. With no gain parent, the feature must have been built with zero gain
+        features so the witness accepts predictor instruments alone.
         """
         gain_observation = None if gain is None else gain.observation
         new_state, emitter_outputs = self.emitter.step(
@@ -140,7 +146,7 @@ class SIPFeature(eqx.Module):
 
 
 class SensationInputFeature(eqx.Module):
-    """The bottom sensation feature: the environment observation is its own observation."""
+    """Use the supplied observation as the prediction target at the base of the sensation stack."""
 
     instrument_map: GaussianNPN
     mismatch: Mismatch
@@ -178,10 +184,10 @@ class SensationInputFeature(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
-        """Advance the sensation input one time step.
+        """Pair the supplied observation with an inherited instrument and score its prediction.
 
-        Threads `state` through unchanged (no Credit state to update) so the
-        caller can iterate the stack uniformly.
+        The supplied observation is already the target, so there is no learned observation map
+        or local noise. Save the outgoing message after any gain scaling.
         """
         inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictor.instrument))
         inherited_mean, _ = mean_and_precision(inherited_instrument)
@@ -216,7 +222,7 @@ class SensationInputFeature(eqx.Module):
 
 
 class RecruiterFeature(eqx.Module):
-    """A feature that sets how strongly others participate; its observation is their gain."""
+    """Emit the gain that determines how strongly other features participate."""
 
     feature: SIPFeature
 
@@ -266,14 +272,14 @@ class RecruiterFeature(eqx.Module):
 
 
 class ProspectFeatureOutputs(eqx.Module):
-    """One step of a prospect feature."""
+    """An instrumented input to the reward prediction and the loss that trains the prospect."""
 
     message: InstrumentedMessage  # post-noise
     loss: JaxRealArray  # scalar; emitter loss (credit and promoting link)
 
 
 class ProspectFeature(eqx.Module):
-    """A feature that causally predicts reward: an `Emitter` and a `Credit`, no `Mismatch`."""
+    """Supply an instrumented predictor that helps the critic learn what causes reward."""
 
     emitter: Emitter
     last_message_index: eqx.nn.StateIndex[InstrumentedMessage]
@@ -342,9 +348,9 @@ class ProspectFeature(eqx.Module):
 
 
 class TDFeatureOutputs(eqx.Module):
-    """One step of a reward feature."""
+    """The observed reward, the advantage signal, and the costs of predicting reward."""
 
-    observation: NormalNP  # pass-through of the environment reward
+    observation: NormalNP  # the supplied reward observation, passed through unchanged
     advantage: JaxRealArray  # TD error in reward, replaces observation mismatch
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
@@ -354,7 +360,7 @@ class TDFeatureOutputs(eqx.Module):
 
 
 class TDFeature(eqx.Module):
-    """A reward feature: the signal the agent seeks to increase, learned by a `TDError` circuit."""
+    """Learn the value of observed reward and supply credit signals that guide the agent."""
 
     td_error: TDError
     last_dissonance_index: eqx.nn.StateIndex[JaxRealArray]
@@ -389,7 +395,11 @@ class TDFeature(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, TDFeatureOutputs]:
-        """Advance the feature one time step."""
+        """Score the reward prediction and retain the signals for the next credit update.
+
+        Save dissonance, the sum of reconstruction and confounding costs, and advantage,
+        the difference between the bootstrap target mean and the delayed prediction mean.
+        """
         new_state, td_outputs = self.td_error.step(
             state,
             reward_observation=reward_observation,

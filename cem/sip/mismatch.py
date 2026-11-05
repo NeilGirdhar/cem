@@ -1,7 +1,4 @@
-"""SIP mismatch circuit: prediction map, witness, and purification losses.
-
-See `sip-mismatch-circuit` in the thesis.
-"""
+"""SIP mismatch circuit: prediction map, witness, and purification losses."""
 
 from collections.abc import Mapping
 from typing import Self
@@ -19,18 +16,20 @@ from cem.structure.graph import LearnableParameter
 
 
 class MismatchOutputs(eqx.Module):
-    """One step of the mismatch circuit."""
+    """The demand for a better explanation and the losses that train the prediction and witness."""
 
     mismatch: NormalNP  # 2n unit-presence components; demand for explanation
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
     witness_loss: JaxRealArray  # scalar
     dissonance: JaxRealArray  # scalar; reconstruction and confounding
-    disutility: JaxRealArray  # scalar; reconstruction - confounding
-    loss: JaxRealArray  # scalar; combined surrogate for first-pass training
+    disutility: JaxRealArray  # reconstruction cost minus confounding cost, as a scalar
+    loss: JaxRealArray  # scalar training surrogate
 
 
 class _Moments(eqx.Module):
+    """Target and prediction statistics with the gain that weights their mismatch."""
+
     target_mean: JaxRealArray
     target_variance: JaxRealArray
     pred_mean: JaxRealArray
@@ -39,7 +38,7 @@ class _Moments(eqx.Module):
 
 
 class Mismatch(eqx.Module):
-    """A circuit that learns a causal predictor of a feature's observation.
+    """Learn to predict a feature's observation and test for instrument-predictable errors.
 
     See `sip-mismatch-circuit` in the thesis.
     """
@@ -89,22 +88,21 @@ class Mismatch(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> MismatchOutputs:
-        """Advance the mismatch circuit one time step.
+        """Score the observation prediction and return its mismatch and training losses.
 
-        Pass `gain=None` for a recruiter feature at the top of the gain chain;
-        gain multiplies drop out and the witness norm bound reduces to the
-        unit-gain case `‖w‖² ≤ 1`. The witness map's input must then have been
-        sized with `gain_features=0`.
+        The outgoing mismatch carries mean and raw second-moment errors. The witness instead
+        tests centred residuals for error predictable from the instruments.
+
+        When there is no gain parent, construct the witness with zero gain features. The
+        circuit then uses unit gain for both the losses and the witness norm constraint.
         """
         gain_observation = None if gain is None else gain.observation
         gain_instrument = None if gain is None else gain.instrument
         moments = self._moments(
             raw_observation, local_variance, predictor.observation, gain_observation
         )
-        # Loss weights are LearnableParameters now, but their adaptive rule
-        # lives in the (not-yet-implemented) multi-loss gradient transform.
-        # Stop-gradient the readout so single-loss Adam doesn't collapse them
-        # to zero. Remove the stop_gradient when the multi-loss transform lands.
+        # Hold the loss weights fixed under differentiation so the combined objective
+        # cannot reduce positive loss terms by shrinking their weights toward zero.
         r_weight = jax.nn.softplus(jax.lax.stop_gradient(self.reconstruction_cost_weight.value))
         c_weight = jax.nn.softplus(jax.lax.stop_gradient(self.confounding_cost_weight.value))
 
@@ -139,6 +137,7 @@ class Mismatch(eqx.Module):
         predictor_observations: NormalNP,
         gain_observation: NormalNP | None,
     ) -> _Moments:
+        """Include fresh local noise in the target variance while keeping the raw target mean."""
         raw_mean, raw_precision = mean_and_precision(raw_observation)
         pred_mean, pred_precision = mean_and_precision(
             self.prediction_map.infer(*mean_and_precision(predictor_observations))
@@ -160,6 +159,7 @@ class Mismatch(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxRealArray:
+        """Map instrument natural parameters to one mean and one variance weight per channel."""
         parts = [
             predictor_instruments.mean_times_precision,
             predictor_instruments.negative_half_precision,
@@ -179,6 +179,12 @@ class Mismatch(eqx.Module):
         witness_residuals: JaxRealArray,
         confounding_witness: JaxRealArray,
     ) -> tuple[JaxRealArray, JaxRealArray]:
+        """Return separate losses for the witness and its norm multiplier.
+
+        Train the witness against fixed residuals so it can expose instrument-predictable error.
+        Penalize a gain-weighted squared norm above mean gain. The multiplier rises when
+        the constraint is violated and falls when it has slack.
+        """
         covariance = -jnp.sum(
             _scale_rows(jax.lax.stop_gradient(witness_residuals), gain) * confounding_witness
         )

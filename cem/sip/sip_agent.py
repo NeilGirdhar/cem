@@ -1,6 +1,6 @@
 """SIP agent: Sensations, Intentions, and RewardCritic wired together.
 
-See `causal-agent-arch-figure` and the agent architecture section of the thesis.
+See the agent architecture section of the thesis.
 """
 
 from collections.abc import Mapping, Sequence
@@ -21,7 +21,7 @@ from cem.sip.sensations import Sensations
 
 
 class SIPAgentOutputs(eqx.Module):
-    """One step of a SIP agent."""
+    """The next action and the sensation, intention, and critic results for that step."""
 
     sensations: tuple[SIPFeatureOutputs, ...]
     intentions: tuple[SIPFeatureOutputs, ...]
@@ -30,9 +30,9 @@ class SIPAgentOutputs(eqx.Module):
 
 
 class SIPAgent(eqx.Module):
-    """A SIP agent: a `Sensations`, an `Intentions`, and a `RewardCritic`.
+    """Interpret observations and choose actions that seek higher expected reward.
 
-    See `causal-agent-arch-figure` in the thesis; covers test 17.
+    See `causal-agent-arch-figure` in the thesis.
     """
 
     sensations: Sensations
@@ -51,42 +51,19 @@ class SIPAgent(eqx.Module):
         discount: float = 1.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
-        """Build a SIP agent with aligned sensation and intention stacks.
+        """Build a SIP agent for the given environment widths and interior level widths.
 
-        `env_observation_features` and `env_action_features` are the
-        externally fixed input and output widths of the agent (the
-        environment's observation and action dims). `level_sizes[i]` is the
-        shared sensation/intention width for *interior* level `i + 1`;
-        `level_sizes=[]` builds a single-level agent with no interior.
-
-        Internals:
-
-        - Sensation level 0 width = `env_observation_features +
-          env_action_features` (it consumes `concat(env observation,
-          previous action)` — the eligibility trace).
-        - Intention level 0 width = `env_action_features` (its outgoing
-          observation is the action).
-        - Sensation and intention level `i + 1` share width `level_sizes[i]`.
-
-        `prospect_sizes` defaults to the full per-level widths (one width
-        per level, sensation and intention side sharing): one prospect per
-        feature, with the same width on each side.
-
-        `environment_reward_features` is the width of the environment
-        reward vector. The critic internally predicts
-        `environment_reward_features + 2 * L` channels (with
-        `L = 1 + len(level_sizes)`): the environment reward, then one
-        curiosity channel per sensation (confounding cost) and one tracking
-        channel per sensation (reconstruction cost).
+        `level_sizes` lists shared sensation and intention widths above the environment level.
+        `prospect_sizes` includes the environment level and gives the width on each side.
+        When omitted, the prospect widths on both sides match the sensation widths.
         """
         assert env_observation_features > 0
         assert env_action_features > 0
         level_sizes = tuple(level_sizes)
         sensation_sizes = (env_observation_features + env_action_features, *level_sizes)
         intention_sizes = (env_action_features, *level_sizes)
-        # One prospect per sensation feature and one per intention feature: each
-        # prospect answers "did this component's experimental noise cause reward?",
-        # with the TD witness attributing credit through the specific instrument.
+        # Give each sensation and intention feature its own prospect so the critic can
+        # use its instrument to estimate that feature's effect on reward.
         per_side_sizes = tuple(prospect_sizes) if prospect_sizes is not None else sensation_sizes
         if len(per_side_sizes) != len(sensation_sizes):
             msg = "prospect_sizes must have one entry per level (1 + len(level_sizes))"
@@ -99,23 +76,23 @@ class SIPAgent(eqx.Module):
         reward_features = environment_reward_features + 2 * n_levels
         sensations = Sensations.create(
             sensation_sizes,
-            # external predictor i carries the matching intention's efference.
+            # Each sensation receives the previous message from the matching intention.
             predictor_features=list(intention_sizes),
             streams=streams,
         )
         intentions = Intentions.create(
             intention_sizes,
-            # external predictor i carries the matching sensation's message.
+            # Each intention receives the current message from the matching sensation.
             predictor_features=list(sensation_sizes),
-            # readout i is the matching sensation's observation.
+            # The observation half of that message supplies the readout.
             readout_features=list(sensation_sizes),
             streams=streams,
         )
         reward_critic = RewardCritic.create(
             prospect_sizes_full,
-            # diffuse readout: every sensation and every intention observation.
+            # The diffuse readout gives every prospect the full observation context.
             observation_content_features=[diffuse_content] * len(prospect_sizes_full),
-            # specific instrument links: sensation levels first, then intention levels.
+            # Match one instrument source to each prospect, with sensations before intentions.
             predictor_features=list(sensation_sizes) + list(intention_sizes),
             reward_features=reward_features,
             discount=discount,
@@ -137,7 +114,12 @@ class SIPAgent(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, SIPAgentOutputs]:
-        """Run one agent step: sensations, intentions, reward critic."""
+        """Choose the next action and update the critic from the latest observation and reward.
+
+        Sensations interpret the observation in the context of the previous action.
+        Intentions use those sensations and the previous critic advantage. The critic
+        then scores the environment reward together with the current sensation costs.
+        """
         key_s, key_i, key_c = jr.split(key, 3)
         n_levels = 1 + len(self.sensations.interior_features)
         intention_features = self.intentions.features
@@ -145,13 +127,9 @@ class SIPAgent(eqx.Module):
             msg = "sensation and intention stacks must have the same number of levels"
             raise ValueError(msg)
 
-        # Sensations: external predictor at level i = intention i's previous
-        # instrumented message (its efference). Sensation level 0's input is
-        # concat(env observation, previous action) — the eligibility trace that
-        # tells the stack which action was just taken. On the first step the
-        # previous action is the standard-normal observation half of
-        # `InstrumentedMessage.initial`, which keeps the raw-observation path
-        # well-posed.
+        # The bottom sensation receives an efference copy of the previous action alongside
+        # the environment observation. The first step uses a standard normal for the action
+        # so the raw observation has positive precision on those channels.
         sensation_predictors = [
             state.get(intention_features[i].last_message_index) for i in range(n_levels)
         ]
@@ -166,10 +144,10 @@ class SIPAgent(eqx.Module):
             inference=inference,
         )
 
-        # Intentions: readout = sensation obs; predictor = sensation inst message;
-        # advantage = TD's previous-step advantage scalar (broadcast per layer).
         intention_readouts = [out.message.observation for out in sensation_outputs]
         intention_predictors = [out.message for out in sensation_outputs]
+        # Sum the previous advantage across reward channels to give each intention level
+        # the same scalar credit goal.
         last_advantage = state.get(self.reward_critic.td_feature.last_advantage_index)
         advantage_scalar = jnp.sum(last_advantage)
         advantages = [advantage_scalar for _ in range(n_levels)]
@@ -183,11 +161,8 @@ class SIPAgent(eqx.Module):
             inference=inference,
         )
 
-        # Prospects: one per sensation feature and one per intention feature.
-        # Each sees the same diffuse readout (every sensation and intention
-        # observation) as its state, but its specific instrument is the feature
-        # it's attributing reward credit to. Order: all sensations, then all
-        # intentions, matching SIPAgent.create's prospect layout.
+        # All prospects share the observation context. Each gets an instrument from one
+        # feature so its contribution to reward prediction can track that feature's variation.
         diffuse = concat_messages(
             *[out.message.observation for out in sensation_outputs],
             *[out.message.observation for out in intention_outputs],
@@ -196,11 +171,8 @@ class SIPAgent(eqx.Module):
         prospect_predictor_instruments = [out.message.instrument for out in sensation_outputs] + [
             out.message.instrument for out in intention_outputs
         ]
-        # Augment reward with intrinsic channels: curiosity is the confounding
-        # cost at every sensation feature, tracking is the reconstruction cost
-        # at every sensation feature. Placeholder precision 1 on the intrinsic
-        # channels; loss scaling across environment reward, curiosity, and
-        # tracking is tracked in `docs/sip-plan.md`.
+        # Each sensation contributes its confounding cost as curiosity and its reconstruction
+        # cost as tracking. Both enter the reward observation with unit precision.
         curiosity = jnp.stack([out.confounding_cost for out in sensation_outputs])
         tracking = jnp.stack([out.reconstruction_cost for out in sensation_outputs])
         intrinsic_precision = jnp.ones_like(curiosity)
