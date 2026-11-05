@@ -82,10 +82,7 @@ class SIPAgent(eqx.Module):
         )
         intentions = Intentions.create(
             intention_sizes,
-            # Each intention receives the current message from the matching sensation.
-            predictor_features=list(sensation_sizes),
-            # The observation half of that message supplies the readout.
-            readout_features=list(sensation_sizes),
+            readout_features=sensation_sizes,
             streams=streams,
         )
         reward_critic = RewardCritic.create(
@@ -145,7 +142,6 @@ class SIPAgent(eqx.Module):
         )
 
         intention_readouts = [out.message.observation for out in sensation_outputs]
-        intention_predictors = [out.message for out in sensation_outputs]
         # Sum the previous advantage across reward channels to give each intention level
         # the same scalar credit goal.
         last_advantage = state.get(self.reward_critic.td_feature.last_advantage_index)
@@ -155,7 +151,6 @@ class SIPAgent(eqx.Module):
             state,
             key_i,
             readouts=intention_readouts,
-            predictors=intention_predictors,
             advantages=advantages,
             streams=streams,
             inference=inference,

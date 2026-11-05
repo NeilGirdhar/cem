@@ -3,12 +3,6 @@
 Tracks remaining work for `cem/sip/`. The stable design — classes, module layout, plug points,
 tested claims — lives in [`sip.md`](sip.md).
 
-## Thesis-constrained wiring decisions
-
-Resolve before experiments 16 and 17 depend on them:
-
-- [ ] Confirm whether each intention level uses the matching sensation's current message.
-
 ## Correctness foundations
 
 - [ ] Require and validate a positive `trace_decay_rate` in constructors that build credit circuits.
@@ -38,7 +32,7 @@ Each of the 17 numbered claims in [`sip.md`](sip.md#tested-claims) needs:
 - A CLI entry that runs the full experiment and writes JSON for the thesis chart.
 
 Order of unblocked work: 1–12 (need `Emitter`, `Mismatch`, and `Credit`) then 13–15 (add
-`TDError`) then 16–17 (full `SIPAgent`; needs the wiring decisions above).
+`TDError`) then 16–17 (full `SIPAgent`).
 
 - [ ] Experiment 1
 - [ ] Experiment 2

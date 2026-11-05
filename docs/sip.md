@@ -58,6 +58,12 @@ For intention nexting, each sensation level uses the previous instrumented messa
 matching intention. The message comes from the previous step because `SIPAgent` runs sensation
 before intention.
 
+### Affordance readout and intention prediction
+
+Each intention level receives the matching sensation's current observation as its readout.
+Its predictor is the previous instrumented message from the intention directly below.
+The bottom intention has no predictor inputs.
+
 ## Target code layout
 
 - `cem/sip/` — the circuit.

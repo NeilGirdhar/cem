@@ -10,11 +10,7 @@ from tjax import JaxRealArray, KeyArray, RngStream
 
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import SIPFeature, SIPFeatureOutputs, SIPFeatureSizes
-from cem.sip.messages import (
-    InstrumentedMessage,
-    concat_instrumented_messages,
-    concat_messages,
-)
+from cem.sip.messages import InstrumentedMessage, concat_messages
 
 
 class Intentions(ExplanatoryCoupling):
@@ -30,26 +26,17 @@ class Intentions(ExplanatoryCoupling):
         cls,
         sizes: Sequence[int],
         *,
-        predictor_features: Sequence[int],
         readout_features: Sequence[int],
         streams: Mapping[str, RngStream],
     ) -> Self:
         """Build a top-down intention stack from per-layer sizes.
 
-        `sizes[0]` is the bottom (action) layer width; `sizes[-1]` is the
-        top. `readout_features[i]` is the readout dim consumed by layer
-        `i`; the top layer's observation-content dim is
-        `readout_features[-1]`, and lower layers prepend
-        `2 * sizes[i + 1]`. `predictor_features[i]` is the external
-        predictor dim; the effective predictor dim is
-        `predictor_features[i] + sizes[i + 1]` to make room for the
-        one-layer-above last message.
+        List sizes and readout widths from the bottom action layer to the top.
+        Each layer's predictor width is the width of the layer directly below it.
+        The action layer has zero predictor inputs.
         """
         if len(sizes) == 0:
             msg = "sizes must be non-empty"
-            raise ValueError(msg)
-        if len(predictor_features) != len(sizes):
-            msg = "predictor_features must have the same length as sizes"
             raise ValueError(msg)
         if len(readout_features) != len(sizes):
             msg = "readout_features must have the same length as sizes"
@@ -60,12 +47,9 @@ class Intentions(ExplanatoryCoupling):
             content_features = readout_features[i]
             if i < top_index:
                 content_features += 2 * sizes[i + 1]
-            effective_predictor_features = predictor_features[i] + (
-                sizes[i + 1] if i < top_index else 0
-            )
             feature_sizes = SIPFeatureSizes(
                 observation_content=content_features,
-                predictor=effective_predictor_features,
+                predictor=sizes[i - 1] if i > 0 else 0,
                 gain=0,
             )
             features.append(SIPFeature.create(n, feature_sizes, controllable=True, streams=streams))
@@ -77,28 +61,20 @@ class Intentions(ExplanatoryCoupling):
         key: KeyArray,
         *,
         readouts: Sequence[NormalNP],
-        predictors: Sequence[InstrumentedMessage],
         advantages: Sequence[JaxRealArray],
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, tuple[SIPFeatureOutputs, ...]]:
         """Run top-down inference across the stack.
 
-        The top layer's observation content is its readout; each lower
-        layer's content is its readout concatenated with the
-        `observation_mismatch` of the layer above. Each layer's predictor
-        is the external `predictors[i]` concatenated with the stored
-        `last_message_index` of the layer directly above `i`.
-        `advantages[i]` is the Credit goal for layer `i`. Returns per-
-        layer outputs indexed with the same convention as `features`
-        (`outputs[0]` is the bottom, whose `observation` is the action).
+        Each layer receives its current readout and any mismatch from the layer above.
+        The previous message from the layer below predicts its observation.
+        Supply one scalar credit goal per layer in `advantages`. Outputs are ordered
+        bottom first, with the action in the bottom layer's message observation.
         """
         n_layers = len(self.features)
         if len(readouts) != n_layers:
             msg = "readouts must have one entry per layer"
-            raise ValueError(msg)
-        if len(predictors) != n_layers:
-            msg = "predictors must have one entry per layer"
             raise ValueError(msg)
         if len(advantages) != n_layers:
             msg = "advantages must have one entry per layer"
@@ -110,7 +86,7 @@ class Intentions(ExplanatoryCoupling):
             state,
             keys[top_index],
             observation_content=readouts[top_index],
-            predictor=self._predictor_for(state, top_index, predictors[top_index]),
+            predictor=self._predictor_for(state, top_index),
             gain=None,
             goal=advantages[top_index],
             streams=streams,
@@ -124,7 +100,7 @@ class Intentions(ExplanatoryCoupling):
                 state,
                 keys[i],
                 observation_content=content,
-                predictor=self._predictor_for(state, i, predictors[i]),
+                predictor=self._predictor_for(state, i),
                 gain=None,
                 goal=advantages[i],
                 streams=streams,
@@ -136,14 +112,12 @@ class Intentions(ExplanatoryCoupling):
         self,
         state: eqx.nn.State,
         layer: int,
-        external: InstrumentedMessage,
     ) -> InstrumentedMessage:
-        """Add the upper layer's current message to the external predictor when available.
+        """Use the message from the layer directly below as the predictor.
 
-        Top-down inference has already advanced the upper layer when this reads its state.
+        Top-down inference reads that layer's state before advancing it.
+        The bottom layer uses an empty message.
         """
-        above_layer = layer + 1
-        if above_layer >= len(self.features):
-            return external
-        above = state.get(self.features[above_layer].last_message_index)
-        return concat_instrumented_messages(external, above)
+        if layer == 0:
+            return InstrumentedMessage.initial(0)
+        return state.get(self.features[layer - 1].last_message_index)

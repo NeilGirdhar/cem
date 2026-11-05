@@ -33,6 +33,11 @@ def test_sip_agent_create_matches_coupling_shapes(
     assert len(agent.sensations.interior_features) == len(INTERIOR)
     # Intentions have n_levels SIPFeatures.
     assert len(agent.intentions.features) == n_levels
+    predictor_widths = [
+        feature.mismatch.prediction_map.input_pool.dummy_mean.value.size
+        for feature in agent.intentions.features
+    ]
+    assert predictor_widths == [0, ENV_ACT, *INTERIOR[:-1]]
     # One prospect per sensation feature and one per intention feature.
     assert len(agent.reward_critic.prospect_features) == 2 * n_levels
 
