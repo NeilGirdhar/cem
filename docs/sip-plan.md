@@ -36,6 +36,13 @@ All circuit leaves, features, and whole-agent wiring are in place with unit test
   standard normal (precision 1, so raw-observation reads are well-posed), instrument half is
   the null probe (precision 0, no fake experimental noise). Replaces the former
   `_absent_message` helper.
+- [x] Curiosity and tracking channels wired into the reward critic. For `L = 1 + len(level_sizes)`
+  sensation levels the agent augments the width-`reward_features` environment reward with `L`
+  curiosity channels (one per sensation feature's confounding cost) and `L` tracking channels
+  (one per sensation feature's reconstruction cost), so the critic predicts a width
+  `reward_features + 2 * L` reward. The intention-side Credit goal is the scalar sum of the
+  augmented TD advantage, broadcast to every intention level (per-level routing was ruled out
+  because high-level intentions legitimately affect low-level tracking).
 
 ## What is missing
 
@@ -123,6 +130,18 @@ The circuit itself is well tested. Known thinner spots:
 
 Open questions and follow-ups that are not blockers but want a note so they are not lost:
 
+- [ ] **Loss scaling across environment reward, curiosity, and tracking.** The augmented reward
+  currently puts the environment reward at whatever precision the environment supplies and the
+  `2 * L` intrinsic channels at precision 1. These weights need an adaptive rule so the three
+  signals do not drown each other out; mention the rule in the thesis once it is worked out.
+- [ ] **DAG sensation / intention topology.** Replace the stack-of-levels structure with a DAG.
+  More sensation features means more curiosity and tracking channels, and the DAG dissolves the
+  stack's "level i sensation matches level i intention" assumption, which is what currently
+  forces the TD advantage to be summed and broadcast rather than routed per-feature.
+- [ ] **Controllable pseudo-rewards.** Learn a projection from the raw reward features (extrinsic
+  reward plus curiosity and tracking) to pseudo-reward features chosen to be maximally
+  controllable by specific intention features. Design notes are in `~/src/typst/todo.txt` under
+  "Controllable pseudo-rewards".
 - [ ] **Multi-loss gradient transform.** `TDError`, `Mismatch`, and the loss-weight learnables all
   currently stop-gradient their softplus readouts because Adam under a single scalar loss would
   collapse them. The adaptive rule for the weights still has to be implemented as a

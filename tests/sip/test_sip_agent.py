@@ -19,7 +19,7 @@ def _agent(streams: Mapping[str, RngStream]) -> SIPAgent:
         INTERIOR,
         env_observation_features=ENV_OBS,
         env_action_features=ENV_ACT,
-        reward_features=1,
+        environment_reward_features=1,
         streams=streams,
     )
 
@@ -46,7 +46,7 @@ def test_sip_agent_step_returns_action_at_bottom_intention(
         state,
         jr.key(0),
         observation=_message(jnp.ones(ENV_OBS), jnp.ones(ENV_OBS)),
-        reward_observation=_message(jnp.asarray([0.3]), jnp.ones(1)),
+        environment_reward_observation=_message(jnp.asarray([0.3]), jnp.ones(1)),
         streams=streams,
         inference=True,
     )
@@ -64,7 +64,7 @@ def test_sip_agent_step_produces_one_output_per_level(
         state,
         jr.key(0),
         observation=_message(jnp.ones(ENV_OBS), jnp.ones(ENV_OBS)),
-        reward_observation=_message(jnp.asarray([0.3]), jnp.ones(1)),
+        environment_reward_observation=_message(jnp.asarray([0.3]), jnp.ones(1)),
         streams=streams,
         inference=True,
     )

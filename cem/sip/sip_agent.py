@@ -13,6 +13,7 @@ import jax.random as jr
 from efax import NormalNP
 from tjax import KeyArray, RngStream
 
+from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.features import SIPFeatureOutputs
 from cem.sip.intentions import Intentions
 from cem.sip.messages import concat_messages
@@ -53,9 +54,17 @@ class SIPAgent(eqx.Module):
       intention observation), but its predictor instrument is the
       instrument half of the single feature it corresponds to — so each
       prospect answers "did this specific component cause reward?" and the
-      TD witness isolates per-feature causal credit. Prospect goals and TD
-      advantage feed back with a one-step delay through the TD feature's
-      `last_dissonance_index` and `last_advantage_index`.
+      TD witness isolates per-feature causal credit. The critic predicts
+      a reward vector of width `environment_reward_features + 2 * L`
+      (with `L = 1 + len(level_sizes)` the number of sensation levels):
+      environment reward first, then one curiosity channel per sensation
+      (its confounding cost) and one tracking channel per sensation (its
+      reconstruction cost). Prospect goals and TD advantage feed back with
+      a one-step delay through the TD feature's `last_dissonance_index`
+      and `last_advantage_index`. The intention-side goal is the scalar
+      sum of the augmented advantage broadcast to every intention level;
+      the learned-controllable-view refinement is tracked in
+      `~/src/typst/todo.txt` under "Controllable pseudo-rewards".
     - The agent's action is the bottom intention's outgoing observation,
       which the environment consumes.
     """
@@ -72,7 +81,7 @@ class SIPAgent(eqx.Module):
         env_observation_features: int,
         env_action_features: int,
         prospect_sizes: Sequence[int] | None = None,
-        reward_features: int = 1,
+        environment_reward_features: int = 1,
         discount: float = 1.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
@@ -96,6 +105,13 @@ class SIPAgent(eqx.Module):
         `prospect_sizes` defaults to the full per-level widths (one width
         per level, sensation and intention side sharing): one prospect per
         feature, with the same width on each side.
+
+        `environment_reward_features` is the width of the environment
+        reward vector. The critic internally predicts
+        `environment_reward_features + 2 * L` channels (with
+        `L = 1 + len(level_sizes)`): the environment reward, then one
+        curiosity channel per sensation (confounding cost) and one tracking
+        channel per sensation (reconstruction cost).
         """
         assert env_observation_features > 0
         assert env_action_features > 0
@@ -111,6 +127,10 @@ class SIPAgent(eqx.Module):
             raise ValueError(msg)
         prospect_sizes_full = per_side_sizes + per_side_sizes
         diffuse_content = sum(sensation_sizes) + sum(intention_sizes)
+        n_levels = len(sensation_sizes)
+        # Augment reward with one curiosity (confounding cost) and one tracking
+        # (reconstruction cost) channel per sensation feature.
+        reward_features = environment_reward_features + 2 * n_levels
         sensations = Sensations.create(
             sensation_sizes,
             # external predictor i carries the matching intention's efference.
@@ -147,7 +167,7 @@ class SIPAgent(eqx.Module):
         key: KeyArray,
         *,
         observation: NormalNP,
-        reward_observation: NormalNP,
+        environment_reward_observation: NormalNP,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, SIPAgentOutputs]:
@@ -210,6 +230,19 @@ class SIPAgent(eqx.Module):
         prospect_predictor_instruments = [out.message.instrument for out in sensation_outputs] + [
             out.message.instrument for out in intention_outputs
         ]
+        # Augment reward with intrinsic channels: curiosity is the confounding
+        # cost at every sensation feature, tracking is the reconstruction cost
+        # at every sensation feature. Placeholder precision 1 on the intrinsic
+        # channels; loss scaling across environment reward, curiosity, and
+        # tracking is tracked in `docs/sip-plan.md`.
+        curiosity = jnp.stack([out.confounding_cost for out in sensation_outputs])
+        tracking = jnp.stack([out.reconstruction_cost for out in sensation_outputs])
+        intrinsic_precision = jnp.ones_like(curiosity)
+        reward_observation = concat_messages(
+            environment_reward_observation,
+            normal_from_mean_and_presence(curiosity, intrinsic_precision),
+            normal_from_mean_and_presence(tracking, intrinsic_precision),
+        )
         state, critic_outputs = self.reward_critic.step(
             state,
             key_c,
