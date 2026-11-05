@@ -1,3 +1,5 @@
+"""Interfaces for collecting and combining training and inference snapshots."""
+
 from collections.abc import Mapping
 from dataclasses import fields
 from functools import total_ordering
@@ -13,6 +15,8 @@ from .training_solution import TrainingSolution
 
 @total_ordering
 class Telemetry(eqx.Module):
+    """A selectable measurement of one episode's training or inference results."""
+
     def _key(self) -> tuple[Any, ...]:
         return (id(type(self)), *(getattr(self, f.name) for f in fields(self) if f.compare))
 
@@ -27,7 +31,10 @@ class Telemetry(eqx.Module):
         training_result: TrainingResult,
         snapshots: Mapping[Telemetry, Any],
     ) -> object | None:
-        """Collect a snapshot of data from one training example."""
+        """Collect a training snapshot using any earlier snapshots from the same episode.
+
+        Return none to omit the measurement.
+        """
         return None
 
     def inference_snapshot(
@@ -36,14 +43,20 @@ class Telemetry(eqx.Module):
         inference_result: InferenceResult,
         snapshots: Mapping[Telemetry, Any],
     ) -> object | None:
-        """Collect a snapshot of data from one inference example."""
+        """Collect an inference snapshot using any earlier snapshots from the same episode.
+
+        Return none to omit the measurement.
+        """
         return None
 
 
 class Telemetries(eqx.Module):
+    """An ordered collection of telemetry requests."""
+
     telemetries: tuple[Telemetry, ...] = field(default_factory=tuple)
 
     def combine(self, other: Telemetries) -> Telemetries:
+        """Append requests from the other collection that are absent from this one."""
         result = list(self.telemetries)
         seen = set(self.telemetries)
         for t in other.telemetries:

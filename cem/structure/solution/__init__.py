@@ -1,4 +1,4 @@
-"""Solution loops: training and inference execution, telemetry, and results collection."""
+"""Batched model execution, telemetry, and training state."""
 
 from .execution_context import ExecutionContext
 from .execution_packet import ExecutionPacket

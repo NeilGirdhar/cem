@@ -1,4 +1,4 @@
-"""The :class:`Experiment` harness: variants crossed with a sweep, rendered by plotters."""
+"""Run solver variants across a sweep and collect their results for charting."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
@@ -23,14 +23,10 @@ _EMPTY_SWEEP: tuple[Mapping[str, Any], ...] = ({},)
 
 @dataclass(frozen=True)
 class Variant:
-    """One alternative solver compared inside an :class:`Experiment`.
+    """A solver configuration and its label for comparing alternatives in one experiment.
 
-    Attributes:
-        label: Non-empty for multi-variant experiments; used as the hyperparameter
-            prefix and chart series key. Empty for single-variant experiments.
-        solver: Base solver carrying this variant's problem and model. The
-            hyperparameters (and any :meth:`Experiment.resolve_solver` overrides)
-            are applied on top at run time.
+    The label identifies chart series and scopes variant-specific hyperparameters.
+    A single-variant experiment can leave the label empty.
     """
 
     label: str
@@ -38,20 +34,10 @@ class Variant:
 
 
 class Experiment:
-    r"""A named experiment: ``variants × sweep`` evaluated and rendered by plotters.
+    """Compare solver variants under the same sweep and collect results for plotters.
 
-    Single-variant: ``Experiment(name=..., variants=[Variant(label="", ...)], ...)``.
-    Multi-variant: ``Experiment(name=..., variants=[Variant(label="a", ...), ...], ...)``.
-
-    The sweep is a sequence of parameter overrides applied to every variant. Each
-    (variant, sweep entry) pair is one :class:`Run`; plotters receive all runs and
-    pivot them into chart data.
-
-    Experiments that support hyperparameter optimization subclass
-    :class:`OptimizableExperiment` and implement :meth:`experiment_loss`.
-    Multi-variant experiments optimize jointly: :meth:`create_hyperparameters`
-    prefixes each variant's parameters with ``"{variant.label}."`` except for the
-    names listed in ``shared_hyperparameter_names``.
+    Each combination of variant and sweep entry produces a separate run. A
+    single-variant experiment can use an empty variant label.
     """
 
     def __init__(
@@ -64,6 +50,11 @@ class Experiment:
         shared_hyperparameter_names: frozenset[str] = frozenset(),
         extra_telemetries: Telemetries = _EMPTY_TELEMETRIES,
     ) -> None:
+        """Set up the comparison grid and the charts that consume its results.
+
+        Supply at least one variant and label each variant in a multi-variant
+        experiment. An empty sweep runs each variant once without sweep overrides.
+        """
         if not variants:
             msg = "Experiment requires at least one Variant"
             raise ValueError(msg)
@@ -80,6 +71,7 @@ class Experiment:
         self.extra_telemetries = extra_telemetries
 
     def all_telemetries(self) -> Telemetries:
+        """Combine the telemetry requested by all plotters with explicitly requested telemetry."""
         return reduce(
             Telemetries.combine,
             (plotter.telemetries() for plotter in self.plotters),
@@ -87,12 +79,10 @@ class Experiment:
         )
 
     def create_hyperparameters(self) -> dict[str, BaseDistribution]:
-        """Return the Optuna search space for this experiment.
+        """Return the Optuna search space for the experiment.
 
-        For single-variant experiments this is the solver's hyperparameter space.
-        For multi-variant experiments, names in ``shared_hyperparameter_names``
-        appear once (no prefix); all other names are prefixed with
-        ``"{variant.label}."``.
+        With multiple variants, shared names use the first solver's distribution.
+        All other names are prefixed with their variant label and a dot.
         """
         if len(self.variants) == 1:
             return self.variants[0].solver.create_hyperparameters()
@@ -108,7 +98,7 @@ class Experiment:
         return result
 
     def default_hyperparameters(self) -> dict[str, Any]:
-        """Return default values for :meth:`create_hyperparameters` overlaid with tuned ones."""
+        """Overlay saved tuned values on the solver defaults using experiment-level names."""
         first_defaults = self.variants[0].solver.default_hyperparameters()
         shared_names = (
             frozenset(first_defaults)
@@ -127,7 +117,7 @@ class Experiment:
         variant: Variant,
         hyperparameters: Mapping[str, Any],
     ) -> dict[str, Any]:
-        """Project one variant's slice out of the experiment-level hyperparameters."""
+        """Select the shared values and the variant's own values, stripping its name prefix."""
         if len(self.variants) == 1:
             return dict(hyperparameters)
         prefix = f"{variant.label}."
@@ -145,11 +135,10 @@ class Experiment:
         sweep_entry: Mapping[str, Any],
         hyperparameters: Mapping[str, Any],
     ) -> Solver[Any]:
-        """Build the solver for one (variant, sweep entry) combination.
+        """Configure a solver for one variant and sweep entry.
 
-        Subclasses override this to apply sweep-dependent fields that aren't
-        exposed as hyperparameters (e.g. :attr:`parameters_seed` or
-        :attr:`dataset_kind`).
+        The base implementation applies the selected hyperparameters. Override it
+        when a sweep entry also sets fields such as the dataset or seed.
         """
         del sweep_entry
         return variant.solver.populate_from_hyperparameters(
@@ -165,7 +154,7 @@ class Experiment:
         raise KeyError(msg)
 
     def solver_for(self, run: Run, hyperparameters: Mapping[str, Any]) -> Solver[Any]:
-        """Return the solver that was used to produce ``run``."""
+        """Reconstruct the solver for a run using its variant and sweep overrides."""
         return self.resolve_solver(self.variant_for(run), run.sweep_entry, hyperparameters)
 
     def runs(
@@ -176,7 +165,7 @@ class Experiment:
         wandb_settings: WAndBInitSettings | None = None,
         enable_profiling: bool = False,
     ) -> list[Run]:
-        """Train every (variant, sweep entry) pair and collect :class:`Run` objects."""
+        """Train and evaluate each variant at every sweep entry with the requested telemetry."""
         telemetries = self.all_telemetries()
         collected: list[Run] = []
         for variant in self.variants:
@@ -203,7 +192,7 @@ class Experiment:
         return collected
 
     def generate(self, hyperparameters: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        """Train every (variant, sweep entry) pair and return the chart JSON."""
+        """Run the comparison and return chart data keyed by plotter name."""
         resolved = (
             dict(hyperparameters) if hyperparameters is not None else self.default_hyperparameters()
         )
@@ -212,7 +201,7 @@ class Experiment:
 
 
 class OptimizableExperiment(Experiment, ABC):
-    """An :class:`Experiment` whose hyperparameters can be tuned by ``cem optimize``."""
+    """An experiment with an objective that can be used to tune its hyperparameters."""
 
     @abstractmethod
     def experiment_loss(

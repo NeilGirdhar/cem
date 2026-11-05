@@ -1,4 +1,4 @@
-"""Shared small-problem factories for supervised experiment tests."""
+"""Small deterministic regression problems for supervised model tests."""
 
 import numpy as np
 import pandas as pd
@@ -10,6 +10,7 @@ from cem.npn.experiments.supervised.datasets import (
 
 
 def small_supervised_problem() -> SupervisedProblem:
+    """Build a single-target problem with a noisy linear relationship."""
     rng = np.random.default_rng(0)
     x = rng.normal(size=(32, 4))
     y = 0.5 * x[:, 0] - 0.25 * x[:, 1] + 0.1 * rng.normal(size=32)
@@ -19,6 +20,7 @@ def small_supervised_problem() -> SupervisedProblem:
 
 
 def small_multi_target_problem() -> SupervisedProblem:
+    """Build a two-target problem with each target depending on a separate feature pair."""
     rng = np.random.default_rng(1)
     x = rng.normal(size=(32, 4))
     df = pd.DataFrame({f"x_{i}": x[:, i] for i in range(x.shape[1])})

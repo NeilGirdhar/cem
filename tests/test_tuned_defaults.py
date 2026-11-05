@@ -1,3 +1,5 @@
+"""Check persistence of tuned defaults and their use in experiment search spaces."""
+
 import json
 from pathlib import Path
 

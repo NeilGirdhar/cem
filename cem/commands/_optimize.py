@@ -1,4 +1,4 @@
-"""Optuna hyperparameter search driver for :class:`Experiment` runs."""
+"""Run Optuna searches and save the best trial's hyperparameters as experiment defaults."""
 
 import logging
 from collections.abc import Callable
@@ -33,21 +33,28 @@ _log = logging.getLogger(__name__)
 
 
 class OptimizationMode(StrEnum):
+    """Choose sequential trials with per-run progress or Optuna-managed concurrent trials."""
+
     single_task = "single"
     multi_task = "multi"
 
 
 class InvalidTrialsError(typer.BadParameter):
+    """The requested trial count is zero or negative."""
+
     def __init__(self) -> None:
         super().__init__("must be greater than 0", param_hint="trials")
 
 
 class InvalidJobsError(typer.BadParameter):
+    """The requested worker count is invalid."""
+
     def __init__(self) -> None:
         super().__init__("must be -1 or greater than 0", param_hint="jobs")
 
 
 def _suggest_from_distribution(trial: Trial, name: str, distribution: BaseDistribution) -> object:
+    """Suggest a trial parameter without changing its declared Optuna distribution."""
     if isinstance(distribution, FloatDistribution):
         return trial.suggest_float(
             name,
@@ -78,6 +85,7 @@ def _objective(
     profiling: bool,
     progress_manager: rp.Progress | None,
 ) -> float:
+    """Run an experiment with one trial's settings and evaluate its objective."""
     adjusted_wandb_settings = (
         replace(wandb_settings, name=experiment.name, config=hyperparameters, reinit=True)
         if wandb
@@ -121,6 +129,7 @@ def _run_single_task_trials(
 
 
 def _existing_trial_count(study_name: str, storage: JournalStorage) -> int | None:
+    """Count trials in an existing study, or return none if the study is absent."""
     try:
         study = load_study(study_name=study_name, storage=storage, sampler=optuna_sampler)
     except KeyError:
@@ -129,6 +138,7 @@ def _existing_trial_count(study_name: str, storage: JournalStorage) -> int | Non
 
 
 def _delete_study_with_confirmation(study_name: str, storage: JournalStorage) -> None:
+    """Delete an existing study, asking for confirmation if it already contains trials."""
     trial_count = _existing_trial_count(study_name, storage)
     if trial_count is None:
         return
@@ -146,6 +156,7 @@ def _enqueue_default_trial(
     hyper_space: dict[str, BaseDistribution],
     hyperparameters: dict[str, Any],
 ) -> None:
+    """Queue the experiment defaults for parameters in the current search space."""
     trial_params = {k: v for k, v in hyperparameters.items() if k in hyper_space}
     _log.info("Queueing default parameters as first trial: %s", GenericString(trial_params))
     study.enqueue_trial(trial_params)
@@ -159,6 +170,7 @@ def _best_trial_number(study: Study) -> int | None:
 
 
 def _sync_best_defaults(study: Study, experiment_name: str) -> int | None:
+    """Save the best completed trial's parameters and return its trial number, if available."""
     try:
         best_trial = study.best_trial
     except ValueError:
@@ -179,7 +191,11 @@ def run_optimize(  # ruff:ignore[complex-structure]
     profiling: bool,
     restart: bool,
 ) -> None:
-    """Drive the Optuna search for ``experiment``."""
+    """Tune an experiment against a journal-backed Optuna study.
+
+    A restart replaces the study and queues the experiment defaults as the first trial.
+    Otherwise the search resumes an existing study or starts a new one.
+    """
     if trials <= 0:
         raise InvalidTrialsError
     if jobs != -1 and jobs <= 0:

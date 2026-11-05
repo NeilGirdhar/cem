@@ -1,3 +1,5 @@
+"""Check that partitioning and reassembling a perceptron target node preserves its outputs."""
+
 import equinox as eqx
 import jax.numpy as jnp
 from efax import (
@@ -14,6 +16,7 @@ def infer_perceptron_target_node(
     observed: dict[str, NormalNP],
     predicted: dict[str, jnp.ndarray],
 ) -> PerceptronTargetConfiguration:
+    """Score fieldwise predictions after packing them in the target node's field order."""
     flat_observed = frozendict(
         {
             field: Flattener.flatten(dist, mapped_to_plane=True)[1]

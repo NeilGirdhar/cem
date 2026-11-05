@@ -1,3 +1,5 @@
+"""Batched reinforcement learning episodes built on the model execution interface."""
+
 from collections.abc import Callable
 from functools import partial
 from typing import Any, override
@@ -24,7 +26,7 @@ from .problem import RLProblem
 
 
 class _RLInferenceState(_InferenceState):
-    """The state of one batch of inference iterates between time steps."""
+    """Batched model and environment state with the rollout's step, return, and termination flag."""
 
     # These fields have shape ().
     step: JaxIntegralArray
@@ -35,7 +37,7 @@ class _RLInferenceState(_InferenceState):
 
 
 class RLInference(Inference):
-    """Runs multi-step RL rollouts for inference and training."""
+    """Run model evaluation and training with reinforcement learning episode limits."""
 
     @override
     def _set_up_inference(
@@ -73,6 +75,7 @@ class RLInference(Inference):
         inference_state: _InferenceState,
         body_function: Callable[[_InferenceState], tuple[Any, frozendict[str, NodeConfiguration]]],
     ) -> InferenceResult:
+        """Roll out the environment, then evaluate the model on the final observation."""
         assert isinstance(problem, RLProblem)
         assert isinstance(inference_state, _RLInferenceState)
         rl_body_function = partial(
@@ -119,6 +122,10 @@ class RLInference(Inference):
         learnable_parameters: Model,
         inference_state: _RLInferenceState,
     ) -> _RLInferenceState:
+        """Use the model's action to advance the environment and accumulate reward.
+
+        Stop gradients at the action and the new environment state.
+        """
         new_state, configurations = body_function(inference_state)
         model = self.assemble_model(learnable_parameters)
         assert isinstance(model, RLModel)

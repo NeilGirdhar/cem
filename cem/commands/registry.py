@@ -1,7 +1,4 @@
-"""Experiment registry: single source of truth for the ``cem`` CLI.
-
-Add a new experiment by inserting one entry into :data:`experiments`.
-"""
+"""Experiments available from the command line, indexed by name."""
 
 from cem.npn.experiments.supervised.calibration import supervised_calibration_experiment
 from cem.npn.experiments.supervised.missingness import supervised_missingness_experiment

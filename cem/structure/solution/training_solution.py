@@ -1,3 +1,5 @@
+"""Bundle a problem, its model partitions, and the state needed to train it."""
+
 import equinox as eqx
 
 from cem.structure.graph import (
@@ -12,13 +14,7 @@ from cem.structure.solution.inference import Inference, SolutionState
 
 
 class TrainingSolution(eqx.Module):
-    """TrainingSolution is everything needed to keep track of the solution during training.
-
-    Attributes:
-        inference: The model and the problem.
-        gradient_transformation: The way in which the state is updated.
-        solution_state: The state of parameters, the gradient transformation, and the RNG.
-    """
+    """A problem and its trainable solution, including the optimizer and current state."""
 
     gradient_transformations: DisGradientTransformation
     inference: Inference
@@ -32,6 +28,7 @@ class TrainingSolution(eqx.Module):
         model: Model,
         gradient_transformations: DisGradientTransformation,
     ) -> TrainingSolution:
+        """Split the model into fixed and trainable parameters and initialize optimizer state."""
         verify_model_has_no_free_parameters(model)
         learnable_parameters, fixed_parameters = eqx.partition(
             model,
@@ -54,6 +51,7 @@ class TrainingSolution(eqx.Module):
         fixed_parameters: bool,
         learnable_parameters: bool,
     ) -> Model:
+        """Return the requested parameter partition or the complete model if both are requested."""
         assert fixed_parameters or learnable_parameters
         if not learnable_parameters:
             return self.inference.fixed_parameters

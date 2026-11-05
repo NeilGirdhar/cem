@@ -1,4 +1,4 @@
-"""Reinforcement learning extensions: RL problems, inference, model creator, and trajectories."""
+"""Reinforcement learning problems, models, and batched episode execution."""
 
 from .inference import RLInference
 from .model import RLModel

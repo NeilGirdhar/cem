@@ -1,3 +1,5 @@
+"""Check the bounds, spacing, and validation of integer hyperparameter choices."""
+
 import pytest
 
 from cem.structure.solver import hardware_friendly_ints

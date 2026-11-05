@@ -1,3 +1,5 @@
+"""Configure JAX and numerical thread pools for solver execution."""
+
 from collections.abc import Generator
 from contextlib import contextmanager
 
@@ -19,6 +21,7 @@ tc = ThreadpoolController()
 
 
 def jax_is_initialized() -> bool:
+    """Report whether JAX has initialized a backend."""
     return bool(xb._backends)  # ruff:ignore[private-member-access]
 
 
@@ -29,6 +32,7 @@ def solver_context_manager(
     thread_limit: int | None,
     log_compilation: bool = False,
 ) -> Generator[None]:
+    """Enable the solver's JAX settings and limit numerical-library threads within the context."""
     cc.set_cache_dir(jax_cache_dir)
     with (
         tc.limit(limits=thread_limit),

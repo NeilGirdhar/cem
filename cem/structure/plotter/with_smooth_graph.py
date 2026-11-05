@@ -1,3 +1,5 @@
+"""Robust smoothing and magnitude percentiles for experiment plots."""
+
 from dataclasses import KW_ONLY
 
 import numpy as np
@@ -13,16 +15,11 @@ def smooth_data(
     *,
     log_space: bool = False,
 ) -> NumpyRealArray:
-    """Apply robust LOWESS smoothing to a 1-D array.
+    """Smooth a one-dimensional series with robust locally weighted regression.
 
-    Args:
-        values: Time-series values to smooth, shape ``(steps,)``.
-        smoothing: LOWESS neighborhood fraction.  ``0`` disables smoothing; larger values
-            smooth more aggressively.  Useful plot values are usually in ``[0.05, 0.3]``.
-        log_space: Smooth ``log(values)`` and exponentiate back.  Use only for positive series.
-
-    Returns:
-        Smoothed values with the same shape as ``values``.
+    The smoothing fraction sets the neighbourhood size. Nonpositive fractions and
+    series shorter than three points return the original values as floating point.
+    Use log-space smoothing only for positive series.
     """
     assert values.ndim == 1
     np_values = np.astype(values, np.float64)
@@ -85,10 +82,12 @@ def _lowess(
 
 
 def absolute_percentile(data: NumpyArray, percentile: float) -> float:
-    """Return the percentile-th value in abs(data)."""
+    """Return a percentile of the data's absolute values, on a scale from zero to one hundred."""
     return float(quantile(np.abs(data), percentile * 0.01))
 
 
 class PlotterWithSmoothGraph(Plotter):
+    """A plotter with a configurable smoothing fraction for its series."""
+
     _: KW_ONLY
     smoothing: float = 0.15

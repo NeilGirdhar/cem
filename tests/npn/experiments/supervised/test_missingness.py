@@ -1,3 +1,5 @@
+"""Check held-out loss aggregation across models, datasets, and matched seeds."""
+
 from typing import cast
 
 import jax.numpy as jnp

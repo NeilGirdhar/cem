@@ -1,4 +1,4 @@
-"""Reliability scatter for NPN predicted variance across the four supervised datasets."""
+"""Compare Gaussian NPN predicted variances with empirical squared residuals."""
 
 import itertools as it
 from collections.abc import Mapping, Sequence
@@ -44,7 +44,7 @@ def _bin_by_quantile(
     squared_residual: np.ndarray,
     bins: int,
 ) -> tuple[list[float], list[float]]:
-    """Return per-bin (mean predicted variance, mean squared residual) by quantile."""
+    """Group examples by predicted variance and average both statistics within each nonempty bin."""
     order = np.argsort(predicted_variance)
     variance_sorted = predicted_variance[order]
     residual_sorted = squared_residual[order]
@@ -60,7 +60,7 @@ def _bin_by_quantile(
 
 
 class CalibrationScatterPlotter(Plotter):
-    """One scatter panel: predicted σ² (x) vs. empirical squared residual (y) per dataset."""
+    """Plot mean predicted variance against mean squared residual for each dataset."""
 
     _: KW_ONLY
     name: str = field(static=True, default="calibration-scatter")
@@ -75,6 +75,7 @@ class CalibrationScatterPlotter(Plotter):
 
     @override
     def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        """Pool predictions across seeds and build a quantile-binned series per dataset."""
         telemetry = PredictionTelemetry(selected_node=_TARGET_NODE, selected_field=_TARGET_FIELD)
         batches: dict[DatasetKind, list[tuple[np.ndarray, np.ndarray]]] = {}
         for run in runs:
@@ -115,7 +116,7 @@ class CalibrationScatterPlotter(Plotter):
 
 
 class SupervisedCalibrationExperiment(Experiment):
-    """NPN predicted-variance reliability across the four tabular regression datasets."""
+    """Evaluate Gaussian NPN variance calibration across datasets and random seeds."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -149,6 +150,7 @@ class SupervisedCalibrationExperiment(Experiment):
         sweep_entry: Mapping[str, Any],
         hyperparameters: Mapping[str, Any],
     ) -> Solver[Any]:
+        """Set the dataset's budget and width and offset the seeds for training and inference."""
         del hyperparameters
         dataset_kind = sweep_entry["dataset_kind"]
         seed = sweep_entry["seed"]

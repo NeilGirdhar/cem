@@ -1,3 +1,5 @@
+"""Check supervised target scoring, missing inputs, and batched training and inference."""
+
 from collections.abc import Mapping
 
 import jax.numpy as jnp
@@ -57,7 +59,7 @@ def test_supervised_models_train_with_all_inputs_missing(
     link_kind: LinkKind,
     streams: Mapping[str, RngStream],
 ) -> None:
-    """Missingness changes inputs while leaving observed targets available."""
+    """Check that both models can score observed targets even when every input is absent."""
     problem = small_multi_target_problem()
     if link_kind == LinkKind.perceptron:
         model = PerceptronSupervisedModel.create(
@@ -86,7 +88,6 @@ def test_supervised_models_train_with_all_inputs_missing(
 def test_mask_aware_perceptron_receives_values_and_presence(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """The mask-aware baseline adds one presence input per observed value."""
     problem = small_multi_target_problem()
     model = PerceptronSupervisedModel.create(
         problem,

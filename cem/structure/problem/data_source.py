@@ -1,28 +1,24 @@
+"""The data source interface and the distinction between problem states and observations."""
+
 import equinox as eqx
 from tjax import KeyArray
 
 
 class ProblemObservation(eqx.Module):
-    """An observation is what is visible to inference.
-
-    For an ordinary model, this is the input.  For an RL model, this is the observation in the POMDP
-    sense.
-    """
+    """The part of a problem state visible to the model at inference time."""
 
 
 class ProblemState(ProblemObservation):
-    """A problem state is the input that is sampled using the "example" key.
+    """The full state of a sampled example or environment.
 
-    For an ordinary model, this can include additional information that may be useful in plotting.
-    For an RL model, this is the state in the POMDP sense.
-
-    It inherits from ProblemObservation to reflect this "additional information" structure, and to
-    facilitate returning the problem state as the observation in the common case.
+    The state can also serve as the observation when the model sees it in full.
+    Partially observed problems expose a separate view.
     """
 
 
 class DataSource(eqx.Module):
-    """A data-producer produces the initial problem states."""
+    """A source of initial problem states for sampled examples or episodes."""
 
     def initial_problem_state(self, example_key: KeyArray) -> ProblemState:
+        """Sample an initial state with the given example key."""
         raise NotImplementedError

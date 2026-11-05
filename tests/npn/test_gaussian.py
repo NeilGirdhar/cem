@@ -1,3 +1,5 @@
+"""Check Gaussian message encodings, moment propagation, and parameter counts."""
+
 from collections.abc import Mapping
 
 import jax.numpy as jnp
@@ -44,7 +46,7 @@ def test_gaussian_npn_linear_propagates_marginal_moments() -> None:
 
 
 def test_gaussian_npn_input_pool_adds_dummy_evidence() -> None:
-    """The learned dummy makes missing inputs proper before moment conversion."""
+    """Check that background evidence makes an absent input usable for moment conversion."""
     pool = GaussianNPNInputPool(
         dummy_mean=LearnableParameter(jnp.zeros(2)),
         dummy_raw_presence=LearnableParameter(jnp.full(2, jnp.log(jnp.expm1(1.0)))),

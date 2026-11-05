@@ -1,3 +1,5 @@
+"""Learnable affine projections for real or complex feature vectors."""
+
 from collections.abc import Mapping
 from typing import Self
 
@@ -11,8 +13,7 @@ from cem.structure.graph import LearnableParameter
 
 _real_lecun = variance_scaling(1.0, "fan_in", "truncated_normal")
 
-# Each real/imaginary component uses Lecun variance (0.5 * 1/fan_in), giving correct
-# complex Lecun initialization when the two components are combined.
+# Give each component half the LeCun variance so the complex weight has the full variance.
 _complex_lecun = variance_scaling(0.5, "fan_in", "truncated_normal")
 
 
@@ -34,12 +35,7 @@ def _bias_dtype(*, complex_matrix: bool) -> DTypeLike:
 
 
 class Affine(eqx.Module):
-    """Affine transform: x W^T + b.
-
-    Attributes:
-        weight: Weight matrix, shape (out_features, in_features).
-        bias: Bias vector, shape (out_features,).
-    """
+    """A learnable affine map between real or complex feature vectors."""
 
     weight: LearnableParameter[JaxArray]
     bias: LearnableParameter[JaxArray]
@@ -53,6 +49,10 @@ class Affine(eqx.Module):
         complex_matrix: bool = False,
         streams: Mapping[str, RngStream],
     ) -> Self:
+        """Initialize an affine map with LeCun weights and zero bias.
+
+        The complex option initializes both real and imaginary components independently.
+        """
         stream = streams["parameters"]
         shape = (out_features, in_features)
         return cls(
@@ -65,14 +65,7 @@ class Affine(eqx.Module):
         )
 
     def project(self, x: JaxArray) -> JaxArray:
-        """Apply affine transform.
-
-        Args:
-            x: Input, shape (..., in_features).
-
-        Returns:
-            Output, shape (..., out_features).
-        """
+        """Apply the weight matrix and broadcast the bias across all leading axes."""
         y = x @ self.weight.value.T
         broadcasted_bias = jnp.reshape(self.bias.value, (1,) * (y.ndim - 1) + (-1,))
         return y + broadcasted_bias

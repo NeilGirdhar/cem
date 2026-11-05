@@ -1,3 +1,5 @@
+"""Train in compiled chunks and replay the first non-finite step for diagnostics."""
+
 import logging
 from dataclasses import replace
 from functools import partial
@@ -48,6 +50,12 @@ def train_episode_chunk(  # ruff:ignore[too-many-arguments, too-many-positional-
     telemetries: tuple[Telemetry, ...],
     solution_state: SolutionState,
 ) -> tuple[SolutionState, dict[Telemetry, Any], JaxArray, JaxArray]:
+    """Run a fixed-size scan and return snapshots and finiteness flags for each episode.
+
+    Padding steps keep the compilation shape fixed. Their updates are discarded and
+    their finiteness flags are treated as true.
+    """
+
     def step(
         carry: tuple[SolutionState, JaxArray], _: None
     ) -> tuple[tuple[SolutionState, JaxArray], tuple[dict[Telemetry, Any], JaxArray, JaxArray]]:
@@ -102,6 +110,7 @@ def _first_nonfinite_index(
     finite_parameters: JaxArray,
     finite_inference_result: JaxArray,
 ) -> int | None:
+    """Find the first step with non-finite parameters or inference output, or return none."""
     finite = np.asarray(finite_parameters) & np.asarray(finite_inference_result)
     if np.all(finite):
         return None
@@ -118,6 +127,7 @@ def _replay_to_nonfinite(
     solution_state: SolutionState,
     failure_index: int,
 ) -> tuple[SolutionState, TrainingResult]:
+    """Reproduce the failing step using the original state and episode keys."""
     result = None
     for episode_index in range(chunk_start, chunk_start + failure_index + 1):
         example_key, inference_key = fold_episode_keys(
@@ -168,7 +178,11 @@ def train_episodes(
     key: KeyArray,
     episodes: int,
 ) -> TrainingResults:
-    """Train episodes."""
+    """Train on sampled batches and collect telemetry for successful episodes.
+
+    If an update produces non-finite values, replay through that episode for
+    diagnostics and stop. The returned state is the one from the replay.
+    """
     if episodes <= 0:
         msg = f"training_examples must be > 0, got {episodes}"
         raise ValueError(msg)

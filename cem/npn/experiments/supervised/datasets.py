@@ -1,4 +1,4 @@
-"""Supervised learning problem: data sources and problem state."""
+"""Prepare numeric tables as training and held-out data for supervised models."""
 
 from functools import cache
 from typing import Any, cast, override
@@ -22,52 +22,30 @@ _MIN_PARTITIONED_ROWS = 2
 
 
 class SupervisedProblemState(ProblemState):
-    """One supervised example: flat natural-param encodings of x and y.
-
-    ``x`` and ``y`` are flat real arrays in ``mapped_to_plane=True`` coordinates,
-    shaped ``(2 * n_features,)`` and ``(2 * n_targets,)`` respectively.  Field
-    names match input node field names so that ``as_shallow_dict`` routes them
-    correctly.
-    """
+    """One example with flat unit-variance Gaussian encodings for inputs and targets."""
 
     x: JaxRealArray
     y: JaxRealArray
 
 
 class SupervisedDataSource(DataSource):
-    """Data source for a supervised learning problem.
-
-    Stores pre-encoded flat arrays for all examples and draws one uniformly at
-    random, with replacement, per call to :meth:`initial_problem_state`.  The
-    same example key always selects the same row.  Consequently, solvers that
-    share a partition and example-key schedule receive the same sequence of rows.
-
-    Attributes:
-        x_flat: Shape ``(n_samples, n_features)``.
-        y_flat: Shape ``(n_samples, n_targets)``.
-    """
+    """A partition of encoded examples that can be sampled with replacement."""
 
     x_flat: JaxRealArray  # (n_samples, n_features)
     y_flat: JaxRealArray  # (n_samples, n_targets)
 
     def initial_problem_state(self, example_key: KeyArray) -> SupervisedProblemState:
+        """Select a row uniformly using the example key.
+
+        Solvers using the same partition and key schedule see the same sampled rows.
+        """
         n = self.x_flat.shape[0]
         idx = jr.randint(example_key, shape=(), minval=0, maxval=n)
         return SupervisedProblemState(x=self.x_flat[idx], y=self.y_flat[idx])
 
 
 class SupervisedProblem(Problem):
-    """Complete supervised learning dataset with priors.
-
-    Attributes:
-        training: Encoded examples used for parameter updates.
-        inference: Held-out encoded examples used for inference.
-        x_prior: UnitVarianceNormalNP prior for the input features (used to configure the input
-            node).
-        y_prior: UnitVarianceNormalNP prior for the targets (used to configure the target node).
-        n_features: Number of input features.
-        n_targets: Number of target dimensions.
-    """
+    """Training and held-out partitions with priors and dimensions for configuring the model."""
 
     training: SupervisedDataSource
     inference: SupervisedDataSource
@@ -94,16 +72,10 @@ def _encode_dataset(
     int,
     int,
 ]:
-    """Standardize both partitions with training statistics and encode them.
+    """Encode both partitions as unit-variance Gaussian observations.
 
-    Args:
-        training_x: Training feature matrix.
-        training_y: Training target matrix.
-        inference_x: Held-out feature matrix.
-        inference_y: Held-out target matrix.
-
-    Returns:
-        Training and inference data sources, priors, and feature counts.
+    Use only training means and scales to standardize either partition. Return both
+    data sources, the zero-mean priors, and the input and target widths.
     """
     if training_y.ndim == 1:
         training_y = training_y[:, np.newaxis]
@@ -130,13 +102,11 @@ def _encode_dataset(
     inference_x_jax = jnp.asarray(inference_x)
     inference_y_jax = jnp.asarray(inference_y)
 
-    # Vectorise over samples.
     training_x_flat = vmap(encode_flat)(training_x_jax)
     training_y_flat = vmap(encode_flat)(training_y_jax)
     inference_x_flat = vmap(encode_flat)(inference_x_jax)
     inference_y_flat = vmap(encode_flat)(inference_y_jax)
 
-    # Priors: zero-mean, unit variance.
     x_prior = UnitVarianceNormalNP(jnp.zeros(n_features))
     y_prior = UnitVarianceNormalNP(jnp.zeros(n_targets))
     return (
@@ -156,7 +126,11 @@ def problem_from_numeric_dataframe(
     seed: int,
     n_targets: int = 1,
 ) -> SupervisedProblem:
-    """Build deterministic training and inference partitions from a numeric table."""
+    """Build reproducible training and held-out partitions from a numeric table.
+
+    Drop nonnumeric columns and incomplete rows. Shuffle with the supplied seed
+    before limiting the row count. Treat the last `n_targets` columns as targets.
+    """
     numeric_df = df.select_dtypes(include=[np.number]).dropna()
     if n_targets < 1:
         msg = f"n_targets must be positive, got {n_targets}"
@@ -205,7 +179,7 @@ def load_hf_tabular_regression(
     max_rows: int | None = 5000,
     seed: int = 0,
 ) -> SupervisedProblem:
-    """Load a numeric Hugging Face tabular-regression config as a supervised problem."""
+    """Load a numeric regression configuration from the Hugging Face tabular benchmark."""
     ds = load_dataset("inria-soda/tabular-benchmark", config_name, split="train")
     df = cast("pd.DataFrame", ds.to_pandas())
     return problem_from_numeric_dataframe(df, max_rows=max_rows, seed=seed)
@@ -213,13 +187,9 @@ def load_hf_tabular_regression(
 
 @cache
 def load_iris() -> SupervisedProblem:
-    """Load the Iris dataset from HuggingFace as a 4-feature -> 1-target problem.
+    """Load Iris as a regression problem with four measurements and a numeric species target.
 
-    Features: sepal length, sepal width, petal length, petal width.
-    Target: integer class label (0, 1, 2).
-
-    Returns:
-        A :class:`SupervisedProblem` with 150 samples, 4 features, 1 target.
+    Assign consecutive integer labels to the species before splitting and standardizing.
     """
     ds = load_dataset(
         "scikit-learn/iris",

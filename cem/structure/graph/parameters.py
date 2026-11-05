@@ -1,3 +1,5 @@
+"""Parameter wrappers that let optimizers distinguish model weights from fixed values."""
+
 from collections.abc import Callable, Sequence
 from functools import partial
 from typing import Any, cast
@@ -8,34 +10,24 @@ from jax import tree
 
 
 class Parameter[A](eqx.Module):
-    """A parameter that is either constant or variable (learned during training)."""
+    """A typed wrapper that makes a value a leaf for model partitioning."""
 
     value: A
 
 
 class LearnableParameter[A](Parameter[A]):
-    """A parameter that is updated by training.
-
-    E.g., weights, biases.
-    """
+    """A model parameter trained by the primary learning objective."""
 
 
 class MetaParameter[A](Parameter[A]):
-    """A parameter updated by a meta-learning objective, typically at a lower learning rate.
-
-    For example, weights learned to equalize gradient contributions.
-    """
+    """A parameter reserved for a meta-learning objective, such as balancing gradients."""
 
 
 class FixedParameter[A](Parameter[A]):
-    """A parameter that remains unchanged throughout model training.
-
-    E.g., regularization strength, dropout rate, architectural constants.
-    """
+    """A model parameter held fixed during training, such as a dropout rate."""
 
 
 def is_parameter(x: object, /) -> bool:
-    """Return True if x is a Parameter leaf."""
     return isinstance(x, Parameter)
 
 
@@ -55,7 +47,7 @@ def count_real_learnable_parameters(x: object, /) -> int:
 
 
 def apply_to_parameters[T](f: Callable[[Parameter[Any]], Parameter[Any]], x: T) -> T:
-    """Replace one type of parameter with another throughout a pytree."""
+    """Apply a replacement function to every parameter wrapper in a pytree."""
     return cast("T", eqx.tree_at(_get_parameters, x, replace_fn=partial(_apply_to_parameter, f)))
 
 

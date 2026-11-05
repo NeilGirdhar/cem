@@ -1,3 +1,5 @@
+"""Check perceptron shapes, affine behaviour without hidden layers, and dropout."""
+
 from collections.abc import Mapping
 
 import jax.numpy as jnp

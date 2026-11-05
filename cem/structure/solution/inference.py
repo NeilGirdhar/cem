@@ -1,3 +1,5 @@
+"""Batched model steps and the optimizer state carried between training episodes."""
+
 from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
@@ -18,14 +20,14 @@ from cem.structure.problem.problem import Problem
 
 
 class InferenceResult(eqx.Module):
-    """Result of running inference for one batch."""
+    """The batch's initial problem states and evaluated node outputs."""
 
     initial_problem_state: ProblemState
     model_configuration: frozendict[str, NodeConfiguration]
 
 
 class SolutionState(eqx.Module):
-    """Iterand for the SolutionTrainer during training."""
+    """The learnable parameter partitions and their current optimizer states."""
 
     dis_learnable_parameters: DisModel
     gradient_states: DisGradientState
@@ -41,14 +43,14 @@ class SolutionState(eqx.Module):
 
 
 class TrainingResult(eqx.Module):
-    """Result of running one training episode for one batch."""
+    """Updated parameters and optimizer state together with the batch's evaluated node outputs."""
 
     solution_state: SolutionState
     inference_result: InferenceResult
 
 
 class _InferenceState(eqx.Module):
-    """Internal state carried through batched inference."""
+    """Random keys, observations, and model state carried through a batched episode."""
 
     # These fields have shape ().
     example_key: KeyArray
@@ -59,14 +61,14 @@ class _InferenceState(eqx.Module):
 
 
 class _TrainingState(eqx.Module):
-    """The input and output of batch training."""
+    """The model and optimizer state carried through a training step."""
 
     solution_state: SolutionState
     inference_state: _InferenceState
 
 
 class Inference(eqx.Module, JaxAbstractClass):
-    """Base class for batched model inference and training."""
+    """Run batched model evaluation and training with fixed parameters shared across episodes."""
 
     fixed_parameters: Model
 
@@ -79,7 +81,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         learnable_parameters: Model,
         problem: Problem,
     ) -> InferenceResult:
-        """Run one batched inference episode."""
+        """Sample and evaluate a batch without updating model parameters."""
         inference_state, problem_state = self._set_up_inference(
             batch_size, example_key, inference_key, data_source, problem
         )
@@ -98,7 +100,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         problem: Problem,
         solution_state: SolutionState,
     ) -> TrainingResult:
-        """Run one batched training episode."""
+        """Train on one batch and evaluate its node outputs with the updated parameters."""
         inference_state, problem_state = self._set_up_inference(
             batch_size, example_key, inference_key, data_source, problem
         )
@@ -127,6 +129,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         inference_state: _InferenceState,
         body_function: Callable[[_InferenceState], tuple[Any, frozendict[str, NodeConfiguration]]],
     ) -> InferenceResult:
+        """Run a single forward step by default. Rollout subclasses can advance the environment."""
         _, configurations = body_function(inference_state)
         return InferenceResult(problem_state, frozendict(configurations))
 
@@ -136,6 +139,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         training_state: _TrainingState,
         body_function: Callable[[_TrainingState], _TrainingState],
     ) -> _TrainingState:
+        """Run one update by default. Rollout subclasses can perform several updates."""
         return body_function(training_state)
 
     def assemble_model(self, learnable_parameters: Model) -> Model:
@@ -149,6 +153,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         data_source: DataSource,
         problem: Problem,
     ) -> tuple[_InferenceState, ProblemState]:
+        """Sample initial observations and replicate the model's initial state across the batch."""
         example_keys = jr.split(example_key, batch_size)
         initial_model_state = self.fixed_parameters.initial_state()
 
@@ -185,6 +190,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         *,
         inference: bool,
     ) -> tuple[JaxArray, Any, frozendict[str, NodeConfiguration]]:
+        """Use a separate random key for each example and average the resulting losses."""
         inference_keys = jr.split(inference_key, batch_size)
         f = vmap(self._infer, in_axes=(0, 0, 0, None, None), out_axes=(0, 0, 0))
         losses, new_states, configurations = f(
@@ -200,6 +206,11 @@ class Inference(eqx.Module, JaxAbstractClass):
         state: object,
         learnable_parameters: Model,
     ) -> tuple[Model, tuple[Any, frozendict[str, NodeConfiguration]]]:
+        """Differentiate the batch mean loss with respect to learnable parameters.
+
+        Return the forward pass's states and node outputs as auxiliary data.
+        """
+
         def loss_fn(
             params: Model,
         ) -> tuple[JaxArray, tuple[Any, frozendict[str, NodeConfiguration]]]:
@@ -232,6 +243,7 @@ class Inference(eqx.Module, JaxAbstractClass):
         gradient_transformations: DisGradientTransformation,
         training_state: _TrainingState,
     ) -> _TrainingState:
+        """Advance the batch's model state and apply the parameter-specific optimizer updates."""
         inference_state = training_state.inference_state
         solution_state = training_state.solution_state
 
@@ -242,8 +254,7 @@ class Inference(eqx.Module, JaxAbstractClass):
             inference_state.state,
             solution_state.dis_learnable_parameters.assembled(),
         )
-        # JAX returns 2·∂L/∂z (Wirtinger, same sign as holomorphic grad) for complex params.
-        # Steepest descent requires conjugating: z ← z − lr·conj(∂L/∂z).  No-op for reals.
+        # Conjugate JAX's complex gradients so the optimizer follows steepest descent.
         learnable_parameters_bar = tree.map(jnp.conj, learnable_parameters_bar)
 
         dis_learnable_parameters_bar = DisModel.create(

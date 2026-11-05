@@ -1,4 +1,4 @@
-"""Capacity-matched supervised missing-input comparison, swept over datasets and seeds."""
+"""Compare capacity-matched supervised models on missing inputs across datasets and seeds."""
 
 from collections.abc import Mapping, Sequence
 from dataclasses import KW_ONLY, replace
@@ -51,7 +51,7 @@ _DATASET_LABELS = {
 
 
 class MissingnessBarPlotter(Plotter):
-    """Aggregate per-seed held-out losses into a dataset-vs-model bar chart."""
+    """Compare mean held-out losses by dataset and model, with variation across matched seeds."""
 
     _: KW_ONLY
     name: str = field(static=True, default="missing-data-distributional")
@@ -66,6 +66,7 @@ class MissingnessBarPlotter(Plotter):
 
     @override
     def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        """Build per-example loss bars with one population standard deviation across seeds."""
         telemetry = LossTelemetry(selected_node="target")
         seen = {DatasetKind(run.sweep_entry["dataset_kind"]) for run in runs}
         datasets_in_order = [dataset for dataset in _DATASET_LABELS if dataset in seen]
@@ -101,7 +102,7 @@ class MissingnessBarPlotter(Plotter):
 
 
 class SupervisedMissingnessExperiment(Experiment):
-    """Compare NPN against a mask-aware MLP under 50% missing inputs across four datasets."""
+    """Compare a Gaussian NPN and a mask-aware MLP when half the inputs are missing on average."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -151,6 +152,7 @@ class SupervisedMissingnessExperiment(Experiment):
         sweep_entry: Mapping[str, Any],
         hyperparameters: Mapping[str, Any],
     ) -> Solver[Any]:
+        """Apply the dataset budget and model-specific width while matching seeds across models."""
         del hyperparameters
         dataset_kind = sweep_entry["dataset_kind"]
         seed = sweep_entry["seed"]

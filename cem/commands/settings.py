@@ -1,3 +1,5 @@
+"""Local cache paths and reporting defaults for experiment commands."""
+
 from pathlib import Path
 
 from optuna.storages import JournalStorage
@@ -13,5 +15,6 @@ wandb_settings = WAndBInitSettings(dir=wandb_cache_path, entity="neilgirdhar")
 
 
 def get_optuna_storage() -> JournalStorage:
+    """Open the journal shared by searches, creating its parent directory if needed."""
     optuna_cache.parent.mkdir(parents=True, exist_ok=True)
     return JournalStorage(JournalFileBackend(optuna_cache.as_posix()))

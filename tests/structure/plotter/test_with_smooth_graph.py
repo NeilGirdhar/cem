@@ -1,3 +1,5 @@
+"""Check smoothing bypass and log-space smoothing's positive-value requirement."""
+
 import numpy as np
 import pytest
 

@@ -1,3 +1,5 @@
+"""Partition models by parameter type so each group can use its own gradient transformation."""
+
 from collections.abc import Iterable, Sequence
 from functools import reduce
 from typing import Any, Self
@@ -11,6 +13,8 @@ from .parameters import Parameter, is_parameter
 
 
 class ParameterType(eqx.Module):
+    """A parameter class used to select leaves of a model pytree."""
+
     t: type[Parameter[Any]] = eqx.field(static=True)
 
 
@@ -18,6 +22,10 @@ type DisGradientState = list[tuple[ParameterType, GradientState]]
 
 
 def verify_model_has_no_free_parameters(model: Model, *, should_be_empty: bool = False) -> None:
+    """Reject model leaves outside parameter wrappers.
+
+    When `should_be_empty` is true, reject wrapped parameters too.
+    """
     for path, value in tree.leaves_with_path(model, is_leaf=is_parameter):
         if not should_be_empty and isinstance(value, Parameter):
             continue
@@ -28,12 +36,16 @@ def verify_model_has_no_free_parameters(model: Model, *, should_be_empty: bool =
 
 
 class DisModel(eqx.Module):
-    """Disassembled version of Model."""
+    """A model partitioned into disjoint pytrees by parameter type."""
 
     parameters: list[tuple[ParameterType, Model]]
 
     @classmethod
     def create(cls, model: Model, parameter_types: Sequence[ParameterType]) -> Self:
+        """Partition the model in the given type order.
+
+        The first matching type takes each parameter. Every model leaf must be covered.
+        """
         parameters: dict[ParameterType, Model] = {}
         for parameter_type in parameter_types:
 
@@ -49,6 +61,8 @@ class DisModel(eqx.Module):
         return cls(list(parameters.items()))
 
     def assembled(self) -> Model:
+        """Recombine the parameter partitions into a complete model."""
+
         def f(x: Model, y: Model, /) -> Model:
             return eqx.combine(x, y, is_leaf=is_parameter)
 
@@ -56,11 +70,10 @@ class DisModel(eqx.Module):
 
 
 class DisGradientTransformation(eqx.Module):
-    """Disassembled version of GradientTransformation.
+    """Apply separate gradient transformations to the parameter groups of a model.
 
-    Args:
-        gradient_transformations: A mapping whose order matters.  The first parameter type that
-            matches a parameter determines its gradient transformation.
+    The first matching parameter type determines the transform. An entry with no
+    transform keeps its parameters fixed.
     """
 
     gradient_transformations: list[tuple[ParameterType, GradientTransformation[Any, Model] | None]]
@@ -77,6 +90,7 @@ class DisGradientTransformation(eqx.Module):
         raise TypeError(msg)
 
     def init(self, model: DisModel) -> DisGradientState:
+        """Initialize optimizer state for groups that have a gradient transform."""
         dis_model = dict(model.parameters)
         assert {parameter_type.t for parameter_type in dis_model} <= {
             parameter_type.t for parameter_type, _ in self.gradient_transformations
@@ -92,6 +106,7 @@ class DisGradientTransformation(eqx.Module):
     def update(
         self, parameters_bar: DisModel, gradient_states: DisGradientState, model: DisModel
     ) -> tuple[DisModel, DisGradientState]:
+        """Transform gradients for the trainable groups and advance their optimizer states."""
         dis_parameters_bar = dict(parameters_bar.parameters)
         dis_gs = dict(gradient_states)
         dis_model = dict(model.parameters)

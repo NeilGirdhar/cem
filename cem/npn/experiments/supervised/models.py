@@ -1,4 +1,4 @@
-"""Supervised learning solver and perceptron baseline."""
+"""Supervised Gaussian NPN and perceptron models with controlled input missingness."""
 
 from collections.abc import Mapping
 from dataclasses import KW_ONLY
@@ -42,7 +42,7 @@ _SUPERVISED_HIDDEN_SIZES = tuple(
 )
 
 
-# This has to be a cached function to avoid initializing JAX before training.
+# Defer array creation until the prior is needed so importing this module leaves JAX uninitialized.
 @cache
 def _scalar_prior() -> UnitVarianceNormalNP:
     return UnitVarianceNormalNP(jnp.zeros(()))
@@ -64,6 +64,8 @@ def _y_flat_observed(observation_y: JaxRealArray) -> frozendict[str, JaxRealArra
 
 
 class DatasetKind(Enum):
+    """Datasets available to the supervised solver."""
+
     iris = "iris"
     bike_sharing_demand = "bike_sharing_demand"
     elevators = "elevators"
@@ -71,6 +73,8 @@ class DatasetKind(Enum):
 
 
 class LinkKind(Enum):
+    """The model family used to map features to supervised predictions."""
+
     perceptron = "perceptron"
     natural_parameter = "natural_parameter"
 
@@ -90,6 +94,7 @@ def _sample_input_presence(
     *,
     streams: Mapping[str, RngStream],
 ) -> JaxRealArray:
+    """Sample independent presence indicators for the inputs, or use all ones for complete data."""
     if missing_probability == 0:
         return jnp.ones_like(values)
     return jr.bernoulli(
@@ -100,7 +105,7 @@ def _sample_input_presence(
 
 
 class PerceptronSupervisedModel(Model):
-    """Supervised model: flat-encoded features to MLP to target node."""
+    """A perceptron baseline that can take an explicit mask alongside imputed feature values."""
 
     link: MLP
     target: PerceptronTargetNode
@@ -141,6 +146,11 @@ class PerceptronSupervisedModel(Model):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> ModelResult:
+        """Impute sampled missing features and score the resulting predictions.
+
+        Fill missing entries with zeros or standard-normal draws as configured.
+        Append the presence indicators when the model uses a mask.
+        """
         assert isinstance(observation, SupervisedProblemState)
         presence = _sample_input_presence(
             observation.x,
@@ -167,19 +177,11 @@ class PerceptronSupervisedModel(Model):
 
 
 class GaussianNPNTargetConfiguration(TargetConfiguration):
-    """Gaussian NPN targets, keyed by scalar field name."""
+    """Observed and predicted Gaussian distributions and their losses, keyed by scalar field."""
 
 
 class GaussianNPNTarget(eqx.Module):
-    r"""Compare Gaussian NPN predictions with unit-presence observations.
-
-    When ``use_nll_loss`` is false (the default) the loss is
-    :math:`\mathrm{KL}(N(y, 1) \mid\mid \text{predicted})`, which puts NPN on the same
-    "distributional loss with unit-variance observation" scale as the mask-aware perceptron
-    baseline. When true, the loss is :math:`-\log p(y \mid \text{predicted})`, which
-    treats :math:`y` as a point and lets the predicted variance converge to the squared
-    residual rather than one plus the squared residual.
-    """
+    """Score Gaussian predictions using either distributional targets or point observations."""
 
     field_names: tuple[str, ...] = eqx.field(static=True)
     use_nll_loss: bool = eqx.field(static=True)
@@ -193,6 +195,12 @@ class GaussianNPNTarget(eqx.Module):
         flat_observed: frozendict[str, JaxRealArray],
         prediction: NormalNP,
     ) -> GaussianNPNTargetConfiguration:
+        """Score the Gaussian predictions and retain per-field distributions for telemetry.
+
+        By default, use KL divergence from a unit-variance observation, matching the
+        perceptron's target uncertainty. With point likelihood, use the negative log
+        density at the observed value so variance can track squared residuals directly.
+        """
         losses = {}
         observed_distributions = {}
         predicted_distributions = {}
@@ -221,7 +229,7 @@ class GaussianNPNTarget(eqx.Module):
 
 
 class GaussianNPNSupervisedModel(Model):
-    """Supervised Gaussian natural-parameter network."""
+    """A supervised Gaussian NPN that represents missing inputs as absent evidence."""
 
     link: GaussianNPN
     target: GaussianNPNTarget
@@ -257,6 +265,7 @@ class GaussianNPNSupervisedModel(Model):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> ModelResult:
+        """Mask inputs through their precisions and score the observed targets."""
         del inference
         assert isinstance(observation, SupervisedProblemState)
         presence = _sample_input_presence(
@@ -274,7 +283,7 @@ class GaussianNPNSupervisedModel(Model):
 
 
 class SupervisedSolver(Solver[SupervisedProblem]):
-    """Solver for perceptron and Gaussian NPN supervised models."""
+    """Configure the dataset, prediction model, and missingness policy for supervised training."""
 
     _: KW_ONLY
     dataset_kind: DatasetKind = eqx.field(static=True)
@@ -317,7 +326,7 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         )
 
     def compute_proxy(self) -> JaxRealArray:
-        """Return the number of trainable real scalars updated during training."""
+        """Estimate training work by multiplying the trainable scalar count by the episode count."""
         return jnp.asarray(self.training_examples * self.parameter_count())
 
     def parameter_count(self) -> int:
@@ -374,6 +383,7 @@ def _supervised_parameter_count(
     *,
     include_missingness_mask: bool,
 ) -> int:
+    """Count the selected architecture's trainable real parameters without training it."""
     solver = SupervisedSolver(
         dataset_kind=dataset_kind,
         link_kind=link_kind,

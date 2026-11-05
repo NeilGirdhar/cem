@@ -1,3 +1,5 @@
+"""Check calibration experiment registration and chart data from held-out predictions."""
+
 from typing import cast
 
 import jax.numpy as jnp

@@ -1,4 +1,4 @@
-"""Graph primitives: model, nodes, parameters, and training/inference engine."""
+"""Model and node interfaces, parameter types, and parameter-specific gradient transforms."""
 
 from cem.structure.graph.disassembled import (
     DisGradientState,

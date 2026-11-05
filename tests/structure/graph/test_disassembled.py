@@ -1,3 +1,5 @@
+"""Check that a parameter type survives Equinox partitioning and recombination."""
+
 import equinox as eqx
 from jax import tree
 

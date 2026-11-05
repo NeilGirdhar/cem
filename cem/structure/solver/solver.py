@@ -1,3 +1,5 @@
+"""Configure a model and problem for reproducible training and inference."""
+
 from collections.abc import Mapping
 from dataclasses import KW_ONLY, fields, is_dataclass, replace
 from typing import Any, Self, cast
@@ -32,13 +34,10 @@ __all__ = ["Solver"]
 
 
 class Solver[P: Problem](eqx.Module):
-    """Configure training and inference for one model.
+    """A configuration for training and evaluating one model on a problem.
 
-    The execution loop derives example keys solely from the corresponding seed,
-    episode index, and batch position.  Therefore, deterministic data sources give
-    solvers with matching seeds, batch sizes, and episode counts the same sequence
-    of examples.  A separate random stream controls model inference, so differences
-    between models cannot change which examples they receive.
+    Separate random streams for data and model operations let solvers with matching
+    data seeds and batch schedules receive the same examples from a deterministic source.
     """
 
     _: KW_ONLY
@@ -63,6 +62,7 @@ class Solver[P: Problem](eqx.Module):
     )
 
     def training_results(self, *, packet: ExecutionPacket) -> TrainingResults:
+        """Train from the solver's initial parameters and return telemetry and the final state."""
         solution = self.solution()
         return train_episodes(
             packet.run_label or self.name,
@@ -74,6 +74,7 @@ class Solver[P: Problem](eqx.Module):
         )
 
     def problem(self) -> P:
+        """Construct the problem and its data for this solver configuration."""
         raise NotImplementedError
 
     def create_model(
@@ -83,18 +84,15 @@ class Solver[P: Problem](eqx.Module):
         *,
         streams: Mapping[str, RngStream],
     ) -> Model:
+        """Build a model compatible with the problem and its data source."""
         raise NotImplementedError
 
     def solution(self) -> TrainingSolution:
-        """Return the solution for this solver.
+        """Build the initial solution from the configured parameter seed.
 
-        This is typically called in the following places:
-        * NamesAndPaths.extract,
-        * Solver.training_results,
-        * Solver.inference_results, and
-        * various plotters.
-
-        Therefore, it should always create the same pytree, which means it must not have closures.
+        The model must have a stable pytree structure so learned parameter partitions
+        can be recombined with the same fixed parameters for evaluation. Avoid creating
+        new closures as static fields because they change the pytree metadata.
         """
         problem = self.problem()
         parameters_key = jr.key(self.parameters_seed)
@@ -105,6 +103,7 @@ class Solver[P: Problem](eqx.Module):
         return TrainingSolution.create(problem, model, self.gradient_transformations())
 
     def gradient_transformations(self) -> DisGradientTransformation:
+        """Keep fixed parameters unchanged and use Adam for learnable parameters by default."""
         return DisGradientTransformation(
             [
                 (ParameterType(FixedParameter), None),
@@ -115,6 +114,7 @@ class Solver[P: Problem](eqx.Module):
     def inference_results(
         self, solution_state: SolutionState, *, packet: ExecutionPacket
     ) -> InferenceResults:
+        """Evaluate a trained state on the configured inference split."""
         solution = self.solution()
         inference_key = jr.key(self.inference_seed)
         return infer_episodes(
@@ -136,12 +136,15 @@ class Solver[P: Problem](eqx.Module):
         return training_results, inference_results
 
     def create_hyperparameters(self) -> dict[str, BaseDistribution]:
+        """Collect search distributions for enabled fields, using dotted paths for nested fields."""
         return _create_hyperparameters(self, prefix="")
 
     def default_hyperparameters(self) -> dict[str, Any]:
+        """Return the configured values for fields included in the hyperparameter search."""
         return _default_hyperparameters(self, prefix="")
 
     def populate_from_hyperparameters(self, hyper: dict[str, Any]) -> Self:
+        """Copy the solver with the supplied values and keep defaults for omitted fields."""
         return _populate_from_hyperparameters(self, hyper, prefix="")
 
 

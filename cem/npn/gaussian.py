@@ -24,7 +24,10 @@ def normal_from_mean_and_presence(
     mean: JaxRealArray,
     presence: JaxRealArray,
 ) -> NormalNP:
-    """Construct Gaussian natural parameters from mean and nonnegative presence."""
+    """Encode a Gaussian using its mean and nonnegative precision.
+
+    A finite placeholder mean with zero precision gives an absent message.
+    """
     return NormalNP(
         mean_times_precision=mean * presence,
         negative_half_precision=-0.5 * presence,
@@ -39,10 +42,9 @@ def _mean_and_variance(distribution: NormalNP) -> tuple[JaxRealArray, JaxRealArr
 
 
 def gaussian_relu(distribution: NormalNP) -> NormalNP:
-    """Moment-match a rectified Gaussian with another Gaussian.
+    """Approximate a rectified Gaussian by matching its first two moments.
 
-    These are the exact first two moments of ``maximum(0, X)`` for Gaussian
-    ``X``, as used by the Gaussian natural-parameter network.
+    Floor the resulting variance so the output remains a proper Gaussian.
     """
     mean, variance = _mean_and_variance(distribution)
     deviation = jnp.sqrt(variance)
@@ -59,13 +61,7 @@ def gaussian_relu(distribution: NormalNP) -> NormalNP:
 
 
 class GaussianNPNLinear(eqx.Module):
-    """Deterministic affine Gaussian moment propagation.
-
-    This is the deterministic-weight specialization of the Gaussian NPN paper.
-    Layer activations use Gaussian natural parameters, while the learned map has
-    the same weights and biases as an ordinary affine layer. The output Gaussian
-    matches the affine transformation's first two marginal moments.
-    """
+    """Propagate the marginal moments of a factorized Gaussian through a learned affine map."""
 
     weight: LearnableParameter[JaxRealArray]
     bias: LearnableParameter[JaxRealArray]
@@ -90,7 +86,11 @@ class GaussianNPNLinear(eqx.Module):
         )
 
     def infer(self, inputs: NormalNP) -> NormalNP:
-        """Propagate a factorized Gaussian through the affine transformation."""
+        """Return a factorized Gaussian with the affine output's marginal means and variances.
+
+        Supply inputs with positive precision so their moments are defined. The
+        factorized output retains marginal uncertainty and drops cross-covariances.
+        """
         input_mean, input_variance = _mean_and_variance(inputs)
         output_mean = input_mean @ self.weight.value.T + self.bias.value
         output_variance = input_variance @ jnp.square(self.weight.value).T
@@ -101,13 +101,14 @@ class GaussianNPNLinear(eqx.Module):
 
 
 class GaussianNPNInputPool(eqx.Module):
-    """Pool each input message with learned background evidence."""
+    """Combine inputs with learned background evidence so absent inputs have defined moments."""
 
     dummy_mean: LearnableParameter[JaxRealArray]
     dummy_raw_presence: LearnableParameter[JaxRealArray]
 
     @classmethod
     def create(cls, n_features: int) -> Self:
+        """Initialize the background evidence to a standard normal for each input."""
         return cls(
             dummy_mean=LearnableParameter(jnp.zeros(n_features, dtype=jnp.float64)),
             dummy_raw_presence=LearnableParameter(
@@ -116,7 +117,7 @@ class GaussianNPNInputPool(eqx.Module):
         )
 
     def infer(self, inputs: NormalNP) -> NormalNP:
-        """Add a learned proper message to each possibly absent input."""
+        """Pool evidence by adding the background and input natural parameters."""
         dummy = normal_from_mean_and_presence(
             self.dummy_mean.value,
             softplus(self.dummy_raw_presence.value),
@@ -130,7 +131,7 @@ class GaussianNPNInputPool(eqx.Module):
 
 
 class GaussianNPN(eqx.Module):
-    """A feed-forward Gaussian NPN with moment-matched ReLU hidden layers."""
+    """A feedforward network that propagates Gaussian messages and accepts missing inputs."""
 
     input_pool: GaussianNPNInputPool
     layers: tuple[GaussianNPNLinear, ...]
@@ -144,6 +145,10 @@ class GaussianNPN(eqx.Module):
         hidden_features: int | tuple[int, ...] = (),
         streams: Mapping[str, RngStream],
     ) -> Self:
+        """Build a Gaussian network with one layer per hidden width and an affine output.
+
+        An empty tuple omits hidden layers. A single integer specifies one hidden layer.
+        """
         if isinstance(hidden_features, int):
             hidden_features = (hidden_features,)
         feature_sizes = (in_features, *hidden_features, out_features)
@@ -160,10 +165,10 @@ class GaussianNPN(eqx.Module):
         values: JaxRealArray,
         presences: JaxRealArray | None = None,
     ) -> NormalNP:
-        """Encode observations and propagate their Gaussian distributions.
+        """Propagate Gaussian messages from feature values and their precisions.
 
-        Zero presence denotes a missing input. Its natural message is zero. The
-        input pool adds learned background evidence before moment conversion.
+        Omit presences for unit precision. Zero presence marks an absent input.
+        Background evidence gives each input positive precision before moment conversion.
         """
         if presences is None:
             presences = jnp.ones_like(values)

@@ -1,11 +1,11 @@
+"""Check the identity and expected-value properties of inverted dropout."""
+
 from collections.abc import Mapping
 
 import jax.numpy as jnp
 from tjax import RngStream
 
 from cem.transforms import dropout
-
-# ── dropout ───────────────────────────────────────────────────────────────────
 
 
 def test_dropout_zero_rate_is_identity(streams: Mapping[str, RngStream]) -> None:

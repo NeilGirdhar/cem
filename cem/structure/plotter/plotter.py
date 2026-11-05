@@ -1,3 +1,5 @@
+"""The run records and plotter interface shared by experiment charts."""
+
 from collections.abc import Mapping, Sequence
 from dataclasses import KW_ONLY, dataclass
 from typing import Any
@@ -11,15 +13,10 @@ type PlottedSeries = dict[str, Any]
 
 @dataclass(frozen=True)
 class Run:
-    """Results from one (variant, sweep entry) training-plus-inference execution.
+    """Training and inference results for one solver variant and one sweep entry.
 
-    Attributes:
-        variant_label: Label of the variant that produced this run (empty for a
-            single-variant experiment).
-        sweep_entry: The sweep parameter overrides used for this run; empty when
-            the experiment has no sweep.
-        training_results: Metrics recorded during training.
-        inference_results: Metrics recorded during inference.
+    A single-variant experiment can use an empty label. An empty sweep entry
+    means the solver runs without sweep overrides.
     """
 
     variant_label: str
@@ -29,6 +26,8 @@ class Run:
 
 
 class Plotter(eqx.Module):
+    """A chart definition that selects telemetry and turns experiment runs into series."""
+
     _: KW_ONLY
     name: str = eqx.field(static=True)
     title: str = eqx.field(static=True)
@@ -39,8 +38,9 @@ class Plotter(eqx.Module):
             raise ValueError(msg)
 
     def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
-        """Pivot a complete grid of :class:`Run` objects into one chart's JSON object."""
+        """Convert the experiment's grid of runs into one chart's JSON data."""
         raise NotImplementedError
 
     def telemetries(self) -> Telemetries:
+        """Select the telemetry this chart needs. The default requests none."""
         return Telemetries()

@@ -1,3 +1,5 @@
+"""Node outputs and the shared interface for scoring predicted distributions."""
+
 from collections.abc import Iterator, Mapping
 from typing import Any
 
@@ -13,32 +15,27 @@ class NodeConfiguration(eqx.Module):
     """The output produced by a node during one inference step."""
 
     def total_loss(self) -> JaxArray:
-        """Return this node's contribution to the scalar model loss."""
+        """Return zero for a node that defines no loss of its own."""
         return jnp.zeros(())
 
 
 class TargetConfiguration(NodeConfiguration):
-    """NodeConfiguration mixin for nodes that compute a per-field loss."""
+    """Observed and predicted distributions with a loss for each target field."""
 
     loss: frozendict[str, JaxArray]
     observed_distributions: frozendict[str, ExpectationParametrization]
     predicted_distributions: frozendict[str, HasEntropyEP]
 
     def total_loss(self) -> JaxArray:
+        """Sum losses across fields and all elements of each field."""
         return sum((jnp.sum(v) for v in self.loss.values()), start=jnp.asarray(0.0))
 
 
 class TargetNode(eqx.Module):
-    """Base for nodes that compute cross-entropy loss against observed distributions.
+    """Base for nodes that score predictions against observed distributions.
 
-    Holds the per-field flatteners and field sizes used by the perceptron target node.
-    Subclasses provide ``infer`` with their specific prediction type.
-
-    Attributes:
-        _flatteners: Per-field Flattener (``mapped_to_plane=True``) used to reconstruct
-            distributions from flat observed encodings.
-        field_sizes: Per-field size of the prediction along the last axis, used to split
-            the incoming concatenated prediction.
+    A target node records each field's distribution family and encoded width so it
+    can pair predictions with the corresponding observations.
     """
 
     _flatteners: FixedParameter[frozendict[str, Flattener[Any]]]
@@ -49,12 +46,7 @@ class TargetNode(eqx.Module):
         cls,
         field_defaults: Mapping[str, NaturalParametrization[Any, Any]],
     ) -> tuple[FixedParameter[frozendict[str, Flattener[Any]]], frozendict[str, int]]:
-        """Create flatteners and flat sizes from distribution priors.
-
-        Returns:
-            Tuple of ``(flatteners_param, flat_sizes)`` where ``flat_sizes[field]`` is
-            the total number of flat elements for that field.
-        """
+        """Derive each target's plane-coordinate encoding and flat width from its prior."""
         flatteners: dict[str, Flattener[Any]] = {}
         flat_sizes: dict[str, int] = {}
         for field_name, dist in field_defaults.items():
@@ -68,6 +60,7 @@ class TargetNode(eqx.Module):
         data: JaxArray,
         field_sizes: frozendict[str, int],
     ) -> dict[str, JaxArray]:
+        """Split the last axis in the order of the declared target fields."""
         running, split_points = 0, []
         for s in list(field_sizes.values())[:-1]:
             running += s
@@ -86,6 +79,7 @@ class TargetNode(eqx.Module):
         flat_observed: frozendict[str, JaxRealArray],
         prediction: JaxArray,
     ) -> Iterator[tuple[str, JaxArray, NaturalParametrization[Any, Any], HasEntropyEP]]:
+        """Pair each field prediction with its observed natural and expectation parameters."""
         for field_name, field_prediction in self._split_by_field_sizes(
             prediction, self.field_sizes
         ).items():

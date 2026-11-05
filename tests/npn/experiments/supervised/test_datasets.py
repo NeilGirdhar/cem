@@ -1,3 +1,5 @@
+"""Check deterministic data partitioning, training-based standardization, and sampling."""
+
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np

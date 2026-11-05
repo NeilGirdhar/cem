@@ -1,3 +1,5 @@
+"""Shared chunk scheduling, random-key derivation, and telemetry collection."""
+
 import logging
 from collections.abc import Callable
 from operator import itemgetter
@@ -20,6 +22,7 @@ def collect_snapshots(
     telemetries: tuple[Telemetry, ...],
     snapshot: Callable[[Telemetry, dict[Telemetry, Any]], Any],
 ) -> dict[Telemetry, Any]:
+    """Collect snapshots in order so each telemetry can use earlier snapshots from the same step."""
     snapshots: dict[Telemetry, Any] = {}
     for telemetry in telemetries:
         value = snapshot(telemetry, snapshots)
@@ -33,12 +36,14 @@ def fold_episode_keys(
     inference_key_base: KeyArray,
     episode_index: int | JaxArray,
 ) -> tuple[KeyArray, KeyArray]:
+    """Derive independent example and model keys for an episode regardless of chunk boundaries."""
     return jr.fold_in(example_key_base, episode_index), jr.fold_in(
         inference_key_base, episode_index
     )
 
 
 def slice_chunk(snapshots: dict[Telemetry, Any], count: int) -> dict[Telemetry, Any]:
+    """Keep the completed episodes and discard any padding or failed tail."""
     return tree.map(itemgetter(slice(count)), snapshots)
 
 
@@ -50,6 +55,7 @@ def log_jit_once(
     max_chunk_size: int,
     telemetries: tuple[Telemetry, ...],
 ) -> None:
+    """Log each distinct chunk configuration once per execution kind."""
     signature = (batch_size, max_chunk_size, tuple(repr(t) for t in telemetries))
     if signature in logged_signatures:
         return
@@ -78,6 +84,10 @@ def run_execution_chunks(
     job_type: str,
     handle_chunk: ChunkHandler,
 ) -> ExecutionContext:
+    """Run a bounded sequence of chunks and record completed episodes.
+
+    The handler reports how many episodes to retain and whether execution should continue.
+    """
     _validate_scan_chunk_size(packet.scan_chunk_size)
     example_key_base, inference_key_base = jr.split(key)
     with ExecutionContext.create(

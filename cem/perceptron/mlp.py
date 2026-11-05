@@ -1,3 +1,5 @@
+"""A real-valued feedforward network for point-valued feature vectors."""
+
 import itertools as it
 from collections.abc import Mapping
 from typing import Self
@@ -13,12 +15,7 @@ from cem.transforms import Affine
 
 
 class MLP(eqx.Module):
-    """Real-valued multi-layer perceptron with optional hidden-layer dropout.
-
-    Attributes:
-        layers: Affine projections from input through hidden features to output.
-        dropout_rate: Fraction of hidden activations zeroed after GELU. 0.0 disables.
-    """
+    """A multilayer perceptron with optional hidden-layer dropout."""
 
     layers: tuple[Affine, ...]
     dropout_rate: FixedParameter[JaxRealArray]
@@ -33,6 +30,10 @@ class MLP(eqx.Module):
         dropout_rate: float = 0.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
+        """Build an MLP from the input, hidden, and output widths.
+
+        An empty tuple omits hidden layers. A single integer specifies one hidden layer.
+        """
         if isinstance(hidden_features, int):
             hidden_features = (hidden_features,)
         feature_sizes = (in_features, *hidden_features, out_features)
@@ -47,15 +48,10 @@ class MLP(eqx.Module):
     def infer(
         self, x: JaxRealArray, *, streams: Mapping[str, RngStream], inference: bool
     ) -> JaxRealArray:
-        """Apply affine hidden layers with GELU activations, then a linear output layer.
+        """Map the last input axis to the output width, preserving leading batch axes.
 
-        Args:
-            x: Input, shape (..., in_features).
-            streams: RNG streams; the ``"inference"`` stream is used for hidden dropout.
-            inference: When ``True``, hidden dropout is skipped.
-
-        Returns:
-            Output, shape (..., out_features).
+        Apply GELU to hidden layers and leave the output linear. In training mode,
+        use the inference random stream for hidden dropout.
         """
         result = x
         for layer in self.layers[:-1]:

@@ -1,3 +1,5 @@
+"""Reporting and chunking options shared by training and inference."""
+
 import equinox as eqx
 import rich.progress as rp
 
@@ -6,6 +8,8 @@ from .wandb_tools import WAndBInitSettings
 
 
 class ExecutionPacket(eqx.Module):
+    """Per-run options for telemetry, progress, profiling, and compiled chunk size."""
+
     progress_manager: rp.Progress | None = None
     run_label: str | None = None
     telemetries: Telemetries = eqx.field(default_factory=Telemetries)

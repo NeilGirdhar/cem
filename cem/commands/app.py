@@ -1,4 +1,4 @@
-"""The ``cem`` Typer app with ``list``, ``generate``, ``visualize``, ``optimize``."""
+"""Commands for listing, running, visualizing, and tuning experiments."""
 
 import json
 import logging
@@ -19,6 +19,7 @@ app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
 
 
 def _lookup(name: str) -> Experiment:
+    """Find an experiment by name or report the available names as a usage error."""
     try:
         return experiments[name]
     except KeyError:
@@ -53,7 +54,7 @@ def _run_to_json(experiment: Experiment, output_dir: Path, *, log: bool) -> Path
 
 @app.command("list")
 def list_experiments() -> None:
-    """List every registered experiment and the verbs available on it."""
+    """List registered experiments and the commands each supports."""
     width = max(len(name) for name in experiments)
     for name in sorted(experiments):
         experiment = experiments[name]
@@ -70,7 +71,7 @@ def generate(
     output_dir: Annotated[Path, Option("--output-dir")] = Path("results"),
     log: bool = True,
 ) -> None:
-    """Write ``<output_dir>/<name>.json`` for the named experiment."""
+    """Run the named experiment and write its chart data as JSON."""
     _run_to_json(_lookup(name), output_dir, log=log)
 
 
@@ -83,7 +84,7 @@ def visualize(
     display: Annotated[bool, Option("--display/--no-display")] = True,
     log: bool = True,
 ) -> None:
-    """Generate ``<name>.json``, compile ``<name>.pdf`` with typst, and open it."""
+    """Run the named experiment, render its chart as a PDF, and optionally open it."""
     json_path = _run_to_json(_lookup(name), output_dir, log=log)
     pdf_path = output_dir / f"{name}.pdf"
     compile_pdf(json_path, pdf_path)
@@ -104,7 +105,7 @@ def optimize(  # ruff:ignore[too-many-arguments]
     profiling: bool = False,
     restart: bool = False,
 ) -> None:
-    """Search hyperparameters for an :class:`OptimizableExperiment`."""
+    """Search for better hyperparameters and save the best trial as experiment defaults."""
     experiment = _lookup(name)
     if not isinstance(experiment, OptimizableExperiment):
         msg = f"Experiment '{name}' has no hyperparameters to optimize."

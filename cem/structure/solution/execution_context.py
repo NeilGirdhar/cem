@@ -1,3 +1,5 @@
+"""Collect telemetry chunks and manage progress, logging, and profiling for an execution."""
+
 import tempfile
 from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
@@ -30,18 +32,9 @@ def _task_title(job_type: str, solver_name: str | None) -> str:
 
 
 def _snapshots_to_wandb_dict(x: DataclassInstance | dict[Any, Any], /) -> WandBDict:
-    """Recursively convert a snapshots structure into a W&B-compatible dict.
+    """Convert a tree of dataclasses and dictionaries to a logging dictionary.
 
-    Dataclass instances are converted to dicts keyed by field name.  Plain dicts
-    have their keys stringified (e.g. Telemetry objects become their repr).
-    Recursion stops at any value that is neither a dataclass nor a dict.
-
-    Args:
-        x: A dataclass instance or a dict whose values may themselves be dataclasses
-            or nested dicts.
-
-    Returns:
-        A nested ``WandBDict`` suitable for passing to ``wandb.Run.log``.
+    Use field names for dataclasses and stringify dictionary keys.
     """
     if is_dataclass(x):
         return {f.name: _snapshots_to_wandb_dict(getattr(x, f.name)) for f in fields(x)}
@@ -50,6 +43,8 @@ def _snapshots_to_wandb_dict(x: DataclassInstance | dict[Any, Any], /) -> WandBD
 
 
 class ExecutionContext[T: Telemetry]:
+    """An execution's accumulated telemetry and reporting state."""
+
     def __init__(
         self,
         *,
@@ -66,6 +61,7 @@ class ExecutionContext[T: Telemetry]:
         self._telemetries: dict[T, Any] = {}
 
     def append_chunk(self, snapshots: dict[T, Any], count: int) -> None:
+        """Record a chunk of completed episodes and report its progress and snapshots."""
         if count == 0:
             return
         self._chunks.append(snapshots)
@@ -77,6 +73,7 @@ class ExecutionContext[T: Telemetry]:
             self._wandb_run.log(_snapshots_to_wandb_dict(snapshots))
 
     def _stack_telemetries(self) -> None:
+        """Join each telemetry leaf along the episode axis."""
         if not self._chunks:
             self._telemetries = {}
             return
@@ -90,6 +87,7 @@ class ExecutionContext[T: Telemetry]:
         return self._episodes_done
 
     def telemetries(self) -> dict[T, Any]:
+        """Return the combined telemetry after the execution context exits."""
         return self._telemetries
 
     @classmethod
@@ -103,6 +101,10 @@ class ExecutionContext[T: Telemetry]:
         job_type: str,
         use_wandb: bool,
     ) -> Generator[Self]:
+        """Open the configured progress display, logging run, and profiling trace.
+
+        On normal exit, combine the collected telemetry and remove the progress task.
+        """
         exit_stack = ExitStack()
         task_id: rp.TaskID | None = None
         if packet.progress_manager is not None:

@@ -1,3 +1,9 @@
+"""Declare solver fields that can participate in an Optuna search.
+
+Set `optimize` to true to include a field. Where supported, a condition that
+returns false excludes the field for that solver configuration.
+"""
+
 from collections.abc import Callable
 from dataclasses import MISSING
 
@@ -15,10 +21,10 @@ def hardware_friendly_ints(
     *,
     values_per_octave: int = 3,
 ) -> tuple[int, ...]:
-    """Return a geometric basis of integer shape values.
+    """Return geometrically spaced integer sizes within the supplied bounds.
 
-    The default mantissas produce choices such as ``4, 5, 6, 8, ...``: close enough
-    to search meaningful capacity changes without compiling every adjacent shape.
+    The default choices include four, five, six, and eight. This gives a search
+    several widths per octave without compiling a model for every adjacent size.
     """
     if lower_bound < 1:
         msg = f"lower_bound must be >= 1, got {lower_bound}"
@@ -52,15 +58,7 @@ def bool_field(
     optimize: bool = False,
     condition: Callable[[Solver], bool] | None = None,
 ) -> bool:
-    """A Boolean field shown in the UI or optimized by hyperparameter tuning.
-
-    Args:
-        default: The default value.
-        static: Whether the parameter is static wrt compilation.
-        optimize: Whether the parameter should be optimized.
-        condition: Optional callable taking the solver instance; if it returns False the
-            field is excluded from the hyperparameter search space.
-    """
+    """Declare a Boolean solver field with both values as search choices."""
     domain = CategoricalDistribution((False, True))
     return field(
         static=static,
@@ -77,16 +75,7 @@ def int_field(
     optimize: bool = False,
     condition: Callable[[Solver], bool] | None = None,
 ) -> int:
-    """An integer field shown in the UI or optimized by hyperparameter tuning.
-
-    Args:
-        default: The default value.
-        static: Whether the parameter is static wrt compilation.
-        domain: The domain of the parameter.
-        optimize: Whether the parameter should be optimized.
-        condition: Optional callable taking the solver instance; if it returns False the
-            field is excluded from the hyperparameter search space.
-    """
+    """Declare an integer solver field with a search range or discrete choices."""
     return field(
         static=static,
         default=default,
@@ -102,16 +91,7 @@ def float_field(
     optimize: bool = False,
     condition: Callable[[Solver], bool] | None = None,
 ) -> float:
-    """A real-valued field shown in the UI or optimized by hyperparameter tuning.
-
-    Args:
-        default: The default value.
-        static: Whether the parameter is static wrt compilation.
-        domain: The domain of the parameter.
-        optimize: Whether the parameter should be optimized.
-        condition: Optional callable taking the solver instance; if it returns False the
-            field is excluded from the hyperparameter search space.
-    """
+    """Declare a real-valued solver field with an Optuna search range."""
     return field(
         static=static,
         default=default,
@@ -126,13 +106,9 @@ def chooser_field[T: int | float | str | None](
     options: tuple[T, ...],
     optimize: bool = False,
 ) -> T:
-    """A categorical-valued field shown in the UI or optimized by hyperparameter tuning.
+    """Declare a static keyword-only solver field with categorical search choices.
 
-    Args:
-        default: The default value.
-        static: Whether the parameter is static wrt compilation.
-        options: A tuple of option choices (the corresponding option names will be stringified).
-        optimize: Whether the parameter should be optimized.
+    Omit the default to require an explicit value when constructing the solver.
     """
     domain = CategoricalDistribution(options)
     metadata = {"domain": domain, "optimize": optimize}

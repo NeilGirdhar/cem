@@ -1,4 +1,4 @@
-"""CLI: ``cem`` entry point."""
+"""Command-line entry point for running and visualizing CEM experiments."""
 
 from .app import app
 

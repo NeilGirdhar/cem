@@ -1,3 +1,5 @@
+"""Telemetry for tracking the loss of a selected model node."""
+
 from collections.abc import Mapping
 from typing import Any, override
 

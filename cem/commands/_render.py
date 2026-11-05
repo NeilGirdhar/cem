@@ -1,4 +1,4 @@
-"""Typst compilation and PDF viewer launching."""
+"""Render experiment chart data through Typst and launch a PDF viewer."""
 
 import os
 import shutil
@@ -9,7 +9,7 @@ _TYPST_SOURCE = Path("results/render.typ")
 
 
 def compile_pdf(json_path: Path, pdf_path: Path) -> None:
-    """Compile ``json_path`` into ``pdf_path`` using the thesis typst template."""
+    """Compile the Typst chart wrapper to PDF using the JSON file's basename."""
     typst = shutil.which("typst")
     if typst is None:
         msg = "Could not find 'typst' on PATH."
@@ -28,7 +28,7 @@ def compile_pdf(json_path: Path, pdf_path: Path) -> None:
 
 
 def open_pdf(pdf_path: Path, viewer: str | None = None) -> None:
-    """Open ``pdf_path`` in ``viewer`` (defaults to the platform's handler)."""
+    """Launch the requested PDF viewer or use the platform's default opener."""
     command = viewer or _default_viewer()
     tool = shutil.which(command)
     if tool is None:

@@ -1,3 +1,5 @@
+"""The environment interface for taking actions, reporting rewards, and ending episodes."""
+
 from collections.abc import Mapping
 from typing import Any
 
@@ -9,11 +11,14 @@ from cem.structure.problem.problem import Problem
 
 
 class ProblemAction(eqx.Module):
-    pass
+    """An action in the form accepted by an environment."""
 
 
 class ProblemReward(eqx.Module):
+    """The reward components from one environment transition."""
+
     def total_reward(self) -> JaxArray:
+        """Reduce the reward components to one scalar for the transition."""
         raise NotImplementedError
 
 
@@ -22,22 +27,18 @@ class RLProblem[
     ProblemActionT: ProblemAction,
     ProblemRewardT: ProblemReward,
 ](Problem):
-    """This class encodes a reinforcement learning environment."""
+    """An environment that converts model outputs into actions and advances its state."""
 
     def max_episode_steps(self) -> int:
-        """The episode terminates when this many steps have been done."""
+        """Return the episode step limit, independent of environment termination."""
         return 1
-
-    # def reward_threshold(self) -> float:
-    #     """The average return threshold at which the problem is considered solved."""
-    #     raise NotImplementedError
 
     def produce_action(
         self, action_fields: Mapping[str, Any], example_key: KeyArray
     ) -> ProblemActionT:
-        """Assemble the node values for the action fields into a ProblemActionT.
+        """Convert named model outputs into an action the environment accepts.
 
-        This function may canonicalize the action, e.g., clamping an output to an interval.
+        The conversion can use the example key and enforce constraints such as bounds.
         """
         raise NotImplementedError
 
@@ -46,11 +47,5 @@ class RLProblem[
         state: ProblemStateT,
         action: ProblemActionT,
     ) -> tuple[ProblemStateT, ProblemRewardT, JaxBooleanArray]:
-        """Iterate the state.
-
-        Returns:
-            new_state: The next state object.
-            reward: The next reward object.
-            done: A scalar Boolean indicating doneness.
-        """
+        """Apply an action and return the next state, reward, and scalar termination flag."""
         raise NotImplementedError

@@ -1,3 +1,5 @@
+"""Check that the CLI writes chart JSON for the missing-input experiment."""
+
 import json
 from pathlib import Path
 

@@ -1,3 +1,5 @@
+"""Check parameter counts in real degrees of freedom, including complex and meta parameters."""
+
 import jax.numpy as jnp
 
 from cem.structure.graph import LearnableParameter, MetaParameter, count_real_learnable_parameters

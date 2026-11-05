@@ -1,4 +1,4 @@
-"""Plotting: projections, clustering overlays, and the experiment harness."""
+"""Experiment orchestration and conversion of training and inference results to charts."""
 
 from .experiment import Experiment, OptimizableExperiment, Variant
 from .plotter import Plotter, Run

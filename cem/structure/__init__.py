@@ -1,4 +1,4 @@
-"""Training and inference infrastructure: model graph, solution loops, solver, RL, and plotting."""
+"""Infrastructure for defining, training, evaluating, and comparing CEM models."""
 
 from cem.structure.plotter import Experiment, OptimizableExperiment, Plotter, Run, Variant
 from cem.structure.reporting import console_progress_bar, set_up_logging

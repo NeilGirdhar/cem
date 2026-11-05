@@ -1,3 +1,5 @@
+"""Settings and lifetime management for optional Weights & Biases logging."""
+
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -12,6 +14,8 @@ from wandb.sdk.wandb_run import Run
 
 @dataclass
 class WAndBInitSettings:
+    """Configuration for starting or resuming a Weights & Biases run."""
+
     entity: str | None = None
     project: str | None = None
     dir: str | PathLike[str] | None = None
@@ -41,6 +45,7 @@ class WAndBInitSettings:
 
 @contextmanager
 def wandb_init(settings: WAndBInitSettings) -> Generator[Run]:
+    """Start a Weights & Biases run and finish it when the context exits."""
     run = wandb.init(
         job_type=settings.job_type,
         dir=settings.dir,

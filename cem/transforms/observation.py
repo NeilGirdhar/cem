@@ -1,20 +1,14 @@
+"""Standardization and natural-parameter encoding for real-valued observations."""
+
 import numpy as np
 from efax import Flattener, UnitVarianceNormalNP
 from tjax import JaxRealArray
 
 
 def encode_flat(values: JaxRealArray) -> JaxRealArray:
-    """Encode a real vector as flat natural params of UnitVarianceNormalNP.
+    """Encode each entry of a real vector as a unit-variance Gaussian observation.
 
-    Each component x_i is encoded as UnitVarianceNormalNP(x_i) (unit variance),
-    then flattened with ``mapped_to_plane=True``.  The resulting array has shape
-    ``(n,)`` for input of shape ``(n,)``.
-
-    Args:
-        values: Shape ``(n,)`` real vector.
-
-    Returns:
-        Shape ``(n,)`` flat encoding.
+    Flatten the natural parameters in plane coordinates, preserving the vector's length.
     """
     assert values.ndim == 1
     dist = UnitVarianceNormalNP(values)
@@ -23,7 +17,7 @@ def encode_flat(values: JaxRealArray) -> JaxRealArray:
 
 
 def standardize_columns(values: np.ndarray) -> np.ndarray:
-    """Center and scale each numeric column to unit variance."""
+    """Centre numeric columns and scale nonconstant columns to unit variance."""
     values = np.asarray(values, dtype=np.float64)
     mean = values.mean(axis=0)
     std = values.std(axis=0)

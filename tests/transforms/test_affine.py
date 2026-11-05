@@ -1,3 +1,5 @@
+"""Check real and complex affine initialization and output shape."""
+
 from collections.abc import Mapping
 
 import jax.numpy as jnp

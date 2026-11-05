@@ -1,3 +1,5 @@
+"""Run held-out inference in compiled chunks and collect episode telemetry."""
+
 import logging
 from functools import partial
 from typing import Any
@@ -38,6 +40,8 @@ def infer_episode_chunk(  # ruff:ignore[too-many-arguments, too-many-positional-
     problem: Problem,
     telemetries: tuple[Telemetry, ...],
 ) -> dict[Telemetry, Any]:
+    """Evaluate a fixed-size chunk and stack its snapshots along the episode axis."""
+
     def step(episode_index: JaxArray, _: None) -> tuple[JaxArray, dict[Telemetry, Any]]:
         example_key, inference_key = fold_episode_keys(
             example_key_base, inference_key_base, episode_index
@@ -69,17 +73,10 @@ def infer_episodes(
     packet: ExecutionPacket,
     solution_state: SolutionState,
 ) -> InferenceResults:
-    """Infer episodes.
+    """Evaluate trained parameters on the inference split and collect requested telemetry.
 
-    Args:
-        solver_name: The name of the solver.
-        batch_size: The batch size.
-        key: The random number generation key used for inference.
-        episodes: The number of RL episodes to run.
-        inference: The object that runs the inference.
-        problem: The problem being inferred.
-        packet: The inference packet.
-        solution_state: The inference parameters.
+    The final compiled chunk may evaluate extra episodes to keep the scan size fixed.
+    Only snapshots for the requested episodes enter the result.
     """
     if episodes < 0:
         msg = f"inference_examples must be >= 0, got {episodes}"

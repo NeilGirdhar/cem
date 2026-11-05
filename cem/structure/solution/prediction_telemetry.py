@@ -1,4 +1,4 @@
-"""Per-example (predicted mean, predicted variance, observed value) for one target field."""
+"""Telemetry for comparing a Gaussian prediction's uncertainty with the observed target."""
 
 from collections.abc import Mapping
 from typing import Any, override
@@ -16,16 +16,7 @@ from .training_solution import TrainingSolution
 
 
 class PredictionTelemetry(Telemetry):
-    """Record the predicted mean, predicted variance, and observed value per inference example.
-
-    Returns a shape-``(3,)`` array per step: ``[predicted_mean, predicted_variance,
-    observed_value]``. Only valid for scalar fields whose predicted distribution exposes
-    ``mean`` and ``second_moment`` in expectation parameters (e.g. ``NormalEP``).
-
-    Attributes:
-        selected_node: Name of the :class:`TargetConfiguration` node to inspect.
-        selected_field: Name of the scalar field within that node.
-    """
+    """Record a scalar Gaussian prediction and its observed target during training or inference."""
 
     selected_node: str = field(static=True)
     selected_field: str = field(static=True)
@@ -49,6 +40,11 @@ class PredictionTelemetry(Telemetry):
         return self._snapshot(inference_result)
 
     def _snapshot(self, inference_result: InferenceResult) -> JaxRealArray:
+        """Return the predicted mean, predicted variance, and observed mean in that order.
+
+        Both distributions must use Gaussian expectation parameters. The snapshot takes
+        the first flattened entry from each statistic.
+        """
         configuration = inference_result.model_configuration[self.selected_node]
         assert isinstance(configuration, TargetConfiguration)
         predicted = configuration.predicted_distributions[self.selected_field]
