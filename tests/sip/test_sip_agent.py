@@ -18,12 +18,12 @@ def test_sip_agent_create_matches_coupling_shapes(
     streams: Mapping[str, RngStream],
 ) -> None:
     agent = _agent(streams)
-    # Sensations have one SensationInputFeature + N-1 interior SIPFeatures.
+    # Sensations have one SensationInputFeature and N-1 interior SIPFeatures.
     assert len(agent.sensations.interior_features) == 1
     # Intentions have N SIPFeatures.
     assert len(agent.intentions.features) == len([2, 3])
-    # One prospect per level.
-    assert len(agent.reward_critic.prospect_features) == len([2, 3])
+    # One prospect per sensation feature and one per intention feature.
+    assert len(agent.reward_critic.prospect_features) == 2 * len([2, 3])
 
 
 def test_sip_agent_step_returns_action_at_bottom_intention(

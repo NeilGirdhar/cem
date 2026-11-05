@@ -26,14 +26,14 @@ Circuit sub-modules (leaves first):
 
 Features (per causal node):
 
-- `SIPFeature` — one identification node: `Emitter` + `Mismatch`. Used in sensation and intention
+- `SIPFeature` — one identification node: `Emitter` and `Mismatch`. Used in sensation and intention
   couplings. Each `step` writes its outgoing `InstrumentedMessage` into `state` through
   `last_message_index`, so the next step and any sibling in the same coupling can read the previous
   (or just-written) message.
 - `SensationInputFeature` — the sensation-stack input. Drops `observation_map` (the environment
   observation is the raw observation) and `Credit` (a sensor only reports), keeping
   `instrument_map` and `Mismatch`; also writes its outgoing `InstrumentedMessage` into `state`.
-- `ProspectFeature` — one reward-critic node: `Emitter` + `Credit`, no `Mismatch` (confounding
+- `ProspectFeature` — one reward-critic node: `Emitter` and `Credit`, no `Mismatch` (confounding
   purification happens downstream in the `RewardCritic`'s `TDFeature`). Takes its own observation
   content and predictor instrument and writes its outgoing `InstrumentedMessage` into `state`.
 - `TDFeature` — one value node: `TDError` only; reward features use fixed unit gain and no local
@@ -79,8 +79,8 @@ Composition `Module`s (plain `eqx.Module`s, not `Model` subclasses):
 - `SIPAgent` — a `Sensations`, an `Intentions` (the policy), and a `RewardCritic`, wired for
   readout, affordance, advantage, and dissonance links; test 17.
 
-Implementation gates: `Emitter` alone covers test 12; `Emitter + Mismatch + Credit` covers tests
-1–12; `TDError` adds 13–15; tests 16–17 wire the full stack together and need no new modules.
+Implementation gates: `Emitter` alone covers test 12; `Emitter`, `Mismatch`, and `Credit` cover
+tests 1–12; `TDError` adds 13–15; tests 16–17 wire the full stack together and need no new modules.
 
 ## Target code layout
 

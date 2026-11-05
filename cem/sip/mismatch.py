@@ -25,7 +25,7 @@ class MismatchOutputs(eqx.Module):
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
     witness_loss: JaxRealArray  # scalar
-    dissonance: JaxRealArray  # scalar; reconstruction + confounding
+    dissonance: JaxRealArray  # scalar; reconstruction and confounding
     disutility: JaxRealArray  # scalar; reconstruction - confounding
     loss: JaxRealArray  # scalar; combined surrogate for first-pass training
 

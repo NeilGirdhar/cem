@@ -34,7 +34,7 @@ class RewardCritic(eqx.Module):
     The prospects run in parallel (they do not exchange messages with each
     other); their outgoing `observation` and `instrument` are concatenated
     into one `InstrumentedMessage` that becomes the TD feature's predictor.
-    The TD feature's `dissonance` (reconstruction + confounding) is the
+    The TD feature's `dissonance` (reconstruction and confounding) is the
     prospect features' goal, fed back with a one-step delay through the
     TD feature's `last_dissonance_index`.
     """

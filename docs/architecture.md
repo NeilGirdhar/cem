@@ -132,7 +132,7 @@ During training, fixed parameters stay in `Inference` and never move; only the l
 is differentiated and updated.
 
 `Inference` (`cem/structure/solution/inference.py`)\
-Holds the fixed parameters and runs batched forward and gradient passes via `vmap` + `grad`.
+Holds the fixed parameters and runs batched forward and gradient passes via `vmap` and `grad`.
 `Inference.assemble_model` recombines fixed and learnable sub-trees via `eqx.combine` before each
 forward pass, so the model always sees a complete pytree.
 

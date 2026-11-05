@@ -43,18 +43,23 @@ class SIPAgent(eqx.Module):
       Each intention level's external predictor is the matching sensation's
       just-emitted instrumented message. The Credit goal (advantage) at
       every level is the TD feature's previous-step advantage scalar.
-    - The reward critic runs last. Each prospect sees a diffuse readout —
-      the concatenation of every sensation and intention observation — and
-      its predictor instruments come from the matching sensation and
-      intention level. Prospect goals and TD advantage feed back with a
-      one-step delay through the TD feature's `last_dissonance_index` and
-      `last_advantage_index`.
+    - The reward critic runs last. There is one prospect per sensation
+      feature and one per intention feature (`2 * len(level_sizes)` total,
+      sensations first, then intentions). Each prospect sees the same
+      diffuse readout (the concatenation of every sensation and intention
+      observation), but its predictor instrument is the instrument half of
+      the single feature it corresponds to — so each prospect answers "did
+      this specific component cause reward?" and the TD witness isolates
+      per-feature causal credit. Prospect goals and TD advantage feed back
+      with a one-step delay through the TD feature's `last_dissonance_index`
+      and `last_advantage_index`.
     - The agent's action is the bottom intention's outgoing observation,
       which the environment consumes.
 
     The simplest configuration assumes one sensation level per intention
-    level (`level_sizes` common to both), and one prospect per level with
-    its predictor instruments drawn from the matching sensation / intention.
+    level (`level_sizes` common to both), and `prospect_sizes` gives the
+    width of each prospect per level (defaulting to `level_sizes`); the
+    critic then holds `2 * len(level_sizes)` prospects.
     """
 
     sensations: Sensations
@@ -82,10 +87,14 @@ class SIPAgent(eqx.Module):
         if len(level_sizes) == 0:
             msg = "level_sizes must be non-empty"
             raise ValueError(msg)
-        prospect_sizes = tuple(prospect_sizes) if prospect_sizes is not None else level_sizes
-        if len(prospect_sizes) != len(level_sizes):
+        # One prospect per sensation feature and one per intention feature: each
+        # prospect answers "did this component's experimental noise cause reward?",
+        # with the TD witness attributing credit through the specific instrument.
+        per_side_sizes = tuple(prospect_sizes) if prospect_sizes is not None else level_sizes
+        if len(per_side_sizes) != len(level_sizes):
             msg = "prospect_sizes must have one entry per level"
             raise ValueError(msg)
+        prospect_sizes_full = per_side_sizes + per_side_sizes
         diffuse_content = 2 * sum(level_sizes)
         sensations = Sensations.create(
             level_sizes,
@@ -102,13 +111,11 @@ class SIPAgent(eqx.Module):
             streams=streams,
         )
         reward_critic = RewardCritic.create(
-            prospect_sizes,
-            # diffuse readout: every sensation + every intention observation.
-            observation_content_features=[diffuse_content] * len(prospect_sizes),
-            # specific instrument links: matching sensation + intention level.
-            predictor_features=[
-                level_sizes[k] + level_sizes[k] for k in range(len(prospect_sizes))
-            ],
+            prospect_sizes_full,
+            # diffuse readout: every sensation and every intention observation.
+            observation_content_features=[diffuse_content] * len(prospect_sizes_full),
+            # specific instrument links: sensation levels first, then intention levels.
+            predictor_features=list(level_sizes) + list(level_sizes),
             reward_features=reward_features,
             discount=discount,
             streams=streams,
@@ -168,18 +175,18 @@ class SIPAgent(eqx.Module):
             inference=inference,
         )
 
-        # Prospects: diffuse readout = concat of all sensation + intention obs;
-        # predictor instruments = matching sensation + intention instrument.
+        # Prospects: one per sensation feature and one per intention feature.
+        # Each sees the same diffuse readout (every sensation and intention
+        # observation) as its state, but its specific instrument is the feature
+        # it's attributing reward credit to. Order: all sensations, then all
+        # intentions, matching SIPAgent.create's prospect layout.
         diffuse = concat_messages(
             *[out.message.observation for out in sensation_outputs],
             *[out.message.observation for out in intention_outputs],
         )
         prospect_observation_content = [diffuse] * len(self.reward_critic.prospect_features)
-        prospect_predictor_instruments = [
-            concat_messages(
-                sensation_outputs[k].message.instrument, intention_outputs[k].message.instrument
-            )
-            for k in range(len(self.reward_critic.prospect_features))
+        prospect_predictor_instruments = [out.message.instrument for out in sensation_outputs] + [
+            out.message.instrument for out in intention_outputs
         ]
         state, critic_outputs = self.reward_critic.step(
             state,

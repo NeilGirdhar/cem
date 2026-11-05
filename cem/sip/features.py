@@ -2,10 +2,10 @@
 
 See `features` and `sip-td-error-circuit` in `~/src/typst/thesis.typ`.
 
-`SIPFeature` is the identification node (Emitter + Mismatch), used in
+`SIPFeature` is the identification node (Emitter and Mismatch), used in
 sensation and intention couplings. `SensationInputFeature` is the
 specialized sensation-stack input (no observation_map, no Credit).
-`ProspectFeature` is the reward-critic predictor (Emitter + Credit, no
+`ProspectFeature` is the reward-critic predictor (Emitter and Credit, no
 Mismatch). `TDFeature` is the reward node (TDError), with unit gain and no
 local noise. `RecruiterFeature` wraps a controllable `SIPFeature` with no
 gain parent.
@@ -42,12 +42,12 @@ class SIPFeatureOutputs(eqx.Module):
     observation_mismatch: NormalNP  # 2n unit-presence demand signal
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
-    dissonance: JaxRealArray  # scalar; reconstruction + confounding
+    dissonance: JaxRealArray  # scalar; reconstruction and confounding
     loss: JaxRealArray  # scalar; combined surrogate
 
 
 class SIPFeature(eqx.Module):
-    """One identification node: Emitter + Mismatch.
+    """One identification node: Emitter and Mismatch.
 
     Exposes the thesis's five-input / five-output feature interface. The
     emitter builds the feature's observation and instrument from innovation
@@ -143,7 +143,7 @@ class SIPFeature(eqx.Module):
 
 
 class SensationInputFeature(eqx.Module):
-    """A sensation-stack input: raw environment observation + mismatch.
+    """A sensation-stack input: raw environment observation and mismatch.
 
     Drops the `observation_map` and `Credit` that `SIPFeature` carries: the
     environment observation serves directly as both content and raw
@@ -288,11 +288,11 @@ class ProspectFeatureOutputs(eqx.Module):
     """One step of a prospect feature."""
 
     message: InstrumentedMessage  # post-noise
-    loss: JaxRealArray  # scalar; emitter loss (credit + promoting link)
+    loss: JaxRealArray  # scalar; emitter loss (credit and promoting link)
 
 
 class ProspectFeature(eqx.Module):
-    """One prospect node: `Emitter` + `Credit`, no `Mismatch`.
+    """One prospect node: `Emitter` and `Credit`, no `Mismatch`.
 
     Prospect features predict reward and inject local noise under `Credit`;
     they have no mismatch circuit because confounding purification is handled
@@ -374,7 +374,7 @@ class TDFeatureOutputs(eqx.Module):
     advantage: JaxRealArray  # TD error in reward, replaces observation mismatch
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
-    dissonance: JaxRealArray  # scalar; reconstruction + confounding
+    dissonance: JaxRealArray  # scalar; reconstruction and confounding
     uncertainty_loss: JaxRealArray  # scalar
     loss: JaxRealArray  # scalar; combined surrogate
 

@@ -22,7 +22,7 @@ All circuit leaves, features, and whole-agent wiring are in place with unit test
 - [x] `SIPAgent` wires one `Sensations`, one `Intentions`, and one `RewardCritic` through a shared
   `eqx.nn.State`: sensations first with the environment observation and intention-efference
   predictors; intentions top-down with sensation readouts, sensation-instrument predictors, and
-  the TD feature's previous advantage; reward critic last with a diffuse sensation + intention
+  the TD feature's previous advantage; reward critic last with a diffuse sensation and intention
   readout and matching-level predictor instruments. The action is the bottom intention's
   observation.
 
@@ -34,10 +34,6 @@ The `SIPAgent.create` and `SIPAgent.step` choices currently in the code are a wo
 but are *not* fully pinned down by the thesis chapter alone. Before experiments 16–17 start
 depending on them, confirm or revise:
 
-- [ ] **Prospect fan-in.** The code assumes one prospect per level with its predictor instrument
-  drawn from the matching-level sensation and intention. The thesis says "specific" instrument
-  links without prescribing a layout; a prospect-per-level layout is the minimum, not necessarily
-  the intended default.
 - [ ] **Advantage per level.** `SIPAgent` broadcasts `sum(td_advantage)` as each intention level's
   Credit goal. The thesis says the TD error reaches every intention level through advantage links;
   whether every level receives the same scalar, or a per-level projection, is worth checking.
@@ -74,8 +70,8 @@ supplies one. Each stack needs its own decision on whether, how, and where to at
   claim;
 - the full-configuration CLI entry that writes the JSON thesis `chart()` consumes.
 
-Implementation gates (from `sip.md`): experiment 12 needs only `Emitter`; 1–12 need
-`Emitter + Mismatch + Credit`; 13–15 add `TDError`; 16–17 need the full `SIPAgent`. All the circuit
+Implementation gates (from `sip.md`): experiment 12 needs only `Emitter`; 1–12 need `Emitter`,
+`Mismatch`, and `Credit`; 13–15 add `TDError`; 16–17 need the full `SIPAgent`. All the circuit
 pieces are in place, so experiments can begin in any order the research sequencing prefers.
 
 - [ ] Experiment 1
@@ -133,7 +129,7 @@ Open questions and follow-ups that are not blockers but want a note so they are 
   large gain pushes variance towards zero and the downstream reconstruction term towards a
   `log(variance)` singularity. Watch for this if recruiters ever drive gain above a few.
 - [ ] **Prospect diffuse-readout size.** `SIPAgent` uses `2 * sum(level_sizes)` as every
-  prospect's observation-content dim (every sensation + intention observation concatenated). At
+  prospect's observation-content dim (every sensation and intention observation concatenated). At
   many levels this will dominate the parameter count; a lower-rank readout may be worth trying.
 - [ ] **Credit trace decay.** `trace_decay_rate` defaults to 0.0 everywhere. The eligibility-trace
   story in the thesis uses a nonzero decay; pick a default once there's a real experiment to tune
