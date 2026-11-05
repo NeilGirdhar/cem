@@ -48,6 +48,16 @@ Composition modules (plain `eqx.Module`s, not `Model` subclasses):
 Implementation gates: `Emitter` alone covers test 12; `Emitter`, `Mismatch`, and `Credit` cover
 tests 1–12; `TDError` adds 13–15; tests 16–17 wire the full stack together and need no new modules.
 
+### Efference copy
+
+The bottom intention's observation is the action. On the next step, `SIPAgent` appends that
+stored action to the new environment observation and passes the result to the bottom sensation.
+The first step uses a standard normal in place of the previous action.
+
+For intention nexting, `SIPAgent` supplies each sensation level with the previous instrumented
+message from the matching intention. This prediction input carries both observation and
+instrument. The fixed efference copy carries the action observation into the bottom sensation.
+
 ## Target code layout
 
 - `cem/sip/` — the circuit.
@@ -75,6 +85,7 @@ tests 1–12; `TDError` adds 13–15; tests 16–17 wire the full stack together
     - `emitter_credit.py` — tests 8–12.
     - `value_learning.py` — tests 13–15.
     - `system.py` — tests 16–17.
+- `tests/sip/` — unit tests for SIP modules.
 
 ## SIP-specific plug points
 
