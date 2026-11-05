@@ -7,7 +7,6 @@ tested claims — lives in [`sip.md`](sip.md).
 
 Resolve before experiments 16 and 17 depend on them:
 
-- [ ] Confirm whether higher sensation levels use the matching intention's previous message.
 - [ ] Confirm whether each intention level uses the matching sensation's current message.
 
 ## Correctness foundations
