@@ -12,9 +12,14 @@ import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray, RngStream
 
-from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
+from cem.npn.gaussian import GaussianNPN
 from cem.perceptron.mlp import MLP
-from cem.sip.messages import mean_and_precision, promoting_link_loss, variance_from_precision
+from cem.sip.messages import (
+    InstrumentedMessage,
+    mean_and_precision,
+    promoting_link_loss,
+    variance_from_precision,
+)
 from cem.structure.graph import FixedParameter, LearnableParameter
 
 
@@ -26,21 +31,11 @@ class TDTraces(eqx.Module):
     with a live gradient to the circuit's parameters.
     """
 
-    predictor_observations: NormalNP
-    predictor_instruments: NormalNP
+    predictor: InstrumentedMessage
 
     @classmethod
     def initial(cls, predictor_features: int) -> Self:
-        def placeholder(size: int) -> NormalNP:
-            return normal_from_mean_and_presence(
-                jnp.zeros(size, dtype=jnp.float64),
-                jnp.ones(size, dtype=jnp.float64),
-            )
-
-        return cls(
-            predictor_observations=placeholder(predictor_features),
-            predictor_instruments=placeholder(predictor_features),
-        )
+        return cls(predictor=InstrumentedMessage.standard(predictor_features))
 
 
 class TDErrorOutputs(eqx.Module):
@@ -118,20 +113,19 @@ class TDError(eqx.Module):
         state: eqx.nn.State,
         *,
         reward_observation: NormalNP,
-        predictor_observations: NormalNP,
-        predictor_instruments: NormalNP,
+        predictor: InstrumentedMessage,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, TDErrorOutputs]:
         """Advance the TD-error circuit one time step."""
         delayed = state.get(self.delay_index)
         delayed_prediction = self.prediction_map.infer(
-            *mean_and_precision(delayed.predictor_observations)
+            *mean_and_precision(delayed.predictor.observation)
         )
         delayed_witness = self._witness(
-            delayed.predictor_instruments, streams=streams, inference=inference
+            delayed.predictor.instrument, streams=streams, inference=inference
         )
-        current_prediction = self.prediction_map.infer(*mean_and_precision(predictor_observations))
+        current_prediction = self.prediction_map.infer(*mean_and_precision(predictor.observation))
 
         moments = self._moments(reward_observation, current_prediction, delayed_prediction)
         witness_residuals = _witness_residuals(moments)
@@ -152,13 +146,7 @@ class TDError(eqx.Module):
 
         advantage = moments.boot_mean - moments.del_mean
 
-        new_state = state.set(
-            self.delay_index,
-            TDTraces(
-                predictor_observations=predictor_observations,
-                predictor_instruments=predictor_instruments,
-            ),
-        )
+        new_state = state.set(self.delay_index, TDTraces(predictor=predictor))
 
         return new_state, TDErrorOutputs(
             advantage=advantage,

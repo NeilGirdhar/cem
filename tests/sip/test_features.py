@@ -7,7 +7,6 @@ import jax.random as jr
 from efax import NormalNP
 from tjax import JaxRealArray, KeyArray, RngStream
 
-from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.features import (
     RecruiterFeature,
     SensationInputFeature,
@@ -17,22 +16,20 @@ from cem.sip.features import (
 )
 from cem.sip.messages import InstrumentedMessage
 
+from .tools import _message
+
 
 class _SIPStepInputs(TypedDict):
     key: KeyArray
     observation_content: NormalNP
-    predictors: InstrumentedMessage
+    predictor: InstrumentedMessage
     gain: InstrumentedMessage
     goal: JaxRealArray
 
 
 class _TDStepInputs(TypedDict):
     reward_observation: NormalNP
-    predictors: InstrumentedMessage
-
-
-def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
-    return normal_from_mean_and_presence(mean, precision)
+    predictor: InstrumentedMessage
 
 
 def _sip_feature(
@@ -50,7 +47,7 @@ def _sip_inputs(n: int) -> _SIPStepInputs:
     return _SIPStepInputs(
         key=jr.key(0),
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
-        predictors=InstrumentedMessage(
+        predictor=InstrumentedMessage(
             observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
             instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
@@ -74,7 +71,7 @@ def _td_feature(n: int, streams: Mapping[str, RngStream], *, discount: float = 1
 def _td_inputs(n: int) -> _TDStepInputs:
     return _TDStepInputs(
         reward_observation=_message(jnp.ones(n), jnp.ones(n)),
-        predictors=InstrumentedMessage(
+        predictor=InstrumentedMessage(
             observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
             instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
@@ -88,8 +85,8 @@ def test_sip_feature_outputs_have_expected_shapes(
     feature = _sip_feature(n, streams)
     state = eqx.nn.State(feature)
     _, outputs = feature.step(state, **_sip_inputs(n), streams=streams, inference=True)
-    assert outputs.observation.mean_times_precision.shape == (n,)
-    assert outputs.instrument.mean_times_precision.shape == (n,)
+    assert outputs.message.observation.mean_times_precision.shape == (n,)
+    assert outputs.message.instrument.mean_times_precision.shape == (n,)
     assert outputs.observation_mismatch.mean_times_precision.shape == (2 * n,)
     assert outputs.reconstruction_cost.shape == ()
     assert outputs.confounding_cost.shape == ()
@@ -112,17 +109,15 @@ def test_sip_feature_loss_sums_emitter_and_mismatch(
         fresh_state,
         inputs["key"],
         observation_content=inputs["observation_content"],
-        predictor_instruments=inputs["predictors"].instrument,
+        predictor_instrument=inputs["predictor"].instrument,
         gain_observation=inputs["gain"].observation,
         goal=inputs["goal"],
     )
     mismatch_outputs = feature.mismatch.step(
         raw_observation=emitter_outputs.raw_observation,
         local_variance=emitter_outputs.local_variance,
-        predictor_observations=inputs["predictors"].observation,
-        predictor_instruments=inputs["predictors"].instrument,
-        gain_observation=inputs["gain"].observation,
-        gain_instrument=inputs["gain"].instrument,
+        predictor=inputs["predictor"],
+        gain=inputs["gain"],
         streams=streams,
         inference=True,
     )
@@ -172,8 +167,7 @@ def test_td_feature_loss_equals_td_error_loss(
     _, td_outputs = feature.td_error.step(
         fresh_state,
         reward_observation=inputs["reward_observation"],
-        predictor_observations=inputs["predictors"].observation,
-        predictor_instruments=inputs["predictors"].instrument,
+        predictor=inputs["predictor"],
         streams=streams,
         inference=True,
     )
@@ -191,8 +185,8 @@ def test_td_feature_state_delays_predictor_inputs(
     new_state, _ = feature.step(state, **inputs, streams=streams, inference=True)
     stored = new_state.get(feature.td_error.delay_index)
     assert jnp.allclose(
-        stored.predictor_observations.mean_times_precision,
-        inputs["predictors"].observation.mean_times_precision,
+        stored.predictor.observation.mean_times_precision,
+        inputs["predictor"].observation.mean_times_precision,
     )
 
 
@@ -220,7 +214,7 @@ def test_recruiter_feature_observation_equals_pre_gain(
         state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
-        predictors=InstrumentedMessage(
+        predictor=InstrumentedMessage(
             observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
             instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
@@ -233,13 +227,13 @@ def test_recruiter_feature_observation_equals_pre_gain(
         fresh_state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
-        predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain_observation=None,
         goal=jnp.asarray(0.5),
     )
     assert jnp.allclose(
-        outputs.observation.mean_times_precision,
-        emitter_outputs.observation.mean_times_precision,
+        outputs.message.observation.mean_times_precision,
+        emitter_outputs.message.observation.mean_times_precision,
     )
 
 
@@ -266,7 +260,7 @@ def test_recruiter_feature_step_runs_without_gain(
         state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
-        predictors=InstrumentedMessage(
+        predictor=InstrumentedMessage(
             observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
             instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
@@ -275,7 +269,7 @@ def test_recruiter_feature_step_runs_without_gain(
         inference=True,
     )
     assert jnp.isfinite(outputs.loss)
-    assert outputs.observation.mean_times_precision.shape == (n,)
+    assert outputs.message.observation.mean_times_precision.shape == (n,)
 
 
 def _sensation_input(n: int, streams: Mapping[str, RngStream]) -> SensationInputFeature:
@@ -293,7 +287,7 @@ def test_sensation_input_observation_pass_through(
     _, outputs = feature.step(
         state,
         observation=observation,
-        predictors=InstrumentedMessage(
+        predictor=InstrumentedMessage(
             observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
             instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
@@ -301,9 +295,11 @@ def test_sensation_input_observation_pass_through(
         streams=streams,
         inference=True,
     )
-    assert jnp.allclose(outputs.observation.mean_times_precision, observation.mean_times_precision)
     assert jnp.allclose(
-        outputs.observation.negative_half_precision, observation.negative_half_precision
+        outputs.message.observation.mean_times_precision, observation.mean_times_precision
+    )
+    assert jnp.allclose(
+        outputs.message.observation.negative_half_precision, observation.negative_half_precision
     )
 
 
@@ -317,10 +313,10 @@ def test_sip_feature_stores_message_into_state(
     new_state, outputs = feature.step(state, **_sip_inputs(n), streams=streams, inference=True)
     stored = new_state.get(feature.last_message_index)
     assert jnp.allclose(
-        stored.observation.mean_times_precision, outputs.observation.mean_times_precision
+        stored.observation.mean_times_precision, outputs.message.observation.mean_times_precision
     )
     assert jnp.allclose(
-        stored.instrument.mean_times_precision, outputs.instrument.mean_times_precision
+        stored.instrument.mean_times_precision, outputs.message.instrument.mean_times_precision
     )
 
 
@@ -334,7 +330,7 @@ def test_sensation_input_stores_message_into_state(
     new_state, outputs = feature.step(
         state,
         observation=observation,
-        predictors=InstrumentedMessage(
+        predictor=InstrumentedMessage(
             observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
             instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
@@ -344,10 +340,10 @@ def test_sensation_input_stores_message_into_state(
     )
     stored = new_state.get(feature.last_message_index)
     assert jnp.allclose(
-        stored.observation.mean_times_precision, outputs.observation.mean_times_precision
+        stored.observation.mean_times_precision, outputs.message.observation.mean_times_precision
     )
     assert jnp.allclose(
-        stored.instrument.mean_times_precision, outputs.instrument.mean_times_precision
+        stored.instrument.mean_times_precision, outputs.message.instrument.mean_times_precision
     )
 
 
@@ -358,7 +354,7 @@ def test_sensation_input_outputs_dissonance_from_mismatch(
     n = 3
     feature = _sensation_input(n, streams)
     state = eqx.nn.State(feature)
-    predictors = InstrumentedMessage(
+    predictor = InstrumentedMessage(
         observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
         instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
     )
@@ -366,7 +362,7 @@ def test_sensation_input_outputs_dissonance_from_mismatch(
     _, outputs = feature.step(
         state,
         observation=observation,
-        predictors=predictors,
+        predictor=predictor,
         gain=None,
         streams=streams,
         inference=True,
@@ -374,10 +370,8 @@ def test_sensation_input_outputs_dissonance_from_mismatch(
     mismatch_outputs = feature.mismatch.step(
         raw_observation=observation,
         local_variance=jnp.zeros(n),
-        predictor_observations=predictors.observation,
-        predictor_instruments=predictors.instrument,
-        gain_observation=None,
-        gain_instrument=None,
+        predictor=predictor,
+        gain=None,
         streams=streams,
         inference=True,
     )

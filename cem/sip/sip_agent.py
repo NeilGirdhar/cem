@@ -15,7 +15,7 @@ from tjax import KeyArray, RngStream
 
 from cem.sip.features import SIPFeatureOutputs
 from cem.sip.intentions import Intentions
-from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.sip.messages import concat_messages
 from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.sensations import Sensations
 
@@ -153,11 +153,8 @@ class SIPAgent(eqx.Module):
 
         # Intentions: readout = sensation obs; predictor = sensation inst message;
         # advantage = TD's previous-step advantage scalar (broadcast per layer).
-        intention_readouts = [out.observation for out in sensation_outputs]
-        intention_predictors = [
-            InstrumentedMessage(observation=out.observation, instrument=out.instrument)
-            for out in sensation_outputs
-        ]
+        intention_readouts = [out.message.observation for out in sensation_outputs]
+        intention_predictors = [out.message for out in sensation_outputs]
         last_advantage = state.get(self.reward_critic.td_feature.last_advantage_index)
         advantage_scalar = jnp.sum(last_advantage)
         advantages = [advantage_scalar for _ in range(n_levels)]
@@ -174,12 +171,14 @@ class SIPAgent(eqx.Module):
         # Prospects: diffuse readout = concat of all sensation + intention obs;
         # predictor instruments = matching sensation + intention instrument.
         diffuse = concat_messages(
-            *[out.observation for out in sensation_outputs],
-            *[out.observation for out in intention_outputs],
+            *[out.message.observation for out in sensation_outputs],
+            *[out.message.observation for out in intention_outputs],
         )
         prospect_observation_content = [diffuse] * len(self.reward_critic.prospect_features)
         prospect_predictor_instruments = [
-            concat_messages(sensation_outputs[k].instrument, intention_outputs[k].instrument)
+            concat_messages(
+                sensation_outputs[k].message.instrument, intention_outputs[k].message.instrument
+            )
             for k in range(len(self.reward_critic.prospect_features))
         ]
         state, critic_outputs = self.reward_critic.step(
@@ -196,5 +195,5 @@ class SIPAgent(eqx.Module):
             sensations=sensation_outputs,
             intentions=intention_outputs,
             critic=critic_outputs,
-            action=intention_outputs[0].observation,
+            action=intention_outputs[0].message.observation,
         )

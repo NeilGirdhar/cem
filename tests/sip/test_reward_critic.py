@@ -3,17 +3,13 @@ from collections.abc import Mapping
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from efax import NormalNP
 from tjax import RngStream
 
-from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.features import ProspectFeature
 from cem.sip.messages import InstrumentedMessage, concat_messages
 from cem.sip.reward_critic import RewardCritic
 
-
-def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
-    return normal_from_mean_and_presence(mean, precision)
+from .tools import _message
 
 
 def _prospect(
@@ -44,12 +40,12 @@ def test_prospect_feature_outputs_have_expected_shapes(
         state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
-        predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain=None,
         goal=jnp.asarray(0.5),
     )
-    assert outputs.observation.mean_times_precision.shape == (n,)
-    assert outputs.instrument.mean_times_precision.shape == (n,)
+    assert outputs.message.observation.mean_times_precision.shape == (n,)
+    assert outputs.message.instrument.mean_times_precision.shape == (n,)
     assert outputs.loss.shape == ()
 
 
@@ -63,16 +59,16 @@ def test_prospect_feature_stores_message_into_state(
         state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
-        predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain=None,
         goal=jnp.asarray(0.5),
     )
     stored = new_state.get(feature.last_message_index)
     assert jnp.allclose(
-        stored.observation.mean_times_precision, outputs.observation.mean_times_precision
+        stored.observation.mean_times_precision, outputs.message.observation.mean_times_precision
     )
     assert jnp.allclose(
-        stored.instrument.mean_times_precision, outputs.instrument.mean_times_precision
+        stored.instrument.mean_times_precision, outputs.message.instrument.mean_times_precision
     )
 
 
@@ -119,7 +115,7 @@ def test_reward_critic_step_runs_end_to_end(
     prospect_sizes = [2, 3]
     assert len(outputs.prospects) == len(prospect_sizes)
     for out, size in zip(outputs.prospects, prospect_sizes, strict=True):
-        assert out.observation.mean_times_precision.shape == (size,)
+        assert out.message.observation.mean_times_precision.shape == (size,)
     assert outputs.td.observation.mean_times_precision.shape == (1,)
     assert jnp.isfinite(outputs.loss)
 
@@ -163,19 +159,19 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
             fresh,
             k,
             observation_content=oc,
-            predictor_instruments=pi,
+            predictor_instrument=pi,
             gain=None,
             goal=goal,
         )
         prospects.append(out)
-    expected_predictors = InstrumentedMessage(
-        observation=concat_messages(*[p.observation for p in prospects]),
-        instrument=concat_messages(*[p.instrument for p in prospects]),
+    expected_predictor = InstrumentedMessage(
+        observation=concat_messages(*[p.message.observation for p in prospects]),
+        instrument=concat_messages(*[p.message.instrument for p in prospects]),
     )
     _, td_out = critic.td_feature.step(
         fresh,
         reward_observation=reward_observation,
-        predictors=expected_predictors,
+        predictor=expected_predictor,
         streams=streams,
         inference=True,
     )
@@ -222,11 +218,11 @@ def test_reward_critic_feeds_td_dissonance_back_as_prospect_goal(
         fresh,
         keys[0],
         observation_content=observation_content[0],
-        predictor_instruments=predictor_instruments[0],
+        predictor_instrument=predictor_instruments[0],
         gain=None,
         goal=stored_goal,
     )
     assert jnp.allclose(
-        critic_outputs.prospects[0].observation.mean_times_precision,
-        direct.observation.mean_times_precision,
+        critic_outputs.prospects[0].message.observation.mean_times_precision,
+        direct.message.observation.mean_times_precision,
     )

@@ -27,9 +27,9 @@ class Intentions(ExplanatoryCoupling):
     readout alone; every lower layer concatenates its readout with the
     `observation_mismatch` demand signal from the layer above. Each layer's
     effective predictor is the externally supplied predictor concatenated
-    with the stored `last_message_index` of the layers above it (fetched
-    through `state.get`; in top-down order those are the current step's
-    values). The goal fed to each feature's Credit is the per-layer
+    with the stored `last_message_index` of the layer directly above it
+    (fetched through `state.get`; in top-down order that is the current
+    step's value). The goal fed to each feature's Credit is the per-layer
     advantage. All features are controllable `SIPFeature`s that inject
     local noise to explore. Layer 0 is the bottom (processed last) and its
     outgoing observation is the action.
@@ -122,7 +122,7 @@ class Intentions(ExplanatoryCoupling):
             state,
             keys[top_index],
             observation_content=readouts[top_index],
-            predictors=self._predictor_for(state, top_index, predictors[top_index]),
+            predictor=self._predictor_for(state, top_index, predictors[top_index]),
             gain=None,
             goal=advantages[top_index],
             streams=streams,
@@ -136,7 +136,7 @@ class Intentions(ExplanatoryCoupling):
                 state,
                 keys[i],
                 observation_content=content,
-                predictors=self._predictor_for(state, i, predictors[i]),
+                predictor=self._predictor_for(state, i, predictors[i]),
                 gain=None,
                 goal=advantages[i],
                 streams=streams,

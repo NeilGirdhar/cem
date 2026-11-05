@@ -38,8 +38,7 @@ class SIPFeatureSizes(eqx.Module):
 class SIPFeatureOutputs(eqx.Module):
     """One step of an identification feature."""
 
-    observation: NormalNP  # post-gain, noised
-    instrument: NormalNP  # post-gain, noised
+    message: InstrumentedMessage  # post-gain, noised
     observation_mismatch: NormalNP  # 2n unit-presence demand signal
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
@@ -103,7 +102,7 @@ class SIPFeature(eqx.Module):
         key: KeyArray,
         *,
         observation_content: NormalNP,
-        predictors: InstrumentedMessage,
+        predictor: InstrumentedMessage,
         gain: InstrumentedMessage | None,
         goal: JaxRealArray,
         streams: Mapping[str, RngStream],
@@ -116,34 +115,25 @@ class SIPFeature(eqx.Module):
         witness map omits the missing gain parent.
         """
         gain_observation = None if gain is None else gain.observation
-        gain_instrument = None if gain is None else gain.instrument
         new_state, emitter_outputs = self.emitter.step(
             state,
             key,
             observation_content=observation_content,
-            predictor_instruments=predictors.instrument,
+            predictor_instrument=predictor.instrument,
             gain_observation=gain_observation,
             goal=goal,
         )
         mismatch_outputs = self.mismatch.step(
             raw_observation=emitter_outputs.raw_observation,
             local_variance=emitter_outputs.local_variance,
-            predictor_observations=predictors.observation,
-            predictor_instruments=predictors.instrument,
-            gain_observation=gain_observation,
-            gain_instrument=gain_instrument,
+            predictor=predictor,
+            gain=gain,
             streams=streams,
             inference=inference,
         )
-        new_state = new_state.set(
-            self.last_message_index,
-            InstrumentedMessage(
-                observation=emitter_outputs.observation, instrument=emitter_outputs.instrument
-            ),
-        )
+        new_state = new_state.set(self.last_message_index, emitter_outputs.message)
         return new_state, SIPFeatureOutputs(
-            observation=emitter_outputs.observation,
-            instrument=emitter_outputs.instrument,
+            message=emitter_outputs.message,
             observation_mismatch=mismatch_outputs.mismatch,
             reconstruction_cost=mismatch_outputs.reconstruction_cost,
             confounding_cost=mismatch_outputs.confounding_cost,
@@ -159,7 +149,7 @@ class SensationInputFeature(eqx.Module):
     environment observation serves directly as both content and raw
     observation, and there is nothing to credit on a sensor that only
     reports. Keeps the `instrument_map` (building the outgoing instrument
-    from the predictors' instruments) and the `Mismatch` circuit. Not
+    from the predictor's instrument) and the `Mismatch` circuit. Not
     controllable, so no local noise, but a gain parent is still supported
     through evidence scaling on the outgoing messages.
     """
@@ -195,7 +185,7 @@ class SensationInputFeature(eqx.Module):
         state: eqx.nn.State,
         *,
         observation: NormalNP,
-        predictors: InstrumentedMessage,
+        predictor: InstrumentedMessage,
         gain: InstrumentedMessage | None,
         streams: Mapping[str, RngStream],
         inference: bool,
@@ -205,37 +195,30 @@ class SensationInputFeature(eqx.Module):
         Threads `state` through unchanged (no Credit state to update) so the
         caller can iterate the stack uniformly.
         """
-        inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictors.instrument))
+        inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictor.instrument))
         inherited_mean, _ = mean_and_precision(inherited_instrument)
         local_variance = jnp.zeros_like(inherited_mean)
 
-        gain_observation = None if gain is None else gain.observation
-        gain_instrument = None if gain is None else gain.instrument
-        if gain_observation is None:
+        if gain is None:
             out_observation = observation
             out_instrument = inherited_instrument
         else:
-            gain_mean, _ = mean_and_precision(gain_observation)
+            gain_mean, _ = mean_and_precision(gain.observation)
             out_observation = evidence_scale(observation, gain_mean)
             out_instrument = evidence_scale(inherited_instrument, gain_mean)
 
         mismatch_outputs = self.mismatch.step(
             raw_observation=observation,
             local_variance=local_variance,
-            predictor_observations=predictors.observation,
-            predictor_instruments=predictors.instrument,
-            gain_observation=gain_observation,
-            gain_instrument=gain_instrument,
+            predictor=predictor,
+            gain=gain,
             streams=streams,
             inference=inference,
         )
-        state = state.set(
-            self.last_message_index,
-            InstrumentedMessage(observation=out_observation, instrument=out_instrument),
-        )
+        message = InstrumentedMessage(observation=out_observation, instrument=out_instrument)
+        state = state.set(self.last_message_index, message)
         return state, SIPFeatureOutputs(
-            observation=out_observation,
-            instrument=out_instrument,
+            message=message,
             observation_mismatch=mismatch_outputs.mismatch,
             reconstruction_cost=mismatch_outputs.reconstruction_cost,
             confounding_cost=mismatch_outputs.confounding_cost,
@@ -283,7 +266,7 @@ class RecruiterFeature(eqx.Module):
         key: KeyArray,
         *,
         observation_content: NormalNP,
-        predictors: InstrumentedMessage,
+        predictor: InstrumentedMessage,
         goal: JaxRealArray,
         streams: Mapping[str, RngStream],
         inference: bool,
@@ -293,7 +276,7 @@ class RecruiterFeature(eqx.Module):
             state,
             key,
             observation_content=observation_content,
-            predictors=predictors,
+            predictor=predictor,
             gain=None,
             goal=goal,
             streams=streams,
@@ -304,8 +287,7 @@ class RecruiterFeature(eqx.Module):
 class ProspectFeatureOutputs(eqx.Module):
     """One step of a prospect feature."""
 
-    observation: NormalNP  # post-noise
-    instrument: NormalNP  # post-noise
+    message: InstrumentedMessage  # post-noise
     loss: JaxRealArray  # scalar; emitter loss (credit + promoting link)
 
 
@@ -315,7 +297,7 @@ class ProspectFeature(eqx.Module):
     Prospect features predict reward and inject local noise under `Credit`;
     they have no mismatch circuit because confounding purification is handled
     downstream by the `RewardCritic`'s `TDFeature`. The feature accepts its
-    own observation content and predictor instruments and writes its outgoing
+    own observation content and predictor instrument and writes its outgoing
     `InstrumentedMessage` into `state`.
     """
 
@@ -359,7 +341,7 @@ class ProspectFeature(eqx.Module):
         key: KeyArray,
         *,
         observation_content: NormalNP,
-        predictor_instruments: NormalNP,
+        predictor_instrument: NormalNP,
         gain: InstrumentedMessage | None,
         goal: JaxRealArray,
     ) -> tuple[eqx.nn.State, ProspectFeatureOutputs]:
@@ -374,19 +356,13 @@ class ProspectFeature(eqx.Module):
             state,
             key,
             observation_content=observation_content,
-            predictor_instruments=predictor_instruments,
+            predictor_instrument=predictor_instrument,
             gain_observation=gain_observation,
             goal=goal,
         )
-        new_state = new_state.set(
-            self.last_message_index,
-            InstrumentedMessage(
-                observation=emitter_outputs.observation, instrument=emitter_outputs.instrument
-            ),
-        )
+        new_state = new_state.set(self.last_message_index, emitter_outputs.message)
         return new_state, ProspectFeatureOutputs(
-            observation=emitter_outputs.observation,
-            instrument=emitter_outputs.instrument,
+            message=emitter_outputs.message,
             loss=emitter_outputs.loss,
         )
 
@@ -441,7 +417,7 @@ class TDFeature(eqx.Module):
         state: eqx.nn.State,
         *,
         reward_observation: NormalNP,
-        predictors: InstrumentedMessage,
+        predictor: InstrumentedMessage,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, TDFeatureOutputs]:
@@ -449,8 +425,7 @@ class TDFeature(eqx.Module):
         new_state, td_outputs = self.td_error.step(
             state,
             reward_observation=reward_observation,
-            predictor_observations=predictors.observation,
-            predictor_instruments=predictors.instrument,
+            predictor=predictor,
             streams=streams,
             inference=inference,
         )

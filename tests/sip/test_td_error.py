@@ -6,19 +6,16 @@ import jax.numpy as jnp
 from efax import NormalNP
 from tjax import RngStream
 
-from cem.npn.gaussian import normal_from_mean_and_presence
+from cem.sip import InstrumentedMessage
 from cem.sip.messages import mean_and_precision
 from cem.sip.td_error import TDError
+
+from .tools import _i_message, _message
 
 
 class _StepInputs(TypedDict):
     reward_observation: NormalNP
-    predictor_observations: NormalNP
-    predictor_instruments: NormalNP
-
-
-def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
-    return normal_from_mean_and_presence(mean, precision)
+    predictor: InstrumentedMessage
 
 
 def _td_error(n: int, streams: Mapping[str, RngStream], *, discount: float = 1.0) -> TDError:
@@ -33,8 +30,12 @@ def _td_error(n: int, streams: Mapping[str, RngStream], *, discount: float = 1.0
 def _inputs(n: int) -> _StepInputs:
     return _StepInputs(
         reward_observation=_message(jnp.ones(n), jnp.ones(n)),
-        predictor_observations=_message(jnp.asarray([0.3, -0.2]), jnp.asarray([1.0, 1.0])),
-        predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.asarray([1.0, 1.0])),
+        predictor=_i_message(
+            jnp.asarray([0.3, -0.2]),
+            jnp.asarray([1.0, 1.0]),
+            jnp.asarray([0.5, 0.1]),
+            jnp.asarray([1.0, 1.0]),
+        ),
     )
 
 
@@ -51,11 +52,9 @@ def test_advantage_equals_bootstrap_minus_delayed_mean(
     delayed = state.get(td.delay_index)
     _, outputs = td.step(**inputs, state=state, streams=streams, inference=True)
 
-    delayed_prediction = td.prediction_map.infer(
-        *mean_and_precision(delayed.predictor_observations)
-    )
+    delayed_prediction = td.prediction_map.infer(*mean_and_precision(delayed.predictor.observation))
     current_prediction = td.prediction_map.infer(
-        *mean_and_precision(inputs["predictor_observations"])
+        *mean_and_precision(inputs["predictor"].observation)
     )
     reward_mean, _ = mean_and_precision(inputs["reward_observation"])
     cur_mean, _ = mean_and_precision(current_prediction)
@@ -76,12 +75,12 @@ def test_state_delays_predictor_inputs_by_one_step(
     new_state, _ = td.step(**inputs, state=state, streams=streams, inference=True)
     stored = new_state.get(td.delay_index)
     assert jnp.allclose(
-        stored.predictor_observations.mean_times_precision,
-        inputs["predictor_observations"].mean_times_precision,
+        stored.predictor.observation.mean_times_precision,
+        inputs["predictor"].observation.mean_times_precision,
     )
     assert jnp.allclose(
-        stored.predictor_instruments.mean_times_precision,
-        inputs["predictor_instruments"].mean_times_precision,
+        stored.predictor.instrument.mean_times_precision,
+        inputs["predictor"].instrument.mean_times_precision,
     )
 
 
@@ -98,18 +97,22 @@ def test_second_step_delayed_prediction_matches_first_step_current_prediction(
     # the first step's predictor_observations.
     second = _StepInputs(
         reward_observation=_message(jnp.zeros(n), jnp.ones(n)),
-        predictor_observations=_message(jnp.asarray([-0.5, 0.4]), jnp.asarray([1.0, 1.0])),
-        predictor_instruments=_message(jnp.asarray([0.2, -0.3]), jnp.asarray([1.0, 1.0])),
+        predictor=_i_message(
+            jnp.asarray([-0.5, 0.4]),
+            jnp.asarray([1.0, 1.0]),
+            jnp.asarray([0.2, -0.3]),
+            jnp.asarray([1.0, 1.0]),
+        ),
     )
     _, second_outputs = td.step(**second, state=state, streams=streams, inference=True)
 
     # On step two, delayed = first step's predictors → delayed prediction equals
     # what step one computed as its current prediction (recoverable from step
     # one's advantage).
-    first_current = td.prediction_map.infer(*mean_and_precision(first["predictor_observations"]))
+    first_current = td.prediction_map.infer(*mean_and_precision(first["predictor"].observation))
     first_cur_mean, _ = mean_and_precision(first_current)
     # second advantage = reward + gamma * (second's current mean) - (first's current mean).
-    second_current = td.prediction_map.infer(*mean_and_precision(second["predictor_observations"]))
+    second_current = td.prediction_map.infer(*mean_and_precision(second["predictor"].observation))
     second_cur_mean, _ = mean_and_precision(second_current)
     reward_mean, _ = mean_and_precision(second["reward_observation"])
     expected = reward_mean + td.discount.value * second_cur_mean - first_cur_mean
@@ -250,7 +253,7 @@ def test_discount_scales_current_prediction_contribution_to_advantage(
     _, out_one = td_one.step(**inputs, state=state_one, streams=streams, inference=True)
 
     current_prediction = td_zero.prediction_map.infer(
-        *mean_and_precision(inputs["predictor_observations"])
+        *mean_and_precision(inputs["predictor"].observation)
     )
     cur_mean, _ = mean_and_precision(current_prediction)
     assert jnp.allclose(out_one.advantage - out_zero.advantage, cur_mean)

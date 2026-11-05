@@ -8,6 +8,8 @@ import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray, divide_or_zero, divide_where
 
+from cem.npn.gaussian import normal_from_mean_and_presence
+
 MAX_VARIANCE: Final[float] = 1e12
 """Fallback variance for absent (κ = 0) external messages. Large but finite so
 downstream cross-entropy terms stay well-defined. Module-patch to override for
@@ -25,6 +27,13 @@ class InstrumentedMessage(eqx.Module):
 
     observation: NormalNP
     instrument: NormalNP
+
+    @classmethod
+    def standard(cls, size: int) -> InstrumentedMessage:
+        return InstrumentedMessage(
+            observation=normal_from_mean_and_presence(jnp.zeros(size), jnp.ones(size)),
+            instrument=normal_from_mean_and_presence(jnp.zeros(size), jnp.ones(size)),
+        )
 
 
 def mean_and_precision(distribution: NormalNP) -> tuple[JaxRealArray, JaxRealArray]:

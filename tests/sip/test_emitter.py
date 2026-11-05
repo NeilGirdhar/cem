@@ -6,14 +6,12 @@ import jax.random as jr
 from efax import NormalNP
 from tjax import RngStream
 
-from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
+from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 from cem.sip.messages import mean_and_precision
 
-
-def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
-    return normal_from_mean_and_presence(mean, precision)
+from .tools import _message
 
 
 def _emitter(
@@ -42,10 +40,8 @@ def _emitter(
     )
 
 
-def _inherited(
-    emitter: Emitter, predictor_instruments: NormalNP
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    inst_mean, inst_precision = mean_and_precision(predictor_instruments)
+def _inherited(emitter: Emitter, predictor_instrument: NormalNP) -> tuple[jnp.ndarray, jnp.ndarray]:
+    inst_mean, inst_precision = mean_and_precision(predictor_instrument)
     inherited = emitter.instrument_map.infer(inst_mean, inst_precision)
     return mean_and_precision(inherited)
 
@@ -56,17 +52,17 @@ def test_local_variance_matches_inherited_moments(
     """V_local equals max(0, var_inh - mean_inh^2) at the actual inherited moments."""
     n = 3
     emitter = _emitter(n, content_dim=1, instrument_dim=4, controllable=True, streams=streams)
-    predictor_instruments = _message(
+    predictor_instrument = _message(
         jnp.asarray([0.4, -0.3, 0.1, 0.2]), jnp.asarray([1.0, 2.0, 0.5, 1.0])
     )
-    inherited_mean, inherited_precision = _inherited(emitter, predictor_instruments)
+    inherited_mean, inherited_precision = _inherited(emitter, predictor_instrument)
     expected = jnp.maximum(0.0, jnp.reciprocal(inherited_precision) - jnp.square(inherited_mean))
     state = eqx.nn.State(emitter)
     _, outputs = emitter.step(
         state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
-        predictor_instruments=predictor_instruments,
+        predictor_instrument=predictor_instrument,
         gain_observation=_message(jnp.ones(n), jnp.ones(n)),
         goal=jnp.asarray(0.0),
     )
@@ -82,13 +78,13 @@ def test_same_displacement_shifts_both_means(streams: Mapping[str, RngStream]) -
     n = 2
     emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=True, streams=streams)
     state = eqx.nn.State(emitter)
-    predictor_instruments = _message(jnp.asarray([1.0, -1.0]), jnp.asarray([0.5, 0.25]))
-    inherited_mean, _ = _inherited(emitter, predictor_instruments)
+    predictor_instrument = _message(jnp.asarray([1.0, -1.0]), jnp.asarray([0.5, 0.25]))
+    inherited_mean, _ = _inherited(emitter, predictor_instrument)
     _, outputs = emitter.step(
         state,
         jr.key(7),
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
-        predictor_instruments=predictor_instruments,
+        predictor_instrument=predictor_instrument,
         gain_observation=_message(jnp.ones(n), jnp.ones(n)),
         goal=jnp.asarray(0.0),
     )
@@ -97,7 +93,7 @@ def test_same_displacement_shifts_both_means(streams: Mapping[str, RngStream]) -
     # `observation` is gain-scaled with gain=1 here, so its mean equals the noised
     # raw mean; `raw_observation.mean` is pre-noise.
     raw_mean, _ = mean_and_precision(outputs.raw_observation)
-    obs_mean, _ = mean_and_precision(outputs.observation)
+    obs_mean, _ = mean_and_precision(outputs.message.observation)
     obs_displacement = obs_mean - raw_mean
     assert jnp.allclose(inst_displacement, obs_displacement)
 
@@ -112,17 +108,17 @@ def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> No
         state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.4]), jnp.ones(1)),
-        predictor_instruments=_message(jnp.asarray([0.1, 0.2]), jnp.asarray([1.0, 1.0])),
+        predictor_instrument=_message(jnp.asarray([0.1, 0.2]), jnp.asarray([1.0, 1.0])),
         gain_observation=_message(gain, jnp.ones(n)),
         goal=jnp.asarray(0.0),
     )
     assert jnp.allclose(outputs.local_variance, 0.0)
     assert jnp.allclose(
-        outputs.observation.mean_times_precision,
+        outputs.message.observation.mean_times_precision,
         gain * outputs.raw_observation.mean_times_precision,
     )
     assert jnp.allclose(
-        outputs.observation.negative_half_precision,
+        outputs.message.observation.negative_half_precision,
         gain * outputs.raw_observation.negative_half_precision,
     )
 
@@ -140,7 +136,7 @@ def test_credit_cotangent_reaches_observation_map(
             state,
             jr.key(0),
             observation_content=_message(jnp.asarray([0.5]), jnp.ones(1)),
-            predictor_instruments=_message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 1.0])),
+            predictor_instrument=_message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 1.0])),
             gain_observation=_message(jnp.ones(n), jnp.ones(n)),
             goal=jnp.asarray(1.0),
         )

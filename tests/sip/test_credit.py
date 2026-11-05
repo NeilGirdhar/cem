@@ -4,8 +4,10 @@ import equinox as eqx
 import jax.numpy as jnp
 from tjax import RngStream
 
-from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
+from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit, CreditTraces
+
+from .tools import _message
 
 
 def _baseline_npn(obs_content_dim: int, streams: Mapping[str, RngStream]) -> GaussianNPN:
@@ -15,10 +17,6 @@ def _baseline_npn(obs_content_dim: int, streams: Mapping[str, RngStream]) -> Gau
         hidden_features=(),
         streams=streams,
     )
-
-
-def _message(mean: jnp.ndarray, precision: jnp.ndarray):  # ruff: ignore[missing-return-type-private-function]
-    return normal_from_mean_and_presence(mean, precision)
 
 
 def test_traces_zeros_initialization() -> None:

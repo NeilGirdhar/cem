@@ -31,8 +31,8 @@ class Sensations(ExplanatoryCoupling):
     layer's `observation_mismatch` and whose Credit goal is the previous
     layer's `dissonance`. Each layer's effective predictor is the externally
     supplied predictor concatenated with the previous-step instrumented
-    messages of the layers above (fetched through `last_message_index`), so
-    higher sensations condition lower ones.
+    message of the layer directly above (fetched through
+    `last_message_index`), so the next sensation up conditions this one.
     """
 
     input_feature: SensationInputFeature
@@ -108,7 +108,7 @@ class Sensations(ExplanatoryCoupling):
         state, input_out = self.input_feature.step(
             state,
             observation=observation,
-            predictors=self._predictor_for(state, 0, predictors[0]),
+            predictor=self._predictor_for(state, 0, predictors[0]),
             gain=None,
             streams=streams,
             inference=inference,
@@ -117,7 +117,7 @@ class Sensations(ExplanatoryCoupling):
         if not self.interior_features:
             return state, tuple(outputs)
         keys = jr.split(key, len(self.interior_features))
-        for i, (feature, feature_key, feature_predictors) in enumerate(
+        for i, (feature, feature_key, feature_predictor) in enumerate(
             zip(self.interior_features, keys, predictors[1:], strict=True), start=1
         ):
             prev = outputs[-1]
@@ -125,7 +125,7 @@ class Sensations(ExplanatoryCoupling):
                 state,
                 feature_key,
                 observation_content=prev.observation_mismatch,
-                predictors=self._predictor_for(state, i, feature_predictors),
+                predictor=self._predictor_for(state, i, feature_predictor),
                 gain=None,
                 goal=jnp.asarray(prev.dissonance),
                 streams=streams,

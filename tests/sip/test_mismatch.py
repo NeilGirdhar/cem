@@ -6,21 +6,17 @@ import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray, RngStream
 
-from cem.npn.gaussian import normal_from_mean_and_presence
+from cem.sip import InstrumentedMessage
 from cem.sip.mismatch import Mismatch
+
+from .tools import _i_message, _message
 
 
 class _StepInputs(TypedDict):
     raw_observation: NormalNP
     local_variance: JaxRealArray
-    predictor_observations: NormalNP
-    predictor_instruments: NormalNP
-    gain_observation: NormalNP | None
-    gain_instrument: NormalNP | None
-
-
-def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
-    return normal_from_mean_and_presence(mean, precision)
+    predictor: InstrumentedMessage
+    gain: InstrumentedMessage | None
 
 
 def _mismatch(n: int, streams: Mapping[str, RngStream]) -> Mismatch:
@@ -36,10 +32,13 @@ def _inputs(n: int) -> _StepInputs:
     return _StepInputs(
         raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
         local_variance=jnp.zeros(n),
-        predictor_observations=_message(jnp.asarray([0.3, -0.2]), jnp.asarray([1.0, 1.0])),
-        predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.asarray([1.0, 1.0])),
-        gain_observation=_message(jnp.ones(n), jnp.ones(n)),
-        gain_instrument=_message(jnp.asarray([0.4]), jnp.asarray([1.0])),
+        predictor=_i_message(
+            jnp.asarray([0.3, -0.2]),
+            jnp.asarray([1.0, 1.0]),
+            jnp.asarray([0.5, 0.1]),
+            jnp.asarray([1.0, 1.0]),
+        ),
+        gain=_i_message(jnp.ones(n), jnp.ones(n), jnp.asarray([0.4]), jnp.asarray([1.0])),
     )
 
 
@@ -171,10 +170,10 @@ def _recruiter_inputs(n: int) -> _StepInputs:
     return _StepInputs(
         raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
         local_variance=jnp.zeros(n),
-        predictor_observations=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
-        predictor_instruments=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
-        gain_observation=None,
-        gain_instrument=None,
+        predictor=_i_message(
+            jnp.asarray([0.3, -0.2]), jnp.ones(2), jnp.asarray([0.5, 0.1]), jnp.ones(2)
+        ),
+        gain=None,
     )
 
 
@@ -200,9 +199,10 @@ def test_mismatch_norm_constraint_rhs_is_one_when_gain_is_none(
     inputs = _recruiter_inputs(n)
 
     # Compute confounding_witness independently to find the realized norm.
+    gain = inputs["gain"]
     witness = mismatch._confounding_witness(  # ruff: ignore[private-member-access]
-        inputs["predictor_instruments"],
-        inputs["gain_instrument"],
+        inputs["predictor"].instrument,
+        None if gain is None else gain.instrument,
         streams=streams,
         inference=True,
     )

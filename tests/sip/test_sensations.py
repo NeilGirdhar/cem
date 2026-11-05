@@ -3,23 +3,16 @@ from collections.abc import Mapping
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from efax import NormalNP
 from tjax import RngStream
 
-from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 from cem.sip.sensations import Sensations
 
-
-def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
-    return normal_from_mean_and_presence(mean, precision)
+from .tools import _message
 
 
 def _predictors(size: int) -> InstrumentedMessage:
-    return InstrumentedMessage(
-        observation=_message(jnp.zeros(size), jnp.ones(size)),
-        instrument=_message(jnp.zeros(size), jnp.ones(size)),
-    )
+    return InstrumentedMessage.standard(size)
 
 
 def test_sensations_create_input_feature_has_no_observation_map(
@@ -70,8 +63,8 @@ def test_sensations_infer_returns_one_output_per_layer(
         inference=True,
     )
     assert len(outputs) == len(sizes)
-    assert outputs[0].observation.mean_times_precision.shape == (sizes[0],)
-    assert outputs[1].observation.mean_times_precision.shape == (sizes[1],)
+    assert outputs[0].message.observation.mean_times_precision.shape == (sizes[0],)
+    assert outputs[1].message.observation.mean_times_precision.shape == (sizes[1],)
     assert outputs[0].observation_mismatch.mean_times_precision.shape == (2 * sizes[0],)
 
 
@@ -96,11 +89,11 @@ def test_sensations_input_feature_passes_observation_through_unchanged(
         inference=True,
     )
     assert jnp.allclose(
-        outputs[0].observation.mean_times_precision,
+        outputs[0].message.observation.mean_times_precision,
         env_observation.mean_times_precision,
     )
     assert jnp.allclose(
-        outputs[0].observation.negative_half_precision,
+        outputs[0].message.observation.negative_half_precision,
         env_observation.negative_half_precision,
     )
 
@@ -138,7 +131,7 @@ def test_sensations_infer_feeds_dissonance_from_below_as_goal(
     fresh, layer0 = sensations.input_feature.step(
         fresh,
         observation=observation,
-        predictors=layer0_predictor,
+        predictor=layer0_predictor,
         gain=None,
         streams=streams,
         inference=True,
@@ -148,7 +141,7 @@ def test_sensations_infer_feeds_dissonance_from_below_as_goal(
         fresh,
         keys[0],
         observation_content=layer0.observation_mismatch,
-        predictors=predictors[1],  # top layer has no higher layers to concat
+        predictor=predictors[1],  # top layer has no higher layers to concat
         gain=None,
         goal=jnp.asarray(layer0.dissonance),
         streams=streams,
@@ -156,8 +149,8 @@ def test_sensations_infer_feeds_dissonance_from_below_as_goal(
     )
 
     assert jnp.allclose(
-        outputs[1].observation.mean_times_precision,
-        layer1.observation.mean_times_precision,
+        outputs[1].message.observation.mean_times_precision,
+        layer1.message.observation.mean_times_precision,
     )
     assert jnp.allclose(
         outputs[1].dissonance,

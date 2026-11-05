@@ -3,15 +3,11 @@ from collections.abc import Mapping
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from efax import NormalNP
 from tjax import RngStream
 
-from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.sip_agent import SIPAgent
 
-
-def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
-    return normal_from_mean_and_presence(mean, precision)
+from .tools import _message
 
 
 def _agent(streams: Mapping[str, RngStream]) -> SIPAgent:
@@ -43,7 +39,7 @@ def test_sip_agent_step_returns_action_at_bottom_intention(
         streams=streams,
         inference=True,
     )
-    bottom_intention = outputs.intentions[0].observation
+    bottom_intention = outputs.intentions[0].message.observation
     assert jnp.allclose(outputs.action.mean_times_precision, bottom_intention.mean_times_precision)
     assert outputs.action.mean_times_precision.shape == (2,)
 
@@ -65,5 +61,5 @@ def test_sip_agent_step_produces_one_output_per_level(
     assert len(outputs.sensations) == len(level_sizes)
     assert len(outputs.intentions) == len(level_sizes)
     for i, size in enumerate(level_sizes):
-        assert outputs.sensations[i].observation.mean_times_precision.shape == (size,)
-        assert outputs.intentions[i].observation.mean_times_precision.shape == (size,)
+        assert outputs.sensations[i].message.observation.mean_times_precision.shape == (size,)
+        assert outputs.intentions[i].message.observation.mean_times_precision.shape == (size,)

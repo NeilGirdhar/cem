@@ -14,7 +14,7 @@ from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.perceptron.mlp import MLP
-from cem.sip.messages import mean_and_precision, promoting_link_loss
+from cem.sip.messages import InstrumentedMessage, mean_and_precision, promoting_link_loss
 from cem.structure.graph import LearnableParameter
 
 
@@ -87,22 +87,22 @@ class Mismatch(eqx.Module):
         *,
         raw_observation: NormalNP,
         local_variance: JaxRealArray,
-        predictor_observations: NormalNP,
-        predictor_instruments: NormalNP,
-        gain_observation: NormalNP | None,
-        gain_instrument: NormalNP | None,
+        predictor: InstrumentedMessage,
+        gain: InstrumentedMessage | None,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> MismatchOutputs:
         """Advance the mismatch circuit one time step.
 
-        Pass `gain_observation=None` and `gain_instrument=None` for a recruiter
-        feature at the top of the gain chain; gain multiplies drop out and the
-        witness norm bound reduces to the unit-gain case `‖w‖² ≤ 1`. The
-        witness map's input must then have been sized with `gain_features=0`.
+        Pass `gain=None` for a recruiter feature at the top of the gain chain;
+        gain multiplies drop out and the witness norm bound reduces to the
+        unit-gain case `‖w‖² ≤ 1`. The witness map's input must then have been
+        sized with `gain_features=0`.
         """
+        gain_observation = None if gain is None else gain.observation
+        gain_instrument = None if gain is None else gain.instrument
         moments = self._moments(
-            raw_observation, local_variance, predictor_observations, gain_observation
+            raw_observation, local_variance, predictor.observation, gain_observation
         )
         # Loss weights are LearnableParameters now, but their adaptive rule
         # lives in the (not-yet-implemented) multi-loss gradient transform.
@@ -114,7 +114,7 @@ class Mismatch(eqx.Module):
         reconstruction_cost, mismatch_message = _reconstruction_and_mismatch(moments, r_weight)
         witness_residuals = _witness_residuals(moments)
         confounding_witness = self._confounding_witness(
-            predictor_instruments, gain_instrument, streams=streams, inference=inference
+            predictor.instrument, gain_instrument, streams=streams, inference=inference
         )
         confounding_cost = jnp.sum(
             c_weight

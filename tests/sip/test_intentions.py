@@ -3,10 +3,8 @@ from collections.abc import Mapping
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from efax import NormalNP
 from tjax import RngStream
 
-from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.intentions import Intentions
 from cem.sip.messages import (
     InstrumentedMessage,
@@ -14,16 +12,11 @@ from cem.sip.messages import (
     concat_messages,
 )
 
-
-def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
-    return normal_from_mean_and_presence(mean, precision)
+from .tools import _message
 
 
 def _predictors(size: int) -> InstrumentedMessage:
-    return InstrumentedMessage(
-        observation=_message(jnp.zeros(size), jnp.ones(size)),
-        instrument=_message(jnp.zeros(size), jnp.ones(size)),
-    )
+    return InstrumentedMessage.standard(size)
 
 
 def test_intentions_create_content_sizes_follow_readout_plus_demand_from_above(
@@ -67,8 +60,8 @@ def test_intentions_infer_returns_one_output_per_layer(
         inference=True,
     )
     assert len(outputs) == len(sizes)
-    assert outputs[0].observation.mean_times_precision.shape == (sizes[0],)
-    assert outputs[1].observation.mean_times_precision.shape == (sizes[1],)
+    assert outputs[0].message.observation.mean_times_precision.shape == (sizes[0],)
+    assert outputs[1].message.observation.mean_times_precision.shape == (sizes[1],)
 
 
 def test_intentions_infer_cascades_top_mismatch_as_lower_content(
@@ -105,7 +98,7 @@ def test_intentions_infer_cascades_top_mismatch_as_lower_content(
         fresh,
         keys[1],
         observation_content=readouts[1],
-        predictors=predictors[1],  # top has no higher layers to concat
+        predictor=predictors[1],  # top has no higher layers to concat
         gain=None,
         goal=advantages[1],
         streams=streams,
@@ -119,7 +112,7 @@ def test_intentions_infer_cascades_top_mismatch_as_lower_content(
         fresh,
         keys[0],
         observation_content=concat_messages(readouts[0], top_out.observation_mismatch),
-        predictors=bottom_predictor,
+        predictor=bottom_predictor,
         gain=None,
         goal=advantages[0],
         streams=streams,
@@ -127,12 +120,12 @@ def test_intentions_infer_cascades_top_mismatch_as_lower_content(
     )
 
     assert jnp.allclose(
-        outputs[0].observation.mean_times_precision,
-        bottom_out.observation.mean_times_precision,
+        outputs[0].message.observation.mean_times_precision,
+        bottom_out.message.observation.mean_times_precision,
     )
     assert jnp.allclose(
-        outputs[1].observation.mean_times_precision,
-        top_out.observation.mean_times_precision,
+        outputs[1].message.observation.mean_times_precision,
+        top_out.message.observation.mean_times_precision,
     )
 
 
@@ -157,5 +150,5 @@ def test_intentions_action_is_bottom_layer_observation(
         streams=streams,
         inference=True,
     )
-    action = outputs[0].observation
+    action = outputs[0].message.observation
     assert action.mean_times_precision.shape == (sizes[0],)

@@ -17,7 +17,7 @@ from cem.sip.features import (
     TDFeature,
     TDFeatureOutputs,
 )
-from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 
 
 class RewardCriticOutputs(eqx.Module):
@@ -141,19 +141,16 @@ class RewardCritic(eqx.Module):
                 state,
                 feature_key,
                 observation_content=obs_content,
-                predictor_instruments=pred_inst,
+                predictor_instrument=pred_inst,
                 gain=gain,
                 goal=prospect_goal,
             )
             prospect_outputs.append(out)
-        td_predictors = InstrumentedMessage(
-            observation=concat_messages(*[p.observation for p in prospect_outputs]),
-            instrument=concat_messages(*[p.instrument for p in prospect_outputs]),
-        )
+        td_predictor = concat_instrumented_messages(*[p.message for p in prospect_outputs])
         state, td_out = self.td_feature.step(
             state,
             reward_observation=reward_observation,
-            predictors=td_predictors,
+            predictor=td_predictor,
             streams=streams,
             inference=inference,
         )

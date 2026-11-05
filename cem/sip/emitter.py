@@ -13,14 +13,18 @@ from tjax import JaxRealArray, KeyArray
 
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.sip.credit import Credit, CreditOutputs
-from cem.sip.messages import evidence_scale, mean_and_precision, promoting_link_loss
+from cem.sip.messages import (
+    InstrumentedMessage,
+    evidence_scale,
+    mean_and_precision,
+    promoting_link_loss,
+)
 
 
 class EmitterOutputs(eqx.Module):
     """One step of the emitter circuit."""
 
-    observation: NormalNP
-    instrument: NormalNP
+    message: InstrumentedMessage
     raw_observation: NormalNP
     noised_instrument: NormalNP
     local_variance: JaxRealArray
@@ -31,7 +35,7 @@ class EmitterOutputs(eqx.Module):
 class Emitter(eqx.Module):
     """One feature's emitter: constructs its observation and instrument.
 
-    Transforms observation content and predictor instruments through neural maps,
+    Transforms observation content and the predictor instrument through neural maps,
     injects fresh noise at controllable features to create experimental variation,
     and evidence-scales both messages by gain.
     """
@@ -47,7 +51,7 @@ class Emitter(eqx.Module):
         key: KeyArray,
         *,
         observation_content: NormalNP,
-        predictor_instruments: NormalNP,
+        predictor_instrument: NormalNP,
         gain_observation: NormalNP | None,
         goal: JaxRealArray,
     ) -> tuple[eqx.nn.State, EmitterOutputs]:
@@ -57,7 +61,7 @@ class Emitter(eqx.Module):
         gain chain; evidence scaling is skipped and `Credit` sees unit gain.
         """
         raw_observation = self.observation_map.infer(*mean_and_precision(observation_content))
-        inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictor_instruments))
+        inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictor_instrument))
         inherited_mean, inherited_precision = mean_and_precision(inherited_instrument)
 
         if self.controllable:
@@ -90,8 +94,7 @@ class Emitter(eqx.Module):
         raw_moments = jnp.stack(list(mean_and_precision(raw_observation)), axis=-1)
         promoting_loss = promoting_link_loss(raw_moments, credit_outputs.cotangent)
         outputs = EmitterOutputs(
-            observation=observation,
-            instrument=instrument,
+            message=InstrumentedMessage(observation, instrument),
             raw_observation=raw_observation,
             noised_instrument=noised_instrument,
             local_variance=local_variance,
