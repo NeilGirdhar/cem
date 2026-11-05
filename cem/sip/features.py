@@ -274,7 +274,7 @@ class RecruiterFeature(eqx.Module):
 class ProspectFeatureOutputs(eqx.Module):
     """An instrumented input to the reward prediction and the loss that trains the prospect."""
 
-    message: InstrumentedMessage  # post-noise
+    message: InstrumentedMessage
     loss: JaxRealArray  # scalar; emitter loss (credit and promoting link)
 
 
@@ -291,7 +291,6 @@ class ProspectFeature(eqx.Module):
         *,
         observation_content_features: int,
         predictor_features: int,
-        controllable: bool = True,
         trace_decay_rate: float = 0.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
@@ -308,7 +307,7 @@ class ProspectFeature(eqx.Module):
             observation_map=observation_map,
             instrument_map=instrument_map,
             credit=Credit.create(n, baseline_map, trace_decay_rate=trace_decay_rate),
-            controllable=controllable,
+            controllable=False,
         )
         return cls(
             emitter=emitter,

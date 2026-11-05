@@ -12,14 +12,11 @@ from cem.sip.reward_critic import RewardCritic
 from .tools import _message
 
 
-def _prospect(
-    n: int, streams: Mapping[str, RngStream], *, controllable: bool = True
-) -> ProspectFeature:
+def _prospect(n: int, streams: Mapping[str, RngStream]) -> ProspectFeature:
     return ProspectFeature.create(
         n,
         observation_content_features=2,
         predictor_features=2,
-        controllable=controllable,
         streams=streams,
     )
 
@@ -47,6 +44,24 @@ def test_prospect_feature_outputs_have_expected_shapes(
     assert outputs.message.observation.mean_times_precision.shape == (n,)
     assert outputs.message.instrument.mean_times_precision.shape == (n,)
     assert outputs.loss.shape == ()
+
+
+def test_prospect_message_is_independent_of_the_local_noise_key(
+    streams: Mapping[str, RngStream],
+) -> None:
+    feature = _prospect(2, streams)
+    messages = []
+    for seed in (0, 1):
+        _, outputs = feature.step(
+            eqx.nn.State(feature),
+            jr.key(seed),
+            observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
+            predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+            gain=None,
+            goal=jnp.asarray(0.5),
+        )
+        messages.append(outputs.message)
+    assert eqx.tree_equal(*messages)
 
 
 def test_prospect_feature_stores_message_into_state(

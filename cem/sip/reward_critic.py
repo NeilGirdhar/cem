@@ -43,7 +43,6 @@ class RewardCritic(eqx.Module):
         predictor_features: Sequence[int],
         reward_features: int = 1,
         discount: float = 1.0,
-        controllable: bool = True,
         trace_decay_rate: float = 0.0,
         streams: Mapping[str, RngStream],
     ) -> Self:
@@ -68,7 +67,6 @@ class RewardCritic(eqx.Module):
                 size,
                 observation_content_features=obs_cf,
                 predictor_features=pred_f,
-                controllable=controllable,
                 trace_decay_rate=trace_decay_rate,
                 streams=streams,
             )
