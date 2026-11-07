@@ -141,7 +141,7 @@ def test_sip_feature_state_carries_credit_traces(
     state = eqx.nn.State(feature)
     new_state, _ = feature.step(state, **_sip_inputs(n), streams=streams, inference=True)
     traces = new_state.get(feature.emitter.credit.trace_index)
-    assert jnp.any(jnp.abs(traces.linear) > 0) or jnp.any(jnp.abs(traces.quadratic) > 0)
+    assert jnp.any(traces.obs_precision > 0)
 
 
 def test_td_feature_observation_is_reward_passthrough(

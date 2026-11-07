@@ -7,6 +7,7 @@ from cem.structure.graph.disassembled import (
     ParameterType,
     verify_model_has_no_free_parameters,
 )
+from cem.structure.graph.eligibility_training import EligibilityTraining
 from cem.structure.graph.model import Model, ModelResult
 from cem.structure.graph.node import NodeConfiguration, TargetConfiguration, TargetNode
 from cem.structure.graph.parameters import (
@@ -25,6 +26,7 @@ __all__ = [
     "DisGradientState",
     "DisGradientTransformation",
     "DisModel",
+    "EligibilityTraining",
     "FixedParameter",
     "LearnableParameter",
     "LearnableParameterFactory",

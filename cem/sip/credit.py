@@ -1,4 +1,4 @@
-"""SIP credit circuit: eligibility-based update rule for one emitter."""
+"""Training signals for an emitter’s observation projection."""
 
 from typing import Self
 
@@ -14,23 +14,24 @@ from cem.structure.graph import FixedParameter
 
 
 class CreditTraces(eqx.Module):
-    """Per-channel traces that retain evidence for assigning credit to past experiments."""
+    """Retain the predicted penalty and observation precision of past experiments."""
 
-    linear: JaxRealArray  # shape (n,)
-    quadratic: JaxRealArray  # shape (n,)
-    obs_precision: JaxRealArray  # shape (n,)
+    goal_penalty: JaxRealArray
+    obs_precision: JaxRealArray
 
     @classmethod
     def zeros(cls, n: int) -> Self:
-        zero = jnp.zeros(n, dtype=jnp.float64)
-        return cls(linear=zero, quadratic=zero, obs_precision=zero)
+        return cls(jnp.zeros((), dtype=jnp.float64), jnp.zeros(n, dtype=jnp.float64))
 
 
 class CreditOutputs(eqx.Module):
-    """Credit for the observation's mean and precision, with a loss for the goal baseline."""
+    """Trace contributions, goal prediction error, and immediate observation credit."""
 
-    cotangent: JaxRealArray  # shape (n, 2): column 0 mean, column 1 precision
-    loss: JaxRealArray  # shape (): baseline-map promoting-link surrogate
+    mean_contribution: JaxRealArray
+    precision_contribution: JaxRealArray
+    goal_prediction_error: JaxRealArray
+    shrinkage_cotangent: JaxRealArray
+    loss: JaxRealArray
 
 
 class Credit(eqx.Module):
@@ -51,7 +52,7 @@ class Credit(eqx.Module):
         *,
         credit_settings: CreditSettings,
     ) -> Self:
-        """Initialize credit assignment with three zero traces per emitter channel.
+        """Initialize the goal penalty and observation precision traces.
 
         The baseline map must emit one component for the scalar goal. Each step retains a
         fraction of the previous traces equal to the exponential of the negated decay rate.
@@ -64,6 +65,10 @@ class Credit(eqx.Module):
             trace_index=eqx.nn.StateIndex(CreditTraces.zeros(n)),
         )
 
+    def trace_decay(self) -> JaxRealArray:
+        """Return the fraction of each trace retained at the next emission."""
+        return jnp.exp(-self.trace_decay_rate.value)
+
     def step(
         self,
         state: eqx.nn.State,
@@ -74,44 +79,35 @@ class Credit(eqx.Module):
         raw_observation: NormalNP,
         goal: JaxRealArray,
     ) -> tuple[eqx.nn.State, CreditOutputs]:
-        """Update eligibility traces and return credit for the raw observation's mean and precision.
+        """Advance the credit traces and compute training signals for this emission.
 
-        The traces carry experiments across steps so a later goal can credit them. The mean
-        update uses the goal directly. The precision update compares it with a learned baseline
-        and accounts for the accumulated squared instrument.
-
-        Supply one scalar goal and one Gaussian component per emitter channel, except that
-        `observation_content` has the baseline map's input width. With no gain observation,
-        new trace contributions have unit gain.
+        The goal prediction combines the current baseline and the penalty accumulated at
+        past and current emissions. Apply gain once to each new trace contribution.
         """
         traces = state.get(self.trace_index)
-        decay = jnp.exp(-self.trace_decay_rate.value)
+        decay = self.trace_decay()
 
         inst_mean, inst_precision = mean_and_precision(noised_instrument)
         raw_mean, raw_precision = mean_and_precision(raw_observation)
-        gain = None if gain_observation is None else mean_and_precision(gain_observation)[0]
-
-        def advance(old: JaxRealArray, contribution: JaxRealArray) -> JaxRealArray:
-            scaled = contribution if gain is None else gain * contribution
-            return decay * old + scaled
+        gain = 1.0 if gain_observation is None else mean_and_precision(gain_observation)[0]
+        mean_contribution = gain * inst_precision * inst_mean
+        precision_contribution = -0.5 * gain * jnp.square(inst_mean)
 
         new_traces = CreditTraces(
-            linear=advance(traces.linear, inst_precision * inst_mean),
-            quadratic=advance(traces.quadratic, jnp.square(inst_mean)),
-            obs_precision=advance(traces.obs_precision, raw_precision),
+            goal_penalty=decay * traces.goal_penalty
+            + jnp.sum(raw_precision * precision_contribution),
+            obs_precision=decay * traces.obs_precision + gain * raw_precision,
         )
         new_state = state.set(self.trace_index, new_traces)
 
-        mean_cotangent = goal * new_traces.linear - raw_mean * new_traces.obs_precision
-
-        oc_mean, oc_precision = mean_and_precision(observation_content)
-        baseline_message = self.goal_baseline_map.infer(oc_mean, oc_precision)
+        baseline_message = self.goal_baseline_map.infer(*mean_and_precision(observation_content))
         baseline_values, _ = mean_and_precision(baseline_message)
         baseline = baseline_values.reshape(())
-
-        error = goal - baseline + 0.5 * jnp.sum(raw_precision * new_traces.quadratic)
-        precision_cotangent = -0.5 * new_traces.quadratic * error
-        loss = promoting_link_loss(baseline, error)
-
-        cotangent = jnp.stack([mean_cotangent, precision_cotangent], axis=-1)
-        return new_state, CreditOutputs(cotangent=cotangent, loss=loss)
+        error = goal - (baseline + new_traces.goal_penalty)
+        return new_state, CreditOutputs(
+            mean_contribution=mean_contribution,
+            precision_contribution=precision_contribution,
+            goal_prediction_error=error,
+            shrinkage_cotangent=-raw_mean * new_traces.obs_precision,
+            loss=promoting_link_loss(baseline, error),
+        )

@@ -16,6 +16,11 @@ from cem.sip.messages import (
     mean_and_precision,
     promoting_link_loss,
 )
+from cem.structure.graph import EligibilityTraining
+
+type _ObservationProjection = EligibilityTraining[
+    GaussianNPN, NormalNP, tuple[JaxRealArray, JaxRealArray], NormalNP
+]
 
 
 class EmitterOutputs(eqx.Module):
@@ -35,10 +40,15 @@ class Emitter(eqx.Module):
     See `sip-emitter` in the thesis.
     """
 
-    observation_map: GaussianNPN
+    observation_projection: _ObservationProjection
+    trace_index: eqx.nn.StateIndex[tuple[GaussianNPN, GaussianNPN]]
     instrument_map: GaussianNPN
     credit: Credit
     controllable: bool = eqx.field(static=True)
+
+    @property
+    def observation_map(self) -> GaussianNPN:
+        return self.observation_projection.model
 
     def step(
         self,
@@ -59,7 +69,7 @@ class Emitter(eqx.Module):
         Apply gain to the precision of both outgoing messages. With no gain observation, emit
         both at their original precision and use unit gain for credit.
         """
-        raw_observation = self.observation_map.infer(*mean_and_precision(observation_content))
+        raw_observation, pullback = self.observation_projection.infer(observation_content)
         inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictor_instrument))
         inherited_mean, inherited_precision = mean_and_precision(inherited_instrument)
 
@@ -90,15 +100,36 @@ class Emitter(eqx.Module):
             goal=goal,
         )
 
-        raw_moments = jnp.stack(list(mean_and_precision(raw_observation)), axis=-1)
-        promoting_loss = promoting_link_loss(raw_moments, credit_outputs.cotangent)
+        mean_trace, precision_trace = new_state.get(self.trace_index)
+        mean_contribution = credit_outputs.mean_contribution
+        precision_contribution = credit_outputs.precision_contribution
+        decay = self.credit.trace_decay()
+        mean_trace = self.observation_projection.accumulate(
+            mean_trace,
+            pullback,
+            (mean_contribution, jnp.zeros_like(precision_contribution)),
+            decay=decay,
+        )
+        precision_trace = self.observation_projection.accumulate(
+            precision_trace,
+            pullback,
+            (jnp.zeros_like(mean_contribution), precision_contribution),
+            decay=decay,
+        )
+        new_state = new_state.set(self.trace_index, (mean_trace, precision_trace))
+        raw_mean, _ = mean_and_precision(raw_observation)
+        shrinkage_loss = promoting_link_loss(raw_mean, credit_outputs.shrinkage_cotangent)
+        mean_loss = self.observation_projection.get_loss(mean_trace, goal)
+        precision_loss = self.observation_projection.get_loss(
+            precision_trace, credit_outputs.goal_prediction_error
+        )
         outputs = EmitterOutputs(
             message=InstrumentedMessage(observation, instrument),
             raw_observation=raw_observation,
             noised_instrument=noised_instrument,
             local_variance=local_variance,
             credit_outputs=credit_outputs,
-            loss=credit_outputs.loss + promoting_loss,
+            loss=credit_outputs.loss + shrinkage_loss + mean_loss + precision_loss,
         )
         return new_state, outputs
 
@@ -111,12 +142,24 @@ class Emitter(eqx.Module):
         *,
         controllable: bool,
     ) -> Self:
+        observation_projection: _ObservationProjection = EligibilityTraining(
+            observation_map, _project_observation
+        )
+        zero_trace = observation_projection.zero_trace()
         return cls(
-            observation_map=observation_map,
+            observation_projection=observation_projection,
+            trace_index=eqx.nn.StateIndex((zero_trace, zero_trace)),
             instrument_map=instrument_map,
             credit=credit,
             controllable=controllable,
         )
+
+
+def _project_observation(
+    model: GaussianNPN, content: NormalNP
+) -> tuple[tuple[JaxRealArray, JaxRealArray], NormalNP]:
+    observation = model.infer(*mean_and_precision(content))
+    return mean_and_precision(observation), observation
 
 
 def _shift_mean(message: NormalNP, displacement: JaxRealArray) -> NormalNP:

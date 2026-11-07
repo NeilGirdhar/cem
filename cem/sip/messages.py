@@ -3,12 +3,27 @@
 from typing import Final
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray, divide_or_zero, divide_where
 
 from cem.npn.gaussian import normal_from_mean_and_presence
+from cem.structure.graph.surrogate import (
+    promoting_link_loss,
+    suppressing_link_loss,
+)
+
+__all__ = [
+    "MAX_VARIANCE",
+    "InstrumentedMessage",
+    "concat_instrumented_messages",
+    "concat_messages",
+    "evidence_scale",
+    "mean_and_precision",
+    "promoting_link_loss",
+    "suppressing_link_loss",
+    "variance_from_precision",
+]
 
 MAX_VARIANCE: Final[float] = 1e12
 """Fallback variance for absent (κ = 0) external messages. Large but finite so
@@ -102,23 +117,3 @@ def evidence_scale(message: NormalNP, gain: JaxRealArray) -> NormalNP:
         mean_times_precision=gain * message.mean_times_precision,
         negative_half_precision=gain * message.negative_half_precision,
     )
-
-
-def promoting_link_loss(quantity: JaxRealArray, cotangent: JaxRealArray) -> JaxRealArray:
-    """Return a surrogate scalar whose minimization ascends `quantity` by `cotangent`.
-
-    Follows the thesis convention `cotangent(X) := -dL/dX`. The returned scalar's
-    autodiff gradient with respect to `quantity` is `-cotangent`, so JAX descent
-    moves `quantity` in direction `+cotangent`. See `promoting-link` in the thesis.
-    """
-    return -jnp.sum(jax.lax.stop_gradient(cotangent) * quantity)
-
-
-def suppressing_link_loss(quantity: JaxRealArray, cotangent: JaxRealArray) -> JaxRealArray:
-    """Return a surrogate scalar whose minimization descends `quantity` by `cotangent`.
-
-    The returned scalar's autodiff gradient with respect to `quantity` is
-    `+cotangent`, so JAX descent moves `quantity` in direction `-cotangent`. See
-    `suppressing-link` in the thesis.
-    """
-    return jnp.sum(jax.lax.stop_gradient(cotangent) * quantity)
