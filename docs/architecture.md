@@ -68,12 +68,13 @@ visual normalization rather than the training objective.
 
 ## Parameter system
 
-Every JAX array leaf inside a `Model` pytree must be wrapped in exactly one of two types defined in
+Every JAX array leaf inside a `Model` pytree must be wrapped in one of two parameter categories in
 `cem/structure/graph/parameters.py`:
 
 `LearnableParameter[A]`\
-Carries a JAX array that is updated by the optimizer each training step (weights, biases,
-normalization parameters, rivalry logits, …).
+Carries a JAX array updated by the optimizer. A `SummedGradientParameter` uses the sum of the
+gradients that reach it. A `LossBalancedParameter` stores a sorted tuple of `loss_names` for
+gradient balancing.
 
 `FixedParameter[A]`\
 Carries a JAX array that is part of the model pytree but is *never* differentiated or updated

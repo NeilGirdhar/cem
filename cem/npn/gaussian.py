@@ -12,7 +12,11 @@ from jax.nn import initializers, softplus
 from jax.scipy.special import ndtr
 from tjax import JaxRealArray, RngStream
 
-from cem.structure.graph import LearnableParameter
+from cem.structure.graph import (
+    LearnableParameter,
+    LearnableParameterFactory,
+    SummedGradientParameter,
+)
 
 _MINIMUM_VARIANCE = 1e-8
 _STANDARD_NORMAL_DENSITY_SCALE = 1 / jnp.sqrt(2 * jnp.pi)
@@ -73,6 +77,7 @@ class GaussianNPNLinear(eqx.Module):
         out_features: int,
         *,
         streams: Mapping[str, RngStream],
+        parameter_factory: LearnableParameterFactory[JaxRealArray] = SummedGradientParameter,
     ) -> Self:
         stream = streams["parameters"]
         weight = _LECUN_NORMAL(
@@ -81,8 +86,8 @@ class GaussianNPNLinear(eqx.Module):
             jnp.float64,
         )
         return cls(
-            weight=LearnableParameter(weight),
-            bias=LearnableParameter(jnp.zeros(out_features, dtype=jnp.float64)),
+            weight=parameter_factory(weight),
+            bias=parameter_factory(jnp.zeros(out_features, dtype=jnp.float64)),
         )
 
     def infer(self, inputs: NormalNP) -> NormalNP:
@@ -107,11 +112,16 @@ class GaussianNPNInputPool(eqx.Module):
     dummy_raw_presence: LearnableParameter[JaxRealArray]
 
     @classmethod
-    def create(cls, n_features: int) -> Self:
+    def create(
+        cls,
+        n_features: int,
+        *,
+        parameter_factory: LearnableParameterFactory[JaxRealArray] = SummedGradientParameter,
+    ) -> Self:
         """Initialize the background evidence to a standard normal for each input."""
         return cls(
-            dummy_mean=LearnableParameter(jnp.zeros(n_features, dtype=jnp.float64)),
-            dummy_raw_presence=LearnableParameter(
+            dummy_mean=parameter_factory(jnp.zeros(n_features, dtype=jnp.float64)),
+            dummy_raw_presence=parameter_factory(
                 jnp.full(n_features, _UNIT_PRESENCE_RAW, dtype=jnp.float64)
             ),
         )
@@ -144,18 +154,24 @@ class GaussianNPN(eqx.Module):
         *,
         hidden_features: int | tuple[int, ...] = (),
         streams: Mapping[str, RngStream],
+        parameter_factory: LearnableParameterFactory[JaxRealArray] = SummedGradientParameter,
     ) -> Self:
         """Build a Gaussian network with one layer per hidden width and an affine output.
 
         An empty tuple omits hidden layers. A single integer specifies one hidden layer.
+        The factory wraps the input pool's parameters and each layer's weights and biases.
         """
         if isinstance(hidden_features, int):
             hidden_features = (hidden_features,)
         feature_sizes = (in_features, *hidden_features, out_features)
         return cls(
-            input_pool=GaussianNPNInputPool.create(in_features),
+            input_pool=GaussianNPNInputPool.create(
+                in_features, parameter_factory=parameter_factory
+            ),
             layers=tuple(
-                GaussianNPNLinear.create(n_in, n_out, streams=streams)
+                GaussianNPNLinear.create(
+                    n_in, n_out, streams=streams, parameter_factory=parameter_factory
+                )
                 for n_in, n_out in it.pairwise(feature_sizes)
             ),
         )

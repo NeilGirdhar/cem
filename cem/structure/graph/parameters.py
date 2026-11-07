@@ -16,11 +16,24 @@ class Parameter[A](eqx.Module):
 
 
 class LearnableParameter[A](Parameter[A]):
-    """A model parameter trained by the primary learning objective."""
+    """A model parameter updated during training."""
 
 
-class MetaParameter[A](Parameter[A]):
-    """A parameter reserved for a meta-learning objective, such as balancing gradients."""
+type LearnableParameterFactory[A] = Callable[[A], LearnableParameter[A]]
+
+
+class SummedGradientParameter[A](LearnableParameter[A]):
+    """A parameter trained on the sum of the gradient contributions that reach it."""
+
+
+class LossBalancedParameter[A](LearnableParameter[A]):
+    """A parameter whose named loss gradients are balanced before the update."""
+
+    loss_names: tuple[str, ...] = eqx.field(static=True)
+
+    def __init__(self, value: A, *, loss_names: tuple[str, ...]) -> None:
+        self.value = value
+        self.loss_names = tuple(sorted(set(loss_names)))
 
 
 class FixedParameter[A](Parameter[A]):
@@ -38,7 +51,7 @@ def count_real_learnable_parameters(x: object, /) -> int:
     """
     count = 0
     for leaf in tree.leaves(x, is_leaf=is_parameter):
-        if not isinstance(leaf, (LearnableParameter, MetaParameter)):
+        if not isinstance(leaf, LearnableParameter):
             continue
         value = leaf.value
         multiplier = 2 if jnp.iscomplexobj(value) else 1

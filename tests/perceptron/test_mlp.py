@@ -1,11 +1,29 @@
 """Check perceptron shapes, affine behaviour without hidden layers, and dropout."""
 
 from collections.abc import Mapping
+from functools import partial
 
 import jax.numpy as jnp
 from tjax import RngStream
 
 from cem.perceptron import MLP
+from cem.structure.graph import LossBalancedParameter
+
+
+def test_mlp_parameter_factory_wraps_each_affine_layer(
+    streams: Mapping[str, RngStream],
+) -> None:
+    mlp = MLP.create(
+        2,
+        1,
+        hidden_features=(3,),
+        streams=streams,
+        parameter_factory=partial(LossBalancedParameter, loss_names=("second", "first")),
+    )
+    for layer in mlp.layers:
+        for parameter in (layer.weight, layer.bias):
+            assert isinstance(parameter, LossBalancedParameter)
+            assert parameter.loss_names == ("first", "second")
 
 
 def test_mlp_output_shape(streams: Mapping[str, RngStream]) -> None:

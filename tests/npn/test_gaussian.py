@@ -1,9 +1,11 @@
 """Check Gaussian message encodings, moment propagation, and parameter counts."""
 
 from collections.abc import Mapping
+from functools import partial
 
 import jax.numpy as jnp
 from efax import NormalVP
+from jax import tree
 from tjax import RngStream
 
 from cem.npn.gaussian import (
@@ -13,7 +15,12 @@ from cem.npn.gaussian import (
     gaussian_relu,
     normal_from_mean_and_presence,
 )
-from cem.structure.graph import LearnableParameter, count_real_learnable_parameters
+from cem.structure.graph import (
+    LossBalancedParameter,
+    SummedGradientParameter,
+    count_real_learnable_parameters,
+    is_parameter,
+)
 
 
 def test_normal_natural_parameters_store_mean_times_presence() -> None:
@@ -31,8 +38,8 @@ def test_normal_natural_parameters_store_mean_times_presence() -> None:
 
 def test_gaussian_npn_linear_propagates_marginal_moments() -> None:
     layer = GaussianNPNLinear(
-        weight=LearnableParameter(jnp.asarray([[2.0, -1.0], [0.5, 3.0]])),
-        bias=LearnableParameter(jnp.asarray([0.25, -0.5])),
+        weight=SummedGradientParameter(jnp.asarray([[2.0, -1.0], [0.5, 3.0]])),
+        bias=SummedGradientParameter(jnp.asarray([0.25, -0.5])),
     )
     inputs = NormalVP(
         mean=jnp.asarray([1.0, -2.0]),
@@ -48,8 +55,8 @@ def test_gaussian_npn_linear_propagates_marginal_moments() -> None:
 def test_gaussian_npn_input_pool_adds_dummy_evidence() -> None:
     """Check that background evidence makes an absent input usable for moment conversion."""
     pool = GaussianNPNInputPool(
-        dummy_mean=LearnableParameter(jnp.zeros(2)),
-        dummy_raw_presence=LearnableParameter(jnp.full(2, jnp.log(jnp.expm1(1.0)))),
+        dummy_mean=SummedGradientParameter(jnp.zeros(2)),
+        dummy_raw_presence=SummedGradientParameter(jnp.full(2, jnp.log(jnp.expm1(1.0)))),
     )
     inputs = normal_from_mean_and_presence(
         mean=jnp.asarray([99.0, 2.0]),
@@ -69,6 +76,23 @@ def test_gaussian_relu_matches_standard_normal_moments() -> None:
 
     assert jnp.allclose(rectified.mean, 1 / jnp.sqrt(2 * jnp.pi))
     assert jnp.allclose(rectified.variance, 0.5 - 1 / (2 * jnp.pi))
+
+
+def test_gaussian_npn_factory_wraps_input_pool_and_all_layers(
+    streams: Mapping[str, RngStream],
+) -> None:
+    model = GaussianNPN.create(
+        2,
+        1,
+        hidden_features=(3,),
+        streams=streams,
+        parameter_factory=partial(LossBalancedParameter, loss_names=("reward", "curiosity")),
+    )
+    parameters = tree.leaves(model, is_leaf=is_parameter)
+    assert len(parameters) == 2 + 2 * len(model.layers)
+    for parameter in parameters:
+        assert isinstance(parameter, LossBalancedParameter)
+        assert parameter.loss_names == ("curiosity", "reward")
 
 
 def test_gaussian_npn_matches_perceptron_parameter_count(
