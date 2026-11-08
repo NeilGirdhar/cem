@@ -9,6 +9,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
 from jax import lax, tree
+from jax.experimental import checkify
 from tjax import Array, GenericString, JaxArray, KeyArray, PyTree, dynamic_tree_all, jit
 
 from cem.structure.problem.data_source import DataSource
@@ -49,11 +50,12 @@ def train_episode_chunk(  # ruff:ignore[too-many-arguments, too-many-positional-
     data_source: DataSource,
     telemetries: tuple[Telemetry, ...],
     solution_state: SolutionState,
-) -> tuple[SolutionState, dict[Telemetry, Any], JaxArray, JaxArray]:
+) -> tuple[checkify.Error, SolutionState, dict[Telemetry, Any], JaxArray, JaxArray]:
     """Run a fixed-size scan and return snapshots and finiteness flags for each episode.
 
     Padding steps keep the compilation shape fixed. Their updates are discarded and
-    their finiteness flags are treated as true.
+    their finiteness flags are treated as true. The returned error carries any failed
+    `checkify` check from the updates; the caller throws it.
     """
 
     def step(
@@ -97,13 +99,20 @@ def train_episode_chunk(  # ruff:ignore[too-many-arguments, too-many-positional-
             jnp.where(valid, finite_inference_result, true),
         )
 
-    (solution_state, _), (snapshots, finite_parameters, finite_inference_result) = lax.scan(
-        step,
-        (solution_state, jnp.asarray(chunk_start)),
-        None,
-        length=max_chunk_size,
+    def run_chunk(
+        initial_solution_state: SolutionState,
+    ) -> tuple[tuple[SolutionState, JaxArray], tuple[dict[Telemetry, Any], JaxArray, JaxArray]]:
+        return lax.scan(
+            step,
+            (initial_solution_state, jnp.asarray(chunk_start)),
+            None,
+            length=max_chunk_size,
+        )
+
+    error, ((solution_state, _), (snapshots, finite_parameters, finite_inference_result)) = (
+        checkify.checkify(run_chunk, errors=checkify.user_checks)(solution_state)
     )
-    return solution_state, snapshots, finite_parameters, finite_inference_result
+    return error, solution_state, snapshots, finite_parameters, finite_inference_result
 
 
 def _first_nonfinite_index(
@@ -133,15 +142,18 @@ def _replay_to_nonfinite(
         example_key, inference_key = fold_episode_keys(
             example_key_base, inference_key_base, episode_index
         )
-        result = solution.inference.train_one_episode(
+        # Rollout inference stages its updates in a loop, so the checks must be functionalized.
+        train = partial(
+            solution.inference.train_one_episode,
             batch_size,
             example_key,
             inference_key,
             solution.gradient_transformations,
             data_source,
             solution.problem,
-            solution_state,
         )
+        error, result = checkify.checkify(train, errors=checkify.user_checks)(solution_state)
+        error.throw()
         solution_state = result.solution_state
     assert result is not None
     return solution_state, result
@@ -206,7 +218,7 @@ def train_episodes(
             packet.scan_chunk_size,
             packet.telemetries.telemetries,
         )
-        (solution_state, snapshots, finite_parameters, finite_inference_result) = (
+        (error, solution_state, snapshots, finite_parameters, finite_inference_result) = (
             train_episode_chunk(
                 solution,
                 batch_size,
@@ -220,6 +232,7 @@ def train_episodes(
                 chunk_start_state,
             )
         )
+        error.throw()
         first_failure = _first_nonfinite_index(finite_parameters, finite_inference_result)
         if first_failure is None:
             return snapshots, chunk_size, True

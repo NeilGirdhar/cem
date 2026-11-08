@@ -10,11 +10,22 @@ from .node import NodeConfiguration
 
 
 class ModelResult(eqx.Module):
-    """The loss, node outputs, and next recurrent state from one model step."""
+    """The outcome of evaluating a model on one observation.
 
-    loss: JaxArray
+    The fixed-weight loss is the part of the training objective that enters with unit weight.
+    The balanced losses are named objectives whose gradients a multi-loss transform can balance for
+    the parameter groups they reach. A model with a single scalar loss leaves them empty.
+    """
+
     configurations: frozendict[str, NodeConfiguration]
     state: Any
+    fixed_weight_loss: JaxArray
+    balanced_losses: frozendict[str, JaxArray] = frozendict()
+
+    @property
+    def loss(self) -> JaxArray:
+        """The training objective: the sum of the fixed-weight and balanced losses."""
+        return sum(self.balanced_losses.values(), self.fixed_weight_loss)
 
 
 class Model(eqx.Module, JaxAbstractClass):

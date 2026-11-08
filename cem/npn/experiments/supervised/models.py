@@ -170,9 +170,9 @@ class PerceptronSupervisedModel(Model):
         y_hat = self.link.infer(x, streams=streams, inference=inference)
         config = self.target.infer(_y_flat_observed(observation.y), y_hat)
         return ModelResult(
-            loss=config.total_loss(),
             configurations=frozendict({"target": config}),
             state=state,
+            fixed_weight_loss=config.total_loss(),
         )
 
 
@@ -276,9 +276,9 @@ class GaussianNPNSupervisedModel(Model):
         prediction = self.link.infer(observation.x, presence)
         config = self.target.infer(_y_flat_observed(observation.y), prediction)
         return ModelResult(
-            loss=config.total_loss(),
             configurations=frozendict({"target": config}),
             state=state,
+            fixed_weight_loss=config.total_loss(),
         )
 
 
