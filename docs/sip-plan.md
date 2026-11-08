@@ -5,9 +5,10 @@ tested claims — lives in [`sip.md`](sip.md).
 
 ## Adaptive loss weighting
 
-- [ ] Adapt the reconstruction and confounding loss weights in `Mismatch` and `TDError`, and
-  the uncertainty penalty weight in `TDError`.
-- [ ] Adapt the relative weights of reward, curiosity, and tracking.
+- [x] Balance reconstruction and confounding in mismatch prediction maps.
+- [ ] Balance reconstruction, confounding, and uncertainty in TD prediction maps.
+- [ ] Balance reconstruction and confounding in sensation, prospect, and recruiter observation maps.
+- [ ] Balance reward, curiosity, and tracking in intention observation maps.
 
 ## Recruiter wiring
 

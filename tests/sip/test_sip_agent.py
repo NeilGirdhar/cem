@@ -1,21 +1,34 @@
 from collections.abc import Mapping
+from dataclasses import replace
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from tjax import RngStream
+from tjax import KeyArray, RngStream
+from tjax.gradient import MTAdamState
 
 from cem.sip import (
     CreditSettings,
     EnvironmentFeatures,
     MismatchSettings,
+    SIPActionConfiguration,
     SIPAgent,
     SIPAgentSettings,
+    SIPModel,
+    SIPObservation,
     TDSettings,
 )
-from cem.structure.graph import LossBalancedParameter, SummedGradientParameter
+from cem.sip.parameters import MismatchPredictionParameter
+from cem.structure.graph import (
+    FixedParameter,
+    LossBalancedParameter,
+    ParameterType,
+    SummedGradientParameter,
+)
+from cem.structure.problem import DataSource, Problem, ProblemState
+from cem.structure.solution.training_solution import TrainingSolution
 
-from .tools import CREDIT_SETTINGS, _message
+from .tools import CREDIT_SETTINGS, _i_message, _message
 
 ENV_OBS = 2
 ENV_ACT = 2
@@ -71,7 +84,7 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
         assert mismatch.prediction_map.layers[0].bias.value.shape == (5,)
         assert mismatch.witness_map.layers[0].bias.value.shape == (7,)
         prediction_weight = mismatch.prediction_map.layers[0].weight
-        assert isinstance(prediction_weight, LossBalancedParameter)
+        assert isinstance(prediction_weight, MismatchPredictionParameter)
         assert isinstance(mismatch.witness_map.layers[0].weight, SummedGradientParameter)
 
     td_error = agent.reward_critic.td_feature.td_error
@@ -143,3 +156,93 @@ def test_sip_agent_step_produces_one_output_per_level(
         assert outputs.sensations[i].message.observation.mean_times_precision.shape == (size,)
     for i, size in enumerate(intention_sizes):
         assert outputs.intentions[i].message.observation.mean_times_precision.shape == (size,)
+
+
+class _ProblemState(ProblemState):
+    observation: SIPObservation
+
+
+class _DataSource(DataSource):
+    example: _ProblemState
+
+    def initial_problem_state(self, example_key: KeyArray) -> _ProblemState:
+        return self.example
+
+
+class _Problem(Problem):
+    data_source: _DataSource
+
+    def create_data_source(self, *, inference: bool = False) -> DataSource:
+        return self.data_source
+
+    def extract_observation(self, state: ProblemState) -> SIPObservation:
+        assert isinstance(state, _ProblemState)
+        return state.observation
+
+
+def test_shared_training_balances_sip_mismatch_predictions(
+    streams: Mapping[str, RngStream],
+) -> None:
+    model = SIPModel.create(_agent(streams))
+    previous_intention = _i_message(
+        jnp.ones(ENV_ACT), jnp.ones(ENV_ACT), jnp.ones(ENV_ACT), jnp.ones(ENV_ACT)
+    )
+    model = replace(
+        model,
+        initial_agent_state=FixedParameter(
+            model.initial_state().set(
+                model.agent.intentions.features[0].last_message_index, previous_intention
+            )
+        ),
+    )
+    observation = SIPObservation(
+        observation=_message(jnp.ones(ENV_OBS), jnp.ones(ENV_OBS)),
+        reward=_message(jnp.asarray([0.3]), jnp.ones(1)),
+    )
+    data_source = _DataSource(_ProblemState(observation))
+    problem = _Problem(data_source)
+    transforms = model.gradient_transformations(0.001)
+    solution = TrainingSolution.create(problem, model, transforms)
+    result = solution.inference.train_one_episode(
+        1, jr.key(0), jr.key(1), transforms, data_source, problem, solution.solution_state
+    )
+
+    action = result.inference_result.model_configuration["action"]
+    assert isinstance(action, SIPActionConfiguration)
+    assert jnp.all(jnp.isfinite(action.action.mean_times_precision))
+
+    mismatch_state = dict(result.solution_state.gradient_states)[
+        ParameterType(MismatchPredictionParameter)
+    ]
+    assert isinstance(mismatch_state, MTAdamState)
+    assert mismatch_state.count == 1
+    norms = mismatch_state.gradient_norms
+    assert set(norms) == {"reconstruction", "confounding"}
+    for name in norms:
+        norm = (
+            norms[name]
+            .agent.sensations.input_feature.mismatch.prediction_map.layers[0]
+            .weight.value
+        )
+        assert jnp.isfinite(norm)
+        assert norm > 0
+    assert (
+        norms["reconstruction"]
+        .agent.intentions.features[0]
+        .emitter.observation_map.layers[0]
+        .weight
+        is None
+    )
+
+    updated = solution.inference.assemble_model(
+        result.solution_state.dis_learnable_parameters.assembled()
+    )
+    assert isinstance(updated, SIPModel)
+    old = model.agent.sensations.input_feature.mismatch
+    new = updated.agent.sensations.input_feature.mismatch
+    assert not jnp.allclose(
+        new.prediction_map.layers[0].weight.value, old.prediction_map.layers[0].weight.value
+    )
+    assert not jnp.allclose(
+        new.witness_map.layers[0].weight.value, old.witness_map.layers[0].weight.value
+    )

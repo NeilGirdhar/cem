@@ -13,8 +13,8 @@ from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.perceptron.mlp import MLP
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, mean_and_precision
+from cem.sip.parameters import MismatchPredictionParameter
 from cem.sip.settings import MismatchSettings
-from cem.structure.graph import LossBalancedParameter
 
 
 class MismatchOutputs(SIPLossOutputs):
@@ -68,7 +68,7 @@ class Mismatch(eqx.Module):
                 out_features=n,
                 hidden_features=mismatch_settings.prediction_hidden_features,
                 streams=streams,
-                parameter_factory=LossBalancedParameter,
+                parameter_factory=MismatchPredictionParameter,
             ),
             witness_map=MLP.create(
                 in_features=2 * (predictor_features + gain_features),

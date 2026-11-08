@@ -4,10 +4,12 @@ from typing import TypedDict
 import equinox as eqx
 import jax.numpy as jnp
 from efax import NormalNP
+from jax import tree
 from tjax import JaxRealArray, RngStream
 
 from cem.sip import InstrumentedMessage
 from cem.sip.mismatch import Mismatch
+from cem.structure.graph.losses import differentiate_losses
 
 from .tools import MISMATCH_SETTINGS, _i_message, _message
 
@@ -60,6 +62,32 @@ def test_mismatch_reports_named_prediction_losses(
     assert jnp.allclose(outputs.balanced_losses["reconstruction"], outputs.reconstruction_cost)
     assert jnp.allclose(outputs.balanced_losses["confounding"], outputs.confounding_cost)
     assert jnp.allclose(outputs.fixed_weight_loss, outputs.witness_loss)
+
+
+def test_separate_mismatch_gradients_sum_to_scalar_loss_gradient(
+    streams: Mapping[str, RngStream],
+) -> None:
+    n = 2
+    mismatch = _mismatch(n, streams)
+    inputs = _inputs(n)
+
+    def forward(
+        model: Mismatch,
+    ) -> tuple[tuple[dict[str, JaxRealArray], JaxRealArray], None]:
+        outputs = model.step(**inputs, streams=streams, inference=True)
+        return (outputs.balanced_losses, outputs.fixed_weight_loss), None
+
+    def scalar_loss(model: Mismatch) -> JaxRealArray:
+        return model.step(**inputs, streams=streams, inference=True).loss
+
+    gradients, _ = differentiate_losses(forward, mismatch)
+    total = tree.map(
+        lambda reconstruction, confounding, fixed: reconstruction + confounding + fixed,
+        gradients.balanced_gradients["reconstruction"],
+        gradients.balanced_gradients["confounding"],
+        gradients.fixed_weight_gradient,
+    )
+    assert eqx.tree_equal(total, eqx.filter_grad(scalar_loss)(mismatch), rtol=1e-7, atol=1e-9)
 
 
 def test_reconstruction_cost_trains_prediction_map(streams: Mapping[str, RngStream]) -> None:

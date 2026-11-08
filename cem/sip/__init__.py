@@ -27,6 +27,7 @@ from cem.sip.messages import (
     suppressing_link_loss,
 )
 from cem.sip.mismatch import Mismatch, MismatchOutputs
+from cem.sip.model import SIPActionConfiguration, SIPModel, SIPObservation
 from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.sensations import Sensations
 from cem.sip.settings import (
@@ -59,12 +60,15 @@ __all__ = [
     "RecruiterFeature",
     "RewardCritic",
     "RewardCriticOutputs",
+    "SIPActionConfiguration",
     "SIPAgent",
     "SIPAgentOutputs",
     "SIPAgentSettings",
     "SIPFeature",
     "SIPFeatureOutputs",
     "SIPFeatureSizes",
+    "SIPModel",
+    "SIPObservation",
     "SensationFeature",
     "SensationInputFeature",
     "Sensations",
