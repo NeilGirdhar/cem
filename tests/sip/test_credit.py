@@ -4,7 +4,8 @@ from collections.abc import Mapping
 import equinox as eqx
 import jax.numpy as jnp
 import pytest
-from tjax import RngStream
+from jax import value_and_grad
+from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit, CreditTraces
@@ -108,14 +109,16 @@ def test_step_goal_prediction_error_uses_goal_penalty(
     content_precision = jnp.asarray([1.0])
     goal = jnp.asarray(4.0)
 
-    _, outputs = credit.step(
-        initial_state,
-        gain_observation=_message(gain, jnp.ones(n)),
-        noised_instrument=_message(inst_mean, inst_precision),
-        observation_content=_message(content_mean, content_precision),
-        raw_observation=_message(raw_mean, raw_precision),
-        goal=goal,
-    )
+    def prediction_error(target: JaxRealArray) -> JaxRealArray:
+        _, outputs = credit.step(
+            initial_state,
+            gain_observation=_message(gain, jnp.ones(n)),
+            noised_instrument=_message(inst_mean, inst_precision),
+            observation_content=_message(content_mean, content_precision),
+            raw_observation=_message(raw_mean, raw_precision),
+            goal=target,
+        )
+        return outputs.goal_prediction_error
 
     # Recover baseline the way Credit does, so the test does not depend on NPN init.
     baseline_message = credit.goal_baseline_map.infer(content_mean, content_precision)
@@ -125,7 +128,9 @@ def test_step_goal_prediction_error_uses_goal_penalty(
     expected_quadratic_trace = gain * jnp.square(inst_mean)
     expected_prediction = baseline - 0.5 * jnp.sum(raw_precision * expected_quadratic_trace)
     expected_error = goal - expected_prediction
-    assert jnp.allclose(outputs.goal_prediction_error, expected_error)
+    error, goal_gradient = value_and_grad(prediction_error)(goal)
+    assert jnp.allclose(error, expected_error)
+    assert jnp.allclose(goal_gradient, 0.0)
 
 
 def test_step_returns_scalar_goal_baseline_and_error(

@@ -5,6 +5,7 @@ from typing import Self
 import equinox as eqx
 import jax.numpy as jnp
 from efax import NormalNP
+from jax.lax import stop_gradient
 from tjax import JaxRealArray
 
 from cem.npn.gaussian import GaussianNPN
@@ -82,7 +83,8 @@ class Credit(eqx.Module):
         """Advance the credit traces and compute training signals for this emission.
 
         The goal prediction combines the current baseline and the penalty accumulated at
-        past and current emissions. Apply gain once to each new trace contribution.
+        past and current emissions. Treat the arriving goal as a fixed target when fitting
+        that prediction. Apply gain once to each new trace contribution.
         """
         traces = state.get(self.trace_index)
         decay = self.trace_decay()
@@ -103,7 +105,7 @@ class Credit(eqx.Module):
         baseline_message = self.goal_baseline_map.infer(*mean_and_precision(observation_content))
         baseline_values, _ = mean_and_precision(baseline_message)
         baseline = baseline_values.reshape(())
-        error = goal - (baseline + new_traces.goal_penalty)
+        error = stop_gradient(goal) - (baseline + new_traces.goal_penalty)
         return new_state, CreditOutputs(
             mean_contribution=mean_contribution,
             precision_contribution=precision_contribution,
