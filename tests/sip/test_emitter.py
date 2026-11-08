@@ -154,3 +154,21 @@ def test_credit_cotangent_reaches_observation_map(
     first_layer_weight_grad = grads.observation_map.layers[0].weight.value
     assert jnp.any(jnp.abs(first_layer_weight_grad) > 0)
     assert jnp.allclose(first_layer_weight_grad, -mean_weight_trace)
+
+
+def test_observation_projection_stops_gradients_at_its_input(
+    streams: Mapping[str, RngStream],
+) -> None:
+    emitter = _emitter(2, content_dim=1, instrument_dim=2, controllable=False, streams=streams)
+    content = _message(jnp.asarray([0.5]), jnp.ones(1))
+
+    def raw_mean(inputs: tuple[Emitter, NormalNP]) -> jnp.ndarray:
+        model, observation_content = inputs
+        observation, _ = model.observation_projection.infer(observation_content)
+        mean, _ = mean_and_precision(observation)
+        return jnp.sum(mean)
+
+    emitter_gradient, content_gradient = eqx.filter_grad(raw_mean)((emitter, content))
+    assert jnp.allclose(content_gradient.mean_times_precision, 0.0)
+    assert jnp.allclose(content_gradient.negative_half_precision, 0.0)
+    assert jnp.any(emitter_gradient.observation_map.layers[-1].bias.value != 0)

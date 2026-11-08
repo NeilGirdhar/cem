@@ -7,6 +7,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from efax import NormalNP
+from jax.lax import stop_gradient
 from tjax import JaxRealArray, KeyArray
 
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
@@ -200,7 +201,8 @@ class Emitter(eqx.Module):
 def _project_observation(
     model: GaussianNPN, content: NormalNP
 ) -> tuple[_ObservationCoordinates, NormalNP]:
-    observation = model.infer(*mean_and_precision(content))
+    """Project the content while confining observation credit to the map parameters."""
+    observation = model.infer(*mean_and_precision(stop_gradient(content)))
     mean, precision = mean_and_precision(observation)
     return _ObservationCoordinates(mean=mean, precision=precision), observation
 
