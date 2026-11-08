@@ -33,11 +33,14 @@ def test_parameter_type_partition_round_trip_preserves_type() -> None:
 def test_disassembled_transform_routes_separate_loss_gradients() -> None:
     prediction_type = ParameterType(LossBalancedParameter)
     auxiliary_type = ParameterType(SummedGradientParameter)
+    loss_names = ("reference", "auxiliary")
     transform = DisGradientTransformation(
-        [(prediction_type, MTAdam[Model](0.5)), (auxiliary_type, SGD[Model](0.5))]
+        [
+            (prediction_type, MTAdam[Model](0.5, loss_ids=loss_names)),
+            (auxiliary_type, SGD[Model](0.5)),
+        ]
     )
     parameter_types = (prediction_type, auxiliary_type)
-    loss_names = ("reference", "auxiliary")
 
     def partition(prediction: float, auxiliary: float) -> DisModel:
         return DisModel.create(
@@ -53,7 +56,7 @@ def test_disassembled_transform_routes_separate_loss_gradients() -> None:
         "auxiliary": partition(3.0, 8.0),
         "reference": partition(1.0, 4.0),
     }
-    state = transform.init(model, loss_ids=loss_names)
+    state = transform.init(model)
     delta, next_state = eqx.filter_jit(transform.update)(gradients, state, model)
     update = delta.assembled()
     assert isinstance(update, _Model)
@@ -61,7 +64,6 @@ def test_disassembled_transform_routes_separate_loss_gradients() -> None:
     assert jnp.isclose(update.auxiliary.value, -6.0)
     balanced_state = dict(next_state)[prediction_type]
     assert isinstance(balanced_state, MTAdamState)
-    assert balanced_state.loss_ids == loss_names
     assert balanced_state.count == 1
     assert jnp.allclose(
         jnp.stack([tree.leaves(balanced_state.gradient_norms[name])[0] for name in loss_names]),

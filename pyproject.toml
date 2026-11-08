@@ -44,7 +44,7 @@ dependencies = [
   "rich>=15",
   "scipy>=1.18.1",
   "threadpoolctl>=3.7",
-  "tjax>=2.1",
+  "tjax>=2.2",
   "typer>=0.27.3",
   "wandb>=0.31",
 ]

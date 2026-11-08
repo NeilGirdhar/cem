@@ -97,13 +97,8 @@ class DisGradientTransformation(eqx.Module):
         msg = f"Parameter of type {type(x).__name__} has no corresponding gradient transformation"
         raise TypeError(msg)
 
-    def init(
-        self, model: DisModel, *, loss_ids: tuple[str, ...] = (_SINGLE_LOSS_ID,)
-    ) -> DisGradientState:
-        """Initialize each parameter group's optimizer state for the named losses."""
-        if not loss_ids or len(set(loss_ids)) != len(loss_ids):
-            msg = "loss_ids must contain at least one ID and have no duplicates"
-            raise ValueError(msg)
+    def init(self, model: DisModel) -> DisGradientState:
+        """Initialize each parameter group's optimizer state."""
         dis_model = dict(model.parameters)
         assert {parameter_type.t for parameter_type in dis_model} <= {
             parameter_type.t for parameter_type, _ in self.gradient_transformations
@@ -112,11 +107,7 @@ class DisGradientTransformation(eqx.Module):
         for parameter_type, gradient_transformation in self.gradient_transformations:
             if gradient_transformation is None:
                 continue
-            parameters = dis_model[parameter_type]
-            if isinstance(gradient_transformation, MultiLossGradientTransformation):
-                state = gradient_transformation.init(parameters, loss_ids)
-            else:
-                state = gradient_transformation.init(parameters)
+            state = gradient_transformation.init(dis_model[parameter_type])
             gradient_states.append((parameter_type, state))
         return gradient_states
 

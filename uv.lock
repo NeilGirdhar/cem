@@ -308,7 +308,7 @@ requires-dist = [
     { name = "rich", specifier = ">=15" },
     { name = "scipy", specifier = ">=1.18.1" },
     { name = "threadpoolctl", specifier = ">=3.7" },
-    { name = "tjax", specifier = ">=2.1" },
+    { name = "tjax", specifier = ">=2.2" },
     { name = "typer", specifier = ">=0.27.3" },
     { name = "wandb", specifier = ">=0.31" },
 ]
@@ -1571,14 +1571,13 @@ wheels = [
 
 [[package]]
 name = "nvidia-cudnn-cu12"
-version = "9.28.0.42"
+version = "9.28.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "nvidia-cublas-cu12" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/41/0d/ed504f33bf97ab4607da2647e6847262587d330fe288046b9cf77f5a8a7e/nvidia_cudnn_cu12-9.28.0.42-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:f88db8fc1a0a5f458e19aa7b08fbe3500aeb9e2bb8dea6293ecbce170364ad72", size = 723261984, upload-time = "2026-11-04T20:41:06.994Z" },
-    { url = "https://files.pythonhosted.org/packages/ce/64/56ce3cad192cc75b50da3be44e36741ba963c84d3d2ca10aaa5ec16c49c3/nvidia_cudnn_cu12-9.28.0.42-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:9ff58b7f36dacd0a93e89f8f2957b52466889217963701daa15e577317cfa375", size = 716538495, upload-time = "2026-11-04T20:05:03.56Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/16/be895437624ae0400bda2b4bb69336cdb43346545e54edb15389d193a3b3/nvidia_cudnn_cu12-9.28.1.4-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:cbcf6f33c77fef3aa61d3fec36f2e89b07eb27d65b9f369c1adf3cfee08c2c21", size = 716579350, upload-time = "2026-11-06T21:51:22.24Z" },
 ]
 
 [[package]]
@@ -2464,7 +2463,7 @@ wheels = [
 
 [[package]]
 name = "tjax"
-version = "2.1.0"
+version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "array-api-compat" },
@@ -2474,9 +2473,9 @@ dependencies = [
     { name = "optype", extra = ["numpy"] },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/11/e1/4636dc377eb597c80ed06f188ca6642ca486db149b2b9dcc69b0aa351cc2/tjax-2.1.0.tar.gz", hash = "sha256:1c0cddd318979590bc09a50907674f11469e385a762c2a48c5bbba71fc1a8777", size = 82728, upload-time = "2026-11-06T19:55:43.442Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/86/f2/867b7d5c6b87516ec7ba2ea0079664a3dca99bc1f0dfa9c127ee5fe00dd7/tjax-2.2.0.tar.gz", hash = "sha256:5eb898d5bce63f1452aff4bd1d31a0597fdba9ec7060c3ac435213d63bf3b5c8", size = 82962, upload-time = "2026-11-08T18:48:16.667Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/67/b3/bf3b7cfcfb2054ee1a9197da9519f145100611a482fbed3311cbf6963c25/tjax-2.1.0-py3-none-any.whl", hash = "sha256:6a1bd4fd036469735be6f353fe7110f99278e0a055c9096d4c99641acfa30d4e", size = 98083, upload-time = "2026-11-06T19:55:41.549Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/2a/aa15047cfa2cbe178315e62e3c58cb91612d54f0ef5a1ebaea0c44d67638/tjax-2.2.0-py3-none-any.whl", hash = "sha256:90bd1312d3ad67658671c2e83bf8b8d9dc508faaf5d44e9659f7af95772f99be", size = 98278, upload-time = "2026-11-08T18:48:15.377Z" },
 ]
 
 [[package]]
