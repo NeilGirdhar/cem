@@ -83,8 +83,8 @@ class Credit(eqx.Module):
         """Advance the credit traces and compute training signals for this emission.
 
         The goal prediction combines the current baseline and the penalty accumulated at
-        past and current emissions. Treat the arriving goal as a fixed target when fitting
-        that prediction. Apply gain once to each new trace contribution.
+        past and current emissions. Hold the arriving goal and the baseline's observation
+        content fixed when fitting that prediction. Apply gain once to each new trace contribution.
         """
         traces = state.get(self.trace_index)
         decay = self.trace_decay()
@@ -102,7 +102,9 @@ class Credit(eqx.Module):
         )
         new_state = state.set(self.trace_index, new_traces)
 
-        baseline_message = self.goal_baseline_map.infer(*mean_and_precision(observation_content))
+        baseline_message = self.goal_baseline_map.infer(
+            *mean_and_precision(stop_gradient(observation_content))
+        )
         baseline_values, _ = mean_and_precision(baseline_message)
         baseline = baseline_values.reshape(())
         error = stop_gradient(goal) - (baseline + new_traces.goal_penalty)

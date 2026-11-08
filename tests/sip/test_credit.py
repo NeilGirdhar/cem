@@ -4,6 +4,7 @@ from collections.abc import Mapping
 import equinox as eqx
 import jax.numpy as jnp
 import pytest
+from efax import NormalNP
 from jax import value_and_grad
 from tjax import JaxRealArray, RngStream
 
@@ -133,24 +134,37 @@ def test_step_goal_prediction_error_uses_goal_penalty(
     assert jnp.allclose(goal_gradient, 0.0)
 
 
-def test_step_returns_scalar_goal_baseline_and_error(
+def test_goal_baseline_stops_gradients_at_its_input(
     streams: Mapping[str, RngStream],
 ) -> None:
     n = 1
     credit = Credit.create(n, _baseline_npn(1, streams), credit_settings=CREDIT_SETTINGS)
     initial_state = eqx.nn.State(credit)
 
-    _, outputs = credit.step(
-        initial_state,
-        gain_observation=_message(jnp.ones(n), jnp.ones(n)),
-        noised_instrument=_message(jnp.ones(n), jnp.ones(n)),
-        observation_content=_message(jnp.asarray([1.0]), jnp.asarray([1.0])),
-        raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
-        goal=jnp.asarray(1.0),
-    )
+    content = _message(jnp.ones(n), jnp.ones(n))
 
-    assert outputs.goal_baseline.shape == ()
-    assert outputs.goal_prediction_error.shape == ()
+    def baseline(
+        inputs: tuple[Credit, NormalNP],
+    ) -> tuple[JaxRealArray, JaxRealArray]:
+        circuit, observation_content = inputs
+        _, outputs = circuit.step(
+            initial_state,
+            gain_observation=_message(jnp.ones(n), jnp.ones(n)),
+            noised_instrument=_message(jnp.ones(n), jnp.ones(n)),
+            observation_content=observation_content,
+            raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
+            goal=jnp.asarray(1.0),
+        )
+        return outputs.goal_baseline, outputs.goal_prediction_error
+
+    (goal_baseline, error), (credit_gradient, content_gradient) = eqx.filter_value_and_grad(
+        baseline, has_aux=True
+    )((credit, content))
+    assert goal_baseline.shape == ()
+    assert error.shape == ()
+    assert jnp.allclose(content_gradient.mean_times_precision, 0.0)
+    assert jnp.allclose(content_gradient.negative_half_precision, 0.0)
+    assert jnp.any(credit_gradient.goal_baseline_map.layers[-1].bias.value != 0)
 
 
 def test_goal_penalty_retains_precision_from_emission(streams: Mapping[str, RngStream]) -> None:
