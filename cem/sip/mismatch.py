@@ -11,21 +11,19 @@ from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.perceptron.mlp import MLP
-from cem.sip.messages import InstrumentedMessage, mean_and_precision, promoting_link_loss
+from cem.sip.losses import SIPLossOutputs
+from cem.sip.messages import InstrumentedMessage, mean_and_precision
+from cem.sip.parameters import mismatch_prediction_parameter
 from cem.sip.settings import MismatchSettings
-from cem.structure.graph import LearnableParameter
 
 
-class MismatchOutputs(eqx.Module):
+class MismatchOutputs(SIPLossOutputs):
     """The demand for a better explanation and the losses that train the prediction and witness."""
 
     mismatch: NormalNP  # 2n unit-presence components; demand for explanation
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
     witness_loss: JaxRealArray  # scalar
-    dissonance: JaxRealArray  # scalar; reconstruction and confounding
-    disutility: JaxRealArray  # reconstruction cost minus confounding cost, as a scalar
-    loss: JaxRealArray  # scalar training surrogate
 
 
 class _Moments(eqx.Module):
@@ -38,6 +36,13 @@ class _Moments(eqx.Module):
     gain: JaxRealArray | None
 
 
+class _Reconstruction(eqx.Module):
+    """The reconstruction cost and the outgoing demand for explanation."""
+
+    cost: JaxRealArray
+    mismatch: NormalNP
+
+
 class Mismatch(eqx.Module):
     """Learn to predict a feature's observation and test for instrument-predictable errors.
 
@@ -46,9 +51,6 @@ class Mismatch(eqx.Module):
 
     prediction_map: GaussianNPN
     witness_map: MLP
-    reconstruction_cost_weight: LearnableParameter[JaxRealArray]  # raw (n,)
-    confounding_cost_weight: LearnableParameter[JaxRealArray]  # raw (n, 2)
-    witness_multiplier: LearnableParameter[JaxRealArray]  # raw ()
 
     @classmethod
     def create(
@@ -66,6 +68,7 @@ class Mismatch(eqx.Module):
                 out_features=n,
                 hidden_features=mismatch_settings.prediction_hidden_features,
                 streams=streams,
+                parameter_factory=mismatch_prediction_parameter,
             ),
             witness_map=MLP.create(
                 in_features=2 * (predictor_features + gain_features),
@@ -73,9 +76,6 @@ class Mismatch(eqx.Module):
                 hidden_features=mismatch_settings.witness_hidden_features,
                 streams=streams,
             ),
-            reconstruction_cost_weight=LearnableParameter(jnp.zeros(n, dtype=jnp.float64)),
-            confounding_cost_weight=LearnableParameter(jnp.zeros((n, 2), dtype=jnp.float64)),
-            witness_multiplier=LearnableParameter(jnp.asarray(0.0, dtype=jnp.float64)),
         )
 
     def step(
@@ -101,33 +101,27 @@ class Mismatch(eqx.Module):
         moments = self._moments(
             raw_observation, local_variance, predictor.observation, gain_observation
         )
-        # Hold the loss weights fixed under differentiation so the combined objective
-        # cannot reduce positive loss terms by shrinking their weights toward zero.
-        r_weight = jax.nn.softplus(jax.lax.stop_gradient(self.reconstruction_cost_weight.value))
-        c_weight = jax.nn.softplus(jax.lax.stop_gradient(self.confounding_cost_weight.value))
-
-        reconstruction_cost, mismatch_message = _reconstruction_and_mismatch(moments, r_weight)
+        reconstruction = _reconstruction_and_mismatch(moments)
         witness_residuals = _witness_residuals(moments)
         confounding_witness = self._confounding_witness(
             predictor.instrument, gain_instrument, streams=streams, inference=inference
         )
         confounding_cost = jnp.sum(
-            c_weight
-            * _scale_rows(witness_residuals, moments.gain)
+            _scale_rows(witness_residuals, moments.gain)
             * jax.lax.stop_gradient(confounding_witness)
         )
-        witness_loss, multiplier_loss = self._witness_training(
-            moments.gain, witness_residuals, confounding_witness
-        )
+        witness_loss = self._witness_training(moments.gain, witness_residuals, confounding_witness)
 
         return MismatchOutputs(
-            mismatch=mismatch_message,
-            reconstruction_cost=reconstruction_cost,
+            mismatch=reconstruction.mismatch,
+            reconstruction_cost=reconstruction.cost,
             confounding_cost=confounding_cost,
             witness_loss=witness_loss,
-            dissonance=reconstruction_cost + confounding_cost,
-            disutility=reconstruction_cost - confounding_cost,
-            loss=reconstruction_cost + confounding_cost + witness_loss + multiplier_loss,
+            balanced_losses={
+                "reconstruction": reconstruction.cost,
+                "confounding": confounding_cost,
+            },
+            fixed_weight_loss=witness_loss,
         )
 
     def _moments(
@@ -178,13 +172,8 @@ class Mismatch(eqx.Module):
         gain: JaxRealArray | None,
         witness_residuals: JaxRealArray,
         confounding_witness: JaxRealArray,
-    ) -> tuple[JaxRealArray, JaxRealArray]:
-        """Return separate losses for the witness and its norm multiplier.
-
-        Train the witness against fixed residuals so it can expose instrument-predictable error.
-        Penalize a gain-weighted squared norm above mean gain. The multiplier rises when
-        the constraint is violated and falls when it has slack.
-        """
+    ) -> JaxRealArray:
+        """Train the witness on fixed residuals and penalize excess gain-weighted norm."""
         covariance = -jnp.sum(
             _scale_rows(jax.lax.stop_gradient(witness_residuals), gain) * confounding_witness
         )
@@ -192,24 +181,17 @@ class Mismatch(eqx.Module):
         constraint_violation = (
             jnp.sum(_scale_rows(jnp.square(confounding_witness), gain)) - norm_bound
         )
-        lambda_value = jax.nn.softplus(self.witness_multiplier.value)
-        witness_loss = covariance + jax.lax.stop_gradient(lambda_value) * constraint_violation
-        multiplier_loss = promoting_link_loss(
-            lambda_value, jax.lax.stop_gradient(constraint_violation)
-        )
-        return witness_loss, multiplier_loss
+        return covariance + jnp.square(jnp.maximum(constraint_violation, 0.0))
 
 
-def _reconstruction_and_mismatch(
-    moments: _Moments, r_weight: JaxRealArray
-) -> tuple[JaxRealArray, NormalNP]:
+def _reconstruction_and_mismatch(moments: _Moments) -> _Reconstruction:
     mean_resid = moments.pred_mean - moments.target_mean
     recon_density = 0.5 * (
         jnp.log(2.0 * jnp.pi * moments.pred_variance)
         + (moments.target_variance + jnp.square(mean_resid)) / moments.pred_variance
     )
     recon_error = recon_density if moments.gain is None else moments.gain * recon_density
-    reconstruction_cost = jnp.sum(r_weight * recon_error)
+    reconstruction_cost = jnp.sum(recon_error)
 
     second_moment_diff = (
         jnp.square(moments.pred_mean)
@@ -218,10 +200,9 @@ def _reconstruction_and_mismatch(
         - moments.target_variance
     )
     mismatch_pair = jnp.stack([mean_resid, second_moment_diff], axis=-1)
-    presence = r_weight if moments.gain is None else r_weight * moments.gain
-    mismatch_flat = (presence[:, None] * mismatch_pair).reshape(-1)
+    mismatch_flat = _scale_rows(mismatch_pair, moments.gain).reshape(-1)
     mismatch_message = normal_from_mean_and_presence(mismatch_flat, jnp.ones_like(mismatch_flat))
-    return reconstruction_cost, mismatch_message
+    return _Reconstruction(cost=reconstruction_cost, mismatch=mismatch_message)
 
 
 def _witness_residuals(moments: _Moments) -> JaxRealArray:

@@ -143,12 +143,6 @@ def test_uncertainty_loss_trains_prediction_map(
     """The uncertainty penalty applies suppressing cotangent to delayed variance."""
     n = 2
     td = _td_error(n, streams)
-    # Use a nonzero uncertainty weight so the loss is actually active.
-    td = eqx.tree_at(
-        lambda m: m.uncertainty_loss_weight.value,
-        td,
-        jnp.ones(n, dtype=jnp.float64),
-    )
     state = eqx.nn.State(td)
     inputs = _inputs(n)
 
@@ -204,38 +198,6 @@ def test_witness_loss_trains_witness_map(streams: Mapping[str, RngStream]) -> No
 
     grads = eqx.filter_grad(loss_fn)(td)
     assert jnp.any(jnp.abs(grads.witness_map.layers[-1].weight.value) > 0)
-
-
-def test_combined_loss_does_not_train_loss_weights(
-    streams: Mapping[str, RngStream],
-) -> None:
-    n = 2
-    td = _td_error(n, streams)
-    state = eqx.nn.State(td)
-    inputs = _inputs(n)
-
-    def loss_fn(m: TDError) -> jnp.ndarray:
-        _, out = m.step(**inputs, state=state, streams=streams, inference=True)
-        return out.loss
-
-    grads = eqx.filter_grad(loss_fn)(td)
-    assert jnp.allclose(grads.reconstruction_cost_weight.value, 0.0)
-    assert jnp.allclose(grads.confounding_cost_weight.value, 0.0)
-    assert jnp.allclose(grads.uncertainty_loss_weight.value, 0.0)
-
-
-def test_multiplier_is_trained(streams: Mapping[str, RngStream]) -> None:
-    n = 2
-    td = _td_error(n, streams)
-    state = eqx.nn.State(td)
-    inputs = _inputs(n)
-
-    def loss_fn(m: TDError) -> jnp.ndarray:
-        _, out = m.step(**inputs, state=state, streams=streams, inference=True)
-        return out.loss
-
-    grads = eqx.filter_grad(loss_fn)(td)
-    assert jnp.abs(grads.witness_multiplier.value) > 0
 
 
 def test_discount_scales_current_prediction_contribution_to_advantage(

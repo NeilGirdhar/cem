@@ -13,6 +13,7 @@ from cem.sip import (
     SIPAgentSettings,
     TDSettings,
 )
+from cem.structure.graph import LossBalancedParameter, SummedGradientParameter
 
 from .tools import CREDIT_SETTINGS, _message
 
@@ -57,6 +58,10 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
         assert jnp.isclose(
             feature.emitter.credit.trace_decay_rate.value, settings.credit_settings.trace_decay_rate
         )
+    for feature in (*sensations, *prospects):
+        observation_weight = feature.emitter.observation_map.layers[0].weight
+        assert isinstance(observation_weight, LossBalancedParameter)
+        assert observation_weight.loss_names == ("confounding", "reconstruction")
 
     mismatches = (
         agent.sensations.input_feature.mismatch,
@@ -66,6 +71,10 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
     for mismatch in mismatches:
         assert mismatch.prediction_map.layers[0].bias.value.shape == (5,)
         assert mismatch.witness_map.layers[0].bias.value.shape == (7,)
+        prediction_weight = mismatch.prediction_map.layers[0].weight
+        assert isinstance(prediction_weight, LossBalancedParameter)
+        assert prediction_weight.loss_names == ("confounding", "reconstruction")
+        assert isinstance(mismatch.witness_map.layers[0].weight, SummedGradientParameter)
 
     td_error = agent.reward_critic.td_feature.td_error
     assert jnp.isclose(td_error.discount.value, settings.td_settings.discount)
@@ -73,6 +82,10 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
     assert td_error.witness_map.layers[0].bias.value.shape == (8,)
     assert td_error.prediction_map.layers[-1].bias.value.shape == (6,)
     assert td_error.prediction_map.input_pool.dummy_mean.value.shape == (12,)
+    td_prediction_weight = td_error.prediction_map.layers[0].weight
+    assert isinstance(td_prediction_weight, LossBalancedParameter)
+    assert td_prediction_weight.loss_names == ("confounding", "reconstruction", "uncertainty")
+    assert isinstance(td_error.witness_map.layers[0].weight, SummedGradientParameter)
 
 
 def test_sip_agent_create_matches_coupling_shapes(

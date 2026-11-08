@@ -15,13 +15,14 @@ from tjax import KeyArray, RngStream
 from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.features import SIPFeatureOutputs
 from cem.sip.intentions import Intentions
+from cem.sip.losses import SIPLossOutputs, combine_losses
 from cem.sip.messages import concat_messages
 from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.sensations import Sensations
 from cem.sip.settings import SIPAgentSettings
 
 
-class SIPAgentOutputs(eqx.Module):
+class SIPAgentOutputs(SIPLossOutputs):
     """The next action and the sensation, intention, and critic results for that step."""
 
     sensations: tuple[SIPFeatureOutputs, ...]
@@ -150,16 +151,17 @@ class SIPAgent(eqx.Module):
         )
 
         intention_readouts = [out.message.observation for out in sensation_outputs]
-        # Sum the previous advantage across reward channels to give each intention level
-        # the same scalar credit goal.
+        # The critic stores environment reward channels, then curiosity and tracking.
         last_advantage = state.get(self.reward_critic.td_feature.last_advantage_index)
-        advantage_scalar = jnp.sum(last_advantage)
-        advantages = [advantage_scalar for _ in range(n_levels)]
+        reward_end = last_advantage.shape[0] - 2 * n_levels
+        curiosity_end = reward_end + n_levels
         state, intention_outputs = self.intentions.infer(
             state,
             key_i,
             readouts=intention_readouts,
-            advantages=advantages,
+            reward=jnp.sum(last_advantage[:reward_end]),
+            curiosity=jnp.sum(last_advantage[reward_end:curiosity_end]),
+            tracking=jnp.sum(last_advantage[curiosity_end:]),
             streams=streams,
             inference=inference,
         )
@@ -195,6 +197,14 @@ class SIPAgent(eqx.Module):
         )
 
         return state, SIPAgentOutputs(
+            balanced_losses=combine_losses(
+                *(out.balanced_losses for out in (*sensation_outputs, *intention_outputs)),
+                critic_outputs.balanced_losses,
+            ),
+            fixed_weight_loss=sum(
+                (out.fixed_weight_loss for out in (*sensation_outputs, *intention_outputs)),
+                critic_outputs.fixed_weight_loss,
+            ),
             sensations=sensation_outputs,
             intentions=intention_outputs,
             critic=critic_outputs,

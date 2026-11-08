@@ -64,7 +64,7 @@ def test_local_variance_matches_inherited_moments(
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
         predictor_instrument=predictor_instrument,
         gain_observation=_message(jnp.ones(n), jnp.ones(n)),
-        goal=jnp.asarray(0.0),
+        goals={"reconstruction": jnp.asarray(0.0), "confounding": jnp.asarray(0.0)},
     )
     assert jnp.allclose(outputs.local_variance, expected)
 
@@ -86,7 +86,7 @@ def test_same_displacement_shifts_both_means(streams: Mapping[str, RngStream]) -
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
         predictor_instrument=predictor_instrument,
         gain_observation=_message(jnp.ones(n), jnp.ones(n)),
-        goal=jnp.asarray(0.0),
+        goals={"reconstruction": jnp.asarray(0.0), "confounding": jnp.asarray(0.0)},
     )
     noised_inst_mean, _ = mean_and_precision(outputs.noised_instrument)
     inst_displacement = noised_inst_mean - inherited_mean
@@ -110,7 +110,7 @@ def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> No
         observation_content=_message(jnp.asarray([0.4]), jnp.ones(1)),
         predictor_instrument=_message(jnp.asarray([0.1, 0.2]), jnp.asarray([1.0, 1.0])),
         gain_observation=_message(gain, jnp.ones(n)),
-        goal=jnp.asarray(0.0),
+        goals={"reconstruction": jnp.asarray(0.0), "confounding": jnp.asarray(0.0)},
     )
     assert jnp.allclose(outputs.local_variance, 0.0)
     assert jnp.allclose(
@@ -126,22 +126,31 @@ def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> No
 def test_credit_cotangent_reaches_observation_map(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """The promoting link sends a nonzero cotangent to the observation map's params."""
+    """Named credit applies the mean trace to the observation map's parameters."""
     n = 2
     emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=False, streams=streams)
     state = eqx.nn.State(emitter)
 
-    def loss_fn(em: Emitter) -> jnp.ndarray:
-        _, outputs = em.step(
+    def loss_fn(em: Emitter) -> tuple[jnp.ndarray, tuple[dict[str, jnp.ndarray], jnp.ndarray]]:
+        new_state, outputs = em.step(
             state,
             jr.key(0),
             observation_content=_message(jnp.asarray([0.5]), jnp.ones(1)),
             predictor_instrument=_message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 1.0])),
             gain_observation=_message(jnp.ones(n), jnp.ones(n)),
-            goal=jnp.asarray(1.0),
+            goals={"reconstruction": jnp.asarray(1.0), "confounding": jnp.asarray(0.0)},
         )
-        return outputs.loss
+        mean_trace = new_state.get(em.trace_index).mean
+        return outputs.balanced_losses["reconstruction"], (
+            outputs.balanced_losses,
+            mean_trace.layers[0].weight.value,
+        )
 
-    grads = eqx.filter_grad(loss_fn)(emitter)
+    (_, (losses, mean_weight_trace)), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(
+        emitter
+    )
+    assert set(losses) == {"reconstruction", "confounding"}
+    assert jnp.allclose(losses["confounding"], 0.0)
     first_layer_weight_grad = grads.observation_map.layers[0].weight.value
     assert jnp.any(jnp.abs(first_layer_weight_grad) > 0)
+    assert jnp.allclose(first_layer_weight_grad, -mean_weight_trace)

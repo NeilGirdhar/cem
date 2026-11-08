@@ -7,6 +7,7 @@ from tjax import RngStream
 
 from cem.sip.intentions import Intentions
 from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.structure.graph import LossBalancedParameter, SummedGradientParameter
 
 from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _i_message, _message
 
@@ -26,9 +27,12 @@ def test_intentions_create_sizes_readouts_demands_and_predictors(
     assert len(intentions.features) == len(sizes)
     top = len(sizes) - 1
     for i, feature in enumerate(intentions.features):
-        weight = feature.emitter.observation_map.layers[0].weight.value
+        observation_weight = feature.emitter.observation_map.layers[0].weight
         expected = readout_features[i] + (0 if i == top else 2 * sizes[i + 1])
-        assert weight.shape[-1] == expected
+        assert observation_weight.value.shape[-1] == expected
+        assert isinstance(observation_weight, LossBalancedParameter)
+        assert observation_weight.loss_names == ("curiosity", "reward", "tracking")
+        assert isinstance(feature.emitter.instrument_map.layers[0].weight, SummedGradientParameter)
         predictor_width = feature.mismatch.prediction_map.input_pool.dummy_mean.value.size
         assert predictor_width == (sizes[i - 1] if i else 0)
 
@@ -49,7 +53,9 @@ def test_intentions_infer_returns_one_output_per_layer(
         state,
         jr.key(0),
         readouts=[_message(jnp.ones(2), jnp.ones(2)) for _ in sizes],
-        advantages=[jnp.asarray(0.0), jnp.asarray(0.0)],
+        reward=jnp.asarray(0.0),
+        curiosity=jnp.asarray(0.0),
+        tracking=jnp.asarray(0.0),
         streams=streams,
         inference=True,
     )
@@ -71,7 +77,11 @@ def test_intentions_infer_uses_previous_lower_message_and_current_upper_mismatch
     )
     key = jr.key(0)
     readouts = [_message(jnp.ones(2), jnp.ones(2)) for _ in sizes]
-    advantages = [jnp.asarray(0.1), jnp.asarray(0.2)]
+    advantages = {
+        "reward": jnp.asarray(0.1),
+        "curiosity": jnp.asarray(0.2),
+        "tracking": jnp.asarray(0.3),
+    }
 
     bottom_index = intentions.features[0].last_message_index
     bottom_message = _i_message(
@@ -82,7 +92,7 @@ def test_intentions_infer_uses_previous_lower_message_and_current_upper_mismatch
         state,
         key,
         readouts=readouts,
-        advantages=advantages,
+        **advantages,
         streams=streams,
         inference=True,
     )
@@ -95,7 +105,7 @@ def test_intentions_infer_uses_previous_lower_message_and_current_upper_mismatch
         observation_content=readouts[1],
         predictor=bottom_message,
         gain=None,
-        goal=advantages[1],
+        **advantages,
         streams=streams,
         inference=True,
     )
@@ -105,7 +115,7 @@ def test_intentions_infer_uses_previous_lower_message_and_current_upper_mismatch
         observation_content=concat_messages(readouts[0], top_out.observation_mismatch),
         predictor=InstrumentedMessage.initial(0),
         gain=None,
-        goal=advantages[0],
+        **advantages,
         streams=streams,
         inference=True,
     )
@@ -114,6 +124,9 @@ def test_intentions_infer_uses_previous_lower_message_and_current_upper_mismatch
         outputs[0].message.observation.mean_times_precision,
         bottom_out.message.observation.mean_times_precision,
     )
+    for name in advantages:
+        assert jnp.allclose(outputs[0].balanced_losses[name], bottom_out.balanced_losses[name])
+        assert jnp.allclose(outputs[1].balanced_losses[name], top_out.balanced_losses[name])
     assert jnp.allclose(
         outputs[1].message.observation.mean_times_precision,
         top_out.message.observation.mean_times_precision,
@@ -137,7 +150,9 @@ def test_intentions_action_is_bottom_layer_observation(
         state,
         jr.key(0),
         readouts=[_message(jnp.ones(2), jnp.ones(2)) for _ in sizes],
-        advantages=[jnp.asarray(0.0), jnp.asarray(0.0)],
+        reward=jnp.asarray(0.0),
+        curiosity=jnp.asarray(0.0),
+        tracking=jnp.asarray(0.0),
         streams=streams,
         inference=True,
     )

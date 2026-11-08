@@ -6,7 +6,7 @@ from typing import Self
 import equinox as eqx
 import jax.random as jr
 from efax import NormalNP
-from tjax import JaxRealArray, KeyArray, RngStream
+from tjax import KeyArray, RngStream
 
 from cem.sip.features import (
     ProspectFeature,
@@ -14,16 +14,16 @@ from cem.sip.features import (
     TDFeature,
     TDFeatureOutputs,
 )
+from cem.sip.losses import SIPLossOutputs, combine_losses
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 from cem.sip.settings import CreditSettings, TDSettings
 
 
-class RewardCriticOutputs(eqx.Module):
-    """Prospect messages, reward credit signals, and the combined training loss."""
+class RewardCriticOutputs(SIPLossOutputs):
+    """Prospect messages, reward credit signals, and their training losses."""
 
     prospects: tuple[ProspectFeatureOutputs, ...]
     td: TDFeatureOutputs
-    loss: JaxRealArray  # scalar; sum of prospect losses and the TD loss
 
 
 class RewardCritic(eqx.Module):
@@ -102,8 +102,7 @@ class RewardCritic(eqx.Module):
 
         Each prospect is advanced with its own `observation_content[i]`,
         `predictor_instruments[i]`, optional `gains[i]`, and the TD feature's
-        previous-step `dissonance` as goal (read from
-        `last_dissonance_index`). The prospect outputs are concatenated on
+        previous reconstruction and confounding costs. The prospect outputs are concatenated on
         each channel to form the TD feature's predictor.
         """
         if len(observation_content) != len(self.prospect_features):
@@ -117,7 +116,7 @@ class RewardCritic(eqx.Module):
         if len(gains) != len(self.prospect_features):
             msg = "gains must have one entry per prospect"
             raise ValueError(msg)
-        prospect_goal = state.get(self.td_feature.last_dissonance_index)
+        costs = state.get(self.td_feature.last_costs_index)
         keys = jr.split(key, len(self.prospect_features))
         prospect_outputs: list[ProspectFeatureOutputs] = []
         for feature, feature_key, obs_content, pred_inst, gain in zip(
@@ -134,7 +133,8 @@ class RewardCritic(eqx.Module):
                 observation_content=obs_content,
                 predictor_instrument=pred_inst,
                 gain=gain,
-                goal=prospect_goal,
+                reconstruction=costs.reconstruction,
+                confounding=costs.confounding,
             )
             prospect_outputs.append(out)
         td_predictor = concat_instrumented_messages(*[p.message for p in prospect_outputs])
@@ -145,11 +145,13 @@ class RewardCritic(eqx.Module):
             streams=streams,
             inference=inference,
         )
-        total_loss = td_out.loss
-        for out in prospect_outputs:
-            total_loss += out.loss
         return state, RewardCriticOutputs(
             prospects=tuple(prospect_outputs),
             td=td_out,
-            loss=total_loss,
+            balanced_losses=combine_losses(
+                td_out.balanced_losses, *(out.balanced_losses for out in prospect_outputs)
+            ),
+            fixed_weight_loss=sum(
+                (out.fixed_weight_loss for out in prospect_outputs), td_out.fixed_weight_loss
+            ),
         )

@@ -9,8 +9,9 @@ from efax import NormalNP
 from tjax import JaxRealArray, KeyArray, RngStream
 
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
-from cem.sip.features import SIPFeature, SIPFeatureOutputs, SIPFeatureSizes
+from cem.sip.features import IntentionFeature, SIPFeatureOutputs, SIPFeatureSizes
 from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.sip.parameters import advantage_parameter
 from cem.sip.settings import CreditSettings, MismatchSettings
 
 
@@ -20,7 +21,7 @@ class Intentions(ExplanatoryCoupling):
     See `intention-coupling` in the thesis.
     """
 
-    features: tuple[SIPFeature, ...]
+    features: tuple[IntentionFeature, ...]
 
     @classmethod
     def create(
@@ -44,7 +45,7 @@ class Intentions(ExplanatoryCoupling):
         if len(readout_features) != len(sizes):
             msg = "readout_features must have the same length as sizes"
             raise ValueError(msg)
-        features: list[SIPFeature] = []
+        features: list[IntentionFeature] = []
         top_index = len(sizes) - 1
         for i, n in enumerate(sizes):
             content_features = readout_features[i]
@@ -56,13 +57,14 @@ class Intentions(ExplanatoryCoupling):
                 gain=0,
             )
             features.append(
-                SIPFeature.create(
+                IntentionFeature.create(
                     n,
                     feature_sizes,
                     controllable=True,
                     credit_settings=credit_settings,
                     mismatch_settings=mismatch_settings,
                     streams=streams,
+                    observation_parameter_factory=advantage_parameter,
                 )
             )
         return cls(features=tuple(features))
@@ -73,7 +75,9 @@ class Intentions(ExplanatoryCoupling):
         key: KeyArray,
         *,
         readouts: Sequence[NormalNP],
-        advantages: Sequence[JaxRealArray],
+        reward: JaxRealArray,
+        curiosity: JaxRealArray,
+        tracking: JaxRealArray,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, tuple[SIPFeatureOutputs, ...]]:
@@ -81,15 +85,12 @@ class Intentions(ExplanatoryCoupling):
 
         Each layer receives its current readout and any mismatch from the layer above.
         The previous message from the layer below predicts its observation.
-        Supply one scalar credit goal per layer in `advantages`. Outputs are ordered
-        bottom first, with the action in the bottom layer's message observation.
+        Supply the scalar advantage for each reward source. Every layer receives all three.
+        Outputs are ordered bottom first, with the action in the bottom layer's observation.
         """
         n_layers = len(self.features)
         if len(readouts) != n_layers:
             msg = "readouts must have one entry per layer"
-            raise ValueError(msg)
-        if len(advantages) != n_layers:
-            msg = "advantages must have one entry per layer"
             raise ValueError(msg)
         keys = jr.split(key, n_layers)
         outputs: list[SIPFeatureOutputs | None] = [None] * n_layers
@@ -100,7 +101,9 @@ class Intentions(ExplanatoryCoupling):
             observation_content=readouts[top_index],
             predictor=self._predictor_for(state, top_index),
             gain=None,
-            goal=advantages[top_index],
+            reward=reward,
+            curiosity=curiosity,
+            tracking=tracking,
             streams=streams,
             inference=inference,
         )
@@ -114,7 +117,9 @@ class Intentions(ExplanatoryCoupling):
                 observation_content=content,
                 predictor=self._predictor_for(state, i),
                 gain=None,
-                goal=advantages[i],
+                reward=reward,
+                curiosity=curiosity,
+                tracking=tracking,
                 streams=streams,
                 inference=inference,
             )

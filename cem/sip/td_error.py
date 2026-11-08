@@ -11,14 +11,15 @@ from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN
 from cem.perceptron.mlp import MLP
+from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import (
     InstrumentedMessage,
     mean_and_precision,
-    promoting_link_loss,
     variance_from_precision,
 )
+from cem.sip.parameters import td_error_prediction_parameter
 from cem.sip.settings import TDSettings
-from cem.structure.graph import FixedParameter, LearnableParameter
+from cem.structure.graph import FixedParameter
 
 
 class TDTraces(eqx.Module):
@@ -31,7 +32,7 @@ class TDTraces(eqx.Module):
         return cls(predictor=InstrumentedMessage.standard(predictor_features))
 
 
-class TDErrorOutputs(eqx.Module):
+class TDErrorOutputs(SIPLossOutputs):
     """The advantage signal and the losses for value prediction and its confounding witness."""
 
     advantage: JaxRealArray  # shape (n,); outgoing TD-error mean signal
@@ -39,7 +40,6 @@ class TDErrorOutputs(eqx.Module):
     confounding_cost: JaxRealArray  # scalar
     uncertainty_loss: JaxRealArray  # scalar
     witness_loss: JaxRealArray  # scalar
-    loss: JaxRealArray  # scalar training surrogate
 
 
 class _Moments(eqx.Module):
@@ -59,10 +59,6 @@ class TDError(eqx.Module):
 
     prediction_map: GaussianNPN
     witness_map: MLP
-    reconstruction_cost_weight: LearnableParameter[JaxRealArray]  # raw (n,)
-    confounding_cost_weight: LearnableParameter[JaxRealArray]  # raw (n, 2)
-    uncertainty_loss_weight: LearnableParameter[JaxRealArray]  # raw (n,)
-    witness_multiplier: LearnableParameter[JaxRealArray]  # raw ()
     discount: FixedParameter[JaxRealArray]  # scalar
     delay_index: eqx.nn.StateIndex[TDTraces]
 
@@ -81,6 +77,7 @@ class TDError(eqx.Module):
                 out_features=n,
                 hidden_features=td_settings.prediction_hidden_features,
                 streams=streams,
+                parameter_factory=td_error_prediction_parameter,
             ),
             witness_map=MLP.create(
                 in_features=2 * predictor_features,
@@ -88,10 +85,6 @@ class TDError(eqx.Module):
                 hidden_features=td_settings.witness_hidden_features,
                 streams=streams,
             ),
-            reconstruction_cost_weight=LearnableParameter(jnp.zeros(n, dtype=jnp.float64)),
-            confounding_cost_weight=LearnableParameter(jnp.zeros((n, 2), dtype=jnp.float64)),
-            uncertainty_loss_weight=LearnableParameter(jnp.zeros(n, dtype=jnp.float64)),
-            witness_multiplier=LearnableParameter(jnp.asarray(0.0, dtype=jnp.float64)),
             discount=FixedParameter(jnp.asarray(td_settings.discount, dtype=jnp.float64)),
             delay_index=eqx.nn.StateIndex(TDTraces.initial(predictor_features)),
         )
@@ -124,18 +117,10 @@ class TDError(eqx.Module):
         moments = self._moments(reward_observation, current_prediction, delayed_prediction)
         witness_residuals = _witness_residuals(moments)
 
-        # Hold the loss weights fixed under differentiation so the combined objective
-        # cannot reduce positive loss terms by shrinking their weights toward zero.
-        r_weight = jax.nn.softplus(jax.lax.stop_gradient(self.reconstruction_cost_weight.value))
-        c_weight = jax.nn.softplus(jax.lax.stop_gradient(self.confounding_cost_weight.value))
-        u_weight = jax.nn.softplus(jax.lax.stop_gradient(self.uncertainty_loss_weight.value))
-
-        reconstruction_cost = _reconstruction_cost(moments, r_weight)
-        confounding_cost = jnp.sum(
-            c_weight * witness_residuals * jax.lax.stop_gradient(delayed_witness)
-        )
-        uncertainty_loss = jnp.sum(u_weight * moments.del_variance)
-        witness_loss, multiplier_loss = self._witness_training(witness_residuals, delayed_witness)
+        reconstruction_cost = _reconstruction_cost(moments)
+        confounding_cost = jnp.sum(witness_residuals * jax.lax.stop_gradient(delayed_witness))
+        uncertainty_loss = jnp.sum(moments.del_variance)
+        witness_loss = self._witness_training(witness_residuals, delayed_witness)
 
         advantage = moments.boot_mean - moments.del_mean
 
@@ -147,13 +132,12 @@ class TDError(eqx.Module):
             confounding_cost=confounding_cost,
             uncertainty_loss=uncertainty_loss,
             witness_loss=witness_loss,
-            loss=(
-                reconstruction_cost
-                + confounding_cost
-                + uncertainty_loss
-                + witness_loss
-                + multiplier_loss
-            ),
+            balanced_losses={
+                "reconstruction": reconstruction_cost,
+                "confounding": confounding_cost,
+                "uncertainty": uncertainty_loss,
+            },
+            fixed_weight_loss=witness_loss,
         )
 
     def _witness(
@@ -206,31 +190,22 @@ class TDError(eqx.Module):
         self,
         witness_residuals: JaxRealArray,
         confounding_witness: JaxRealArray,
-    ) -> tuple[JaxRealArray, JaxRealArray]:
-        """Train the witness on fixed TD residuals under a unit-gain squared-norm bound.
-
-        Return the witness loss and a separate loss that raises the multiplier when the bound
-        is exceeded.
-        """
+    ) -> JaxRealArray:
+        """Train the witness on fixed TD residuals and penalize squared norm above one."""
         covariance = -jnp.sum(jax.lax.stop_gradient(witness_residuals) * confounding_witness)
         # At unit gain, the witness's expected squared norm is bounded by one.
         # See `sip-norm-constraint` in the thesis.
         constraint_violation = jnp.sum(jnp.square(confounding_witness)) - 1.0
-        lambda_value = jax.nn.softplus(self.witness_multiplier.value)
-        witness_loss = covariance + jax.lax.stop_gradient(lambda_value) * constraint_violation
-        multiplier_loss = promoting_link_loss(
-            lambda_value, jax.lax.stop_gradient(constraint_violation)
-        )
-        return witness_loss, multiplier_loss
+        return covariance + jnp.square(jnp.maximum(constraint_violation, 0.0))
 
 
-def _reconstruction_cost(moments: _Moments, r_weight: JaxRealArray) -> JaxRealArray:
+def _reconstruction_cost(moments: _Moments) -> JaxRealArray:
     mean_resid = moments.del_mean - moments.boot_mean
     recon_error = 0.5 * (
         jnp.log(2.0 * jnp.pi * moments.del_variance)
         + (moments.boot_variance + jnp.square(mean_resid)) / moments.del_variance
     )
-    return jnp.sum(r_weight * recon_error)
+    return jnp.sum(recon_error)
 
 
 def _witness_residuals(moments: _Moments) -> JaxRealArray:

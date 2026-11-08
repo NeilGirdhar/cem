@@ -4,19 +4,19 @@ from collections.abc import Mapping, Sequence
 from typing import Self
 
 import equinox as eqx
-import jax.numpy as jnp
 import jax.random as jr
 from efax import NormalNP
 from tjax import KeyArray, RngStream
 
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import (
+    SensationFeature,
     SensationInputFeature,
-    SIPFeature,
     SIPFeatureOutputs,
     SIPFeatureSizes,
 )
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
+from cem.sip.parameters import dissonance_parameter
 from cem.sip.settings import CreditSettings, MismatchSettings
 
 
@@ -27,7 +27,7 @@ class Sensations(ExplanatoryCoupling):
     """
 
     input_feature: SensationInputFeature
-    interior_features: tuple[SIPFeature, ...]
+    interior_features: tuple[SensationFeature, ...]
 
     @classmethod
     def create(
@@ -63,7 +63,7 @@ class Sensations(ExplanatoryCoupling):
             mismatch_settings=mismatch_settings,
             streams=streams,
         )
-        interior: list[SIPFeature] = []
+        interior: list[SensationFeature] = []
         for i in range(1, len(sizes)):
             feature_sizes = SIPFeatureSizes(
                 observation_content=2 * sizes[i - 1],
@@ -71,13 +71,14 @@ class Sensations(ExplanatoryCoupling):
                 gain=0,
             )
             interior.append(
-                SIPFeature.create(
+                SensationFeature.create(
                     sizes[i],
                     feature_sizes,
                     controllable=False,
                     credit_settings=credit_settings,
                     mismatch_settings=mismatch_settings,
                     streams=streams,
+                    observation_parameter_factory=dissonance_parameter,
                 )
             )
         return cls(input_feature=input_feature, interior_features=tuple(interior))
@@ -95,8 +96,8 @@ class Sensations(ExplanatoryCoupling):
         """Run bottom-up inference across the stack.
 
         Layer 0 consumes `observation` directly; each higher layer's content
-        is the previous layer's `observation_mismatch`, and its Credit goal
-        is the previous layer's `dissonance`. Each layer's predictor is the
+        is the previous layer's `observation_mismatch`, and its credit inputs are
+        the reconstruction and confounding costs from the layer below. Each layer's predictor is the
         external `predictors[i]` concatenated with the stored
         `last_message_index` of the layer directly above it (its previous-
         step value, since higher layers have not yet been processed this
@@ -128,7 +129,8 @@ class Sensations(ExplanatoryCoupling):
                 observation_content=prev.observation_mismatch,
                 predictor=self._predictor_for(state, i, feature_predictor),
                 gain=None,
-                goal=jnp.asarray(prev.dissonance),
+                reconstruction=prev.reconstruction_cost,
+                confounding=prev.confounding_cost,
                 streams=streams,
                 inference=inference,
             )

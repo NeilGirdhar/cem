@@ -128,7 +128,7 @@ def test_step_goal_prediction_error_uses_goal_penalty(
     assert jnp.allclose(outputs.goal_prediction_error, expected_error)
 
 
-def test_step_loss_is_scalar_and_promotes_baseline(
+def test_step_returns_scalar_goal_baseline_and_error(
     streams: Mapping[str, RngStream],
 ) -> None:
     n = 1
@@ -144,7 +144,8 @@ def test_step_loss_is_scalar_and_promotes_baseline(
         goal=jnp.asarray(1.0),
     )
 
-    assert outputs.loss.shape == ()
+    assert outputs.goal_baseline.shape == ()
+    assert outputs.goal_prediction_error.shape == ()
 
 
 def test_goal_penalty_retains_precision_from_emission(streams: Mapping[str, RngStream]) -> None:

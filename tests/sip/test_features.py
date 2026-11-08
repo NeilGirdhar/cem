@@ -9,13 +9,14 @@ from tjax import JaxRealArray, KeyArray, RngStream
 
 from cem.sip.features import (
     RecruiterFeature,
+    SensationFeature,
     SensationInputFeature,
-    SIPFeature,
     SIPFeatureSizes,
     TDFeature,
 )
 from cem.sip.messages import InstrumentedMessage
 from cem.sip.settings import TDSettings
+from cem.structure.graph import LossBalancedParameter
 
 from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _message
 
@@ -25,7 +26,8 @@ class _SIPStepInputs(TypedDict):
     observation_content: NormalNP
     predictor: InstrumentedMessage
     gain: InstrumentedMessage
-    goal: JaxRealArray
+    reconstruction: JaxRealArray
+    confounding: JaxRealArray
 
 
 class _TDStepInputs(TypedDict):
@@ -35,13 +37,13 @@ class _TDStepInputs(TypedDict):
 
 def _sip_feature(
     n: int, streams: Mapping[str, RngStream], *, controllable: bool = True
-) -> SIPFeature:
+) -> SensationFeature:
     sizes = SIPFeatureSizes(
         observation_content=1,
         predictor=2,
         gain=1,
     )
-    return SIPFeature.create(
+    return SensationFeature.create(
         n,
         sizes,
         controllable=controllable,
@@ -63,7 +65,8 @@ def _sip_inputs(n: int) -> _SIPStepInputs:
             observation=_message(jnp.ones(n), jnp.ones(n)),
             instrument=_message(jnp.asarray([0.4]), jnp.ones(1)),
         ),
-        goal=jnp.asarray(0.5),
+        reconstruction=jnp.asarray(0.5),
+        confounding=jnp.asarray(0.2),
     )
 
 
@@ -119,7 +122,7 @@ def test_sip_feature_loss_sums_emitter_and_mismatch(
         observation_content=inputs["observation_content"],
         predictor_instrument=inputs["predictor"].instrument,
         gain_observation=inputs["gain"].observation,
-        goal=inputs["goal"],
+        goals={"reconstruction": inputs["reconstruction"], "confounding": inputs["confounding"]},
     )
     mismatch_outputs = feature.mismatch.step(
         raw_observation=emitter_outputs.raw_observation,
@@ -219,6 +222,9 @@ def test_recruiter_feature_observation_equals_pre_gain(
     """
     n = 2
     feature = _recruiter_feature(n, streams)
+    observation_weight = feature.feature.emitter.observation_map.layers[0].weight
+    assert isinstance(observation_weight, LossBalancedParameter)
+    assert observation_weight.loss_names == ("confounding", "reconstruction")
     state = eqx.nn.State(feature)
     _, outputs = feature.step(
         state,
@@ -228,7 +234,8 @@ def test_recruiter_feature_observation_equals_pre_gain(
             observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
             instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
-        goal=jnp.asarray(0.5),
+        reconstruction=jnp.asarray(0.5),
+        confounding=jnp.asarray(0.2),
         streams=streams,
         inference=True,
     )
@@ -239,7 +246,7 @@ def test_recruiter_feature_observation_equals_pre_gain(
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
         predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain_observation=None,
-        goal=jnp.asarray(0.5),
+        goals={"reconstruction": jnp.asarray(0.5), "confounding": jnp.asarray(-0.2)},
     )
     assert jnp.allclose(
         outputs.message.observation.mean_times_precision,
@@ -274,7 +281,8 @@ def test_recruiter_feature_step_runs_without_gain(
             observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
             instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
-        goal=jnp.asarray(0.5),
+        reconstruction=jnp.asarray(0.5),
+        confounding=jnp.asarray(0.2),
         streams=streams,
         inference=True,
     )
@@ -359,10 +367,9 @@ def test_sensation_input_stores_message_into_state(
     )
 
 
-def test_sensation_input_outputs_dissonance_from_mismatch(
+def test_sensation_input_reports_prediction_costs(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """The feature's `dissonance` equals its mismatch's dissonance."""
     n = 3
     feature = _sensation_input(n, streams)
     state = eqx.nn.State(feature)
@@ -387,5 +394,6 @@ def test_sensation_input_outputs_dissonance_from_mismatch(
         streams=streams,
         inference=True,
     )
-    assert jnp.allclose(outputs.dissonance, mismatch_outputs.dissonance)
+    assert jnp.allclose(outputs.reconstruction_cost, mismatch_outputs.reconstruction_cost)
+    assert jnp.allclose(outputs.confounding_cost, mismatch_outputs.confounding_cost)
     assert jnp.allclose(outputs.loss, mismatch_outputs.loss)

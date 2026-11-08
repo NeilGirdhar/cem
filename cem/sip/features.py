@@ -1,14 +1,6 @@
-"""SIP features: compose circuit leaves into per-node units.
+"""Compose SIP circuits into sensation, intention, recruiter, prospect, and reward features.
 
-See `sip-td-error-circuit` in the thesis.
-
-`SIPFeature` is the identification node (Emitter and Mismatch), used in
-sensation and intention couplings. `SensationInputFeature` is the
-specialized sensation-stack input (no observation_map, no Credit).
-`ProspectFeature` is the reward-critic predictor (Emitter and Credit, no
-Mismatch). `TDFeature` is the reward node (TDError), with unit gain and no
-local noise. `RecruiterFeature` wraps a controllable `SIPFeature` with no
-gain parent.
+See `features` and `sip-td-error-circuit` in the thesis.
 """
 
 from collections.abc import Mapping
@@ -22,10 +14,13 @@ from tjax import JaxRealArray, KeyArray, RngStream
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
+from cem.sip.losses import SIPLossOutputs, combine_losses
 from cem.sip.messages import InstrumentedMessage, evidence_scale, mean_and_precision
 from cem.sip.mismatch import Mismatch
+from cem.sip.parameters import dissonance_parameter, disutility_parameter
 from cem.sip.settings import CreditSettings, MismatchSettings, TDSettings
 from cem.sip.td_error import TDError
+from cem.structure.graph import LearnableParameterFactory, SummedGradientParameter
 
 
 class SIPFeatureSizes(eqx.Module):
@@ -36,15 +31,13 @@ class SIPFeatureSizes(eqx.Module):
     gain: int
 
 
-class SIPFeatureOutputs(eqx.Module):
+class SIPFeatureOutputs(SIPLossOutputs):
     """An instrumented observation, its demand for explanation, and the training costs."""
 
     message: InstrumentedMessage  # post-gain, noised
     observation_mismatch: NormalNP  # 2n unit-presence demand signal
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
-    dissonance: JaxRealArray  # scalar; reconstruction and confounding
-    loss: JaxRealArray  # scalar; combined surrogate
 
 
 class SIPFeature(eqx.Module):
@@ -67,6 +60,9 @@ class SIPFeature(eqx.Module):
         credit_settings: CreditSettings,
         mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
+        observation_parameter_factory: LearnableParameterFactory[JaxRealArray] = (
+            SummedGradientParameter
+        ),
     ) -> Self:
         """Build an identification feature with separate widths for its three parent inputs.
 
@@ -75,7 +71,10 @@ class SIPFeature(eqx.Module):
         whether the witness also receives a gain instrument.
         """
         observation_map = GaussianNPN.create(
-            in_features=sizes.observation_content, out_features=n, streams=streams
+            in_features=sizes.observation_content,
+            out_features=n,
+            streams=streams,
+            parameter_factory=observation_parameter_factory,
         )
         instrument_map = GaussianNPN.create(
             in_features=sizes.predictor, out_features=n, streams=streams
@@ -102,7 +101,7 @@ class SIPFeature(eqx.Module):
             last_message_index=eqx.nn.StateIndex(InstrumentedMessage.initial(n)),
         )
 
-    def step(
+    def _step(
         self,
         state: eqx.nn.State,
         key: KeyArray,
@@ -110,7 +109,7 @@ class SIPFeature(eqx.Module):
         observation_content: NormalNP,
         predictor: InstrumentedMessage,
         gain: InstrumentedMessage | None,
-        goal: JaxRealArray,
+        goals: Mapping[str, JaxRealArray],
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
@@ -127,7 +126,7 @@ class SIPFeature(eqx.Module):
             observation_content=observation_content,
             predictor_instrument=predictor.instrument,
             gain_observation=gain_observation,
-            goal=goal,
+            goals=goals,
         )
         mismatch_outputs = self.mismatch.step(
             raw_observation=emitter_outputs.raw_observation,
@@ -143,8 +142,68 @@ class SIPFeature(eqx.Module):
             observation_mismatch=mismatch_outputs.mismatch,
             reconstruction_cost=mismatch_outputs.reconstruction_cost,
             confounding_cost=mismatch_outputs.confounding_cost,
-            dissonance=mismatch_outputs.dissonance,
-            loss=emitter_outputs.loss + mismatch_outputs.loss,
+            balanced_losses=combine_losses(
+                emitter_outputs.balanced_losses, mismatch_outputs.balanced_losses
+            ),
+            fixed_weight_loss=emitter_outputs.fixed_weight_loss
+            + mismatch_outputs.fixed_weight_loss,
+        )
+
+
+class SensationFeature(SIPFeature):
+    """Learn a sensation from the reconstruction and confounding costs below it."""
+
+    def step(  # ruff: ignore[too-many-arguments]
+        self,
+        state: eqx.nn.State,
+        key: KeyArray,
+        *,
+        observation_content: NormalNP,
+        predictor: InstrumentedMessage,
+        gain: InstrumentedMessage | None,
+        reconstruction: JaxRealArray,
+        confounding: JaxRealArray,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
+        return self._step(
+            state,
+            key,
+            observation_content=observation_content,
+            predictor=predictor,
+            gain=gain,
+            goals={"reconstruction": reconstruction, "confounding": confounding},
+            streams=streams,
+            inference=inference,
+        )
+
+
+class IntentionFeature(SIPFeature):
+    """Learn an intention from reward, curiosity, and tracking advantages."""
+
+    def step(  # ruff: ignore[too-many-arguments]
+        self,
+        state: eqx.nn.State,
+        key: KeyArray,
+        *,
+        observation_content: NormalNP,
+        predictor: InstrumentedMessage,
+        gain: InstrumentedMessage | None,
+        reward: JaxRealArray,
+        curiosity: JaxRealArray,
+        tracking: JaxRealArray,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
+        return self._step(
+            state,
+            key,
+            observation_content=observation_content,
+            predictor=predictor,
+            gain=gain,
+            goals={"reward": reward, "curiosity": curiosity, "tracking": tracking},
+            streams=streams,
+            inference=inference,
         )
 
 
@@ -221,15 +280,15 @@ class SensationInputFeature(eqx.Module):
             observation_mismatch=mismatch_outputs.mismatch,
             reconstruction_cost=mismatch_outputs.reconstruction_cost,
             confounding_cost=mismatch_outputs.confounding_cost,
-            dissonance=mismatch_outputs.dissonance,
-            loss=mismatch_outputs.loss,
+            balanced_losses=mismatch_outputs.balanced_losses,
+            fixed_weight_loss=mismatch_outputs.fixed_weight_loss,
         )
 
 
 class RecruiterFeature(eqx.Module):
     """Emit the gain that determines how strongly other features participate."""
 
-    feature: SIPFeature
+    feature: SensationFeature
 
     @classmethod
     def create(
@@ -248,13 +307,14 @@ class RecruiterFeature(eqx.Module):
             gain=0,
         )
         return cls(
-            feature=SIPFeature.create(
+            feature=SensationFeature.create(
                 n,
                 sizes,
                 controllable=True,
                 credit_settings=credit_settings,
                 mismatch_settings=mismatch_settings,
                 streams=streams,
+                observation_parameter_factory=disutility_parameter,
             )
         )
 
@@ -265,7 +325,8 @@ class RecruiterFeature(eqx.Module):
         *,
         observation_content: NormalNP,
         predictor: InstrumentedMessage,
-        goal: JaxRealArray,
+        reconstruction: JaxRealArray,
+        confounding: JaxRealArray,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
@@ -276,17 +337,17 @@ class RecruiterFeature(eqx.Module):
             observation_content=observation_content,
             predictor=predictor,
             gain=None,
-            goal=goal,
+            reconstruction=reconstruction,
+            confounding=-confounding,
             streams=streams,
             inference=inference,
         )
 
 
-class ProspectFeatureOutputs(eqx.Module):
-    """An instrumented input to the reward prediction and the loss that trains the prospect."""
+class ProspectFeatureOutputs(SIPLossOutputs):
+    """An instrumented reward predictor and the losses that train it."""
 
     message: InstrumentedMessage
-    loss: JaxRealArray  # scalar; emitter loss (credit and promoting link)
 
 
 class ProspectFeature(eqx.Module):
@@ -306,7 +367,10 @@ class ProspectFeature(eqx.Module):
         streams: Mapping[str, RngStream],
     ) -> Self:
         observation_map = GaussianNPN.create(
-            in_features=observation_content_features, out_features=n, streams=streams
+            in_features=observation_content_features,
+            out_features=n,
+            streams=streams,
+            parameter_factory=dissonance_parameter,
         )
         instrument_map = GaussianNPN.create(
             in_features=predictor_features, out_features=n, streams=streams
@@ -333,7 +397,8 @@ class ProspectFeature(eqx.Module):
         observation_content: NormalNP,
         predictor_instrument: NormalNP,
         gain: InstrumentedMessage | None,
-        goal: JaxRealArray,
+        reconstruction: JaxRealArray,
+        confounding: JaxRealArray,
     ) -> tuple[eqx.nn.State, ProspectFeatureOutputs]:
         """Advance the prospect feature one time step.
 
@@ -348,32 +413,38 @@ class ProspectFeature(eqx.Module):
             observation_content=observation_content,
             predictor_instrument=predictor_instrument,
             gain_observation=gain_observation,
-            goal=goal,
+            goals={"reconstruction": reconstruction, "confounding": confounding},
         )
         new_state = new_state.set(self.last_message_index, emitter_outputs.message)
         return new_state, ProspectFeatureOutputs(
             message=emitter_outputs.message,
-            loss=emitter_outputs.loss,
+            balanced_losses=emitter_outputs.balanced_losses,
+            fixed_weight_loss=emitter_outputs.fixed_weight_loss,
         )
 
 
-class TDFeatureOutputs(eqx.Module):
+class TDFeatureOutputs(SIPLossOutputs):
     """The observed reward, the advantage signal, and the costs of predicting reward."""
 
     observation: NormalNP  # the supplied reward observation, passed through unchanged
     advantage: JaxRealArray  # TD error in reward, replaces observation mismatch
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
-    dissonance: JaxRealArray  # scalar; reconstruction and confounding
     uncertainty_loss: JaxRealArray  # scalar
-    loss: JaxRealArray  # scalar; combined surrogate
+
+
+class TDCosts(eqx.Module):
+    """Prediction costs retained for the next prospect credit update."""
+
+    reconstruction: JaxRealArray
+    confounding: JaxRealArray
 
 
 class TDFeature(eqx.Module):
     """Learn the value of observed reward and supply credit signals that guide the agent."""
 
     td_error: TDError
-    last_dissonance_index: eqx.nn.StateIndex[JaxRealArray]
+    last_costs_index: eqx.nn.StateIndex[TDCosts]
     last_advantage_index: eqx.nn.StateIndex[JaxRealArray]
 
     @classmethod
@@ -385,6 +456,7 @@ class TDFeature(eqx.Module):
         td_settings: TDSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
+        zero_cost = jnp.asarray(0.0, dtype=jnp.float64)
         return cls(
             td_error=TDError.create(
                 n,
@@ -392,7 +464,9 @@ class TDFeature(eqx.Module):
                 td_settings=td_settings,
                 streams=streams,
             ),
-            last_dissonance_index=eqx.nn.StateIndex(jnp.asarray(0.0, dtype=jnp.float64)),
+            last_costs_index=eqx.nn.StateIndex(
+                TDCosts(reconstruction=zero_cost, confounding=zero_cost)
+            ),
             last_advantage_index=eqx.nn.StateIndex(jnp.zeros(n, dtype=jnp.float64)),
         )
 
@@ -407,8 +481,8 @@ class TDFeature(eqx.Module):
     ) -> tuple[eqx.nn.State, TDFeatureOutputs]:
         """Score the reward prediction and retain the signals for the next credit update.
 
-        Save dissonance, the sum of reconstruction and confounding costs, and advantage,
-        the difference between the bootstrap target mean and the delayed prediction mean.
+        Save each prediction cost and the difference between the bootstrap target mean and
+        the delayed prediction mean.
         """
         new_state, td_outputs = self.td_error.step(
             state,
@@ -417,15 +491,20 @@ class TDFeature(eqx.Module):
             streams=streams,
             inference=inference,
         )
-        dissonance = td_outputs.reconstruction_cost + td_outputs.confounding_cost
-        new_state = new_state.set(self.last_dissonance_index, dissonance)
+        new_state = new_state.set(
+            self.last_costs_index,
+            TDCosts(
+                reconstruction=td_outputs.reconstruction_cost,
+                confounding=td_outputs.confounding_cost,
+            ),
+        )
         new_state = new_state.set(self.last_advantage_index, td_outputs.advantage)
         return new_state, TDFeatureOutputs(
             observation=reward_observation,
             advantage=td_outputs.advantage,
             reconstruction_cost=td_outputs.reconstruction_cost,
             confounding_cost=td_outputs.confounding_cost,
-            dissonance=dissonance,
             uncertainty_loss=td_outputs.uncertainty_loss,
-            loss=td_outputs.loss,
+            balanced_losses=td_outputs.balanced_losses,
+            fixed_weight_loss=td_outputs.fixed_weight_loss,
         )

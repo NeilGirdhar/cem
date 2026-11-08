@@ -4,9 +4,11 @@ from cem.sip.credit import Credit, CreditOutputs, CreditTraces
 from cem.sip.emitter import Emitter, EmitterOutputs
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import (
+    IntentionFeature,
     ProspectFeature,
     ProspectFeatureOutputs,
     RecruiterFeature,
+    SensationFeature,
     SensationInputFeature,
     SIPFeature,
     SIPFeatureOutputs,
@@ -47,6 +49,7 @@ __all__ = [
     "EnvironmentFeatures",
     "ExplanatoryCoupling",
     "InstrumentedMessage",
+    "IntentionFeature",
     "Intentions",
     "Mismatch",
     "MismatchOutputs",
@@ -62,6 +65,7 @@ __all__ = [
     "SIPFeature",
     "SIPFeatureOutputs",
     "SIPFeatureSizes",
+    "SensationFeature",
     "SensationInputFeature",
     "Sensations",
     "TDError",

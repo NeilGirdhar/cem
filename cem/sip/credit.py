@@ -8,7 +8,7 @@ from efax import NormalNP
 from tjax import JaxRealArray
 
 from cem.npn.gaussian import GaussianNPN
-from cem.sip.messages import mean_and_precision, promoting_link_loss
+from cem.sip.messages import mean_and_precision
 from cem.sip.settings import CreditSettings
 from cem.structure.graph import FixedParameter
 
@@ -25,13 +25,13 @@ class CreditTraces(eqx.Module):
 
 
 class CreditOutputs(eqx.Module):
-    """Trace contributions, goal prediction error, and immediate observation credit."""
+    """Trace contributions, shrinkage credit, and the signals for training the goal baseline."""
 
     mean_contribution: JaxRealArray
     precision_contribution: JaxRealArray
     goal_prediction_error: JaxRealArray
     shrinkage_cotangent: JaxRealArray
-    loss: JaxRealArray
+    goal_baseline: JaxRealArray
 
 
 class Credit(eqx.Module):
@@ -109,5 +109,5 @@ class Credit(eqx.Module):
             precision_contribution=precision_contribution,
             goal_prediction_error=error,
             shrinkage_cotangent=-raw_mean * new_traces.obs_precision,
-            loss=promoting_link_loss(baseline, error),
+            goal_baseline=baseline,
         )

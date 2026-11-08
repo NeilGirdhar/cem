@@ -106,10 +106,10 @@ def test_sensations_input_feature_passes_observation_through_unchanged(
     )
 
 
-def test_sensations_infer_feeds_dissonance_from_below_as_goal(
+def test_sensations_infer_feeds_costs_from_below(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """Interior layer i's Credit goal equals the output dissonance of layer (i - 1)."""
+    """Each interior layer receives both costs from the layer below."""
     sizes = [2, 3]
     sensations = Sensations.create(
         sizes,
@@ -132,7 +132,6 @@ def test_sensations_infer_feeds_dissonance_from_below_as_goal(
         inference=True,
     )
 
-    # Re-run layer 0, then layer 1 with the explicit goal = outputs[0].dissonance.
     # Layer 0's effective predictor concats its external predictor with the
     # (absent) last-message of the single interior layer above it.
     fresh = eqx.nn.State(sensations)
@@ -153,7 +152,8 @@ def test_sensations_infer_feeds_dissonance_from_below_as_goal(
         observation_content=layer0.observation_mismatch,
         predictor=predictors[1],  # top layer has no higher layers to concat
         gain=None,
-        goal=jnp.asarray(layer0.dissonance),
+        reconstruction=layer0.reconstruction_cost,
+        confounding=layer0.confounding_cost,
         streams=streams,
         inference=True,
     )
@@ -163,6 +163,6 @@ def test_sensations_infer_feeds_dissonance_from_below_as_goal(
         layer1.message.observation.mean_times_precision,
     )
     assert jnp.allclose(
-        outputs[1].dissonance,
-        layer1.dissonance,
+        outputs[1].balanced_losses["confounding"],
+        layer1.balanced_losses["confounding"],
     )

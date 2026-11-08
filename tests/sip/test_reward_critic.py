@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import RngStream
 
-from cem.sip.features import ProspectFeature
+from cem.sip.features import ProspectFeature, TDCosts
 from cem.sip.messages import InstrumentedMessage, concat_messages
 from cem.sip.reward_critic import RewardCritic
 from cem.sip.settings import TDSettings
@@ -41,7 +41,8 @@ def test_prospect_feature_outputs_have_expected_shapes(
         observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
         predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain=None,
-        goal=jnp.asarray(0.5),
+        reconstruction=jnp.asarray(0.5),
+        confounding=jnp.asarray(0.2),
     )
     assert outputs.message.observation.mean_times_precision.shape == (n,)
     assert outputs.message.instrument.mean_times_precision.shape == (n,)
@@ -60,7 +61,8 @@ def test_prospect_message_is_independent_of_the_local_noise_key(
             observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
             predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
             gain=None,
-            goal=jnp.asarray(0.5),
+            reconstruction=jnp.asarray(0.5),
+            confounding=jnp.asarray(0.2),
         )
         messages.append(outputs.message)
     assert eqx.tree_equal(*messages)
@@ -78,7 +80,8 @@ def test_prospect_feature_stores_message_into_state(
         observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
         predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain=None,
-        goal=jnp.asarray(0.5),
+        reconstruction=jnp.asarray(0.5),
+        confounding=jnp.asarray(0.2),
     )
     stored = new_state.get(feature.last_message_index)
     assert jnp.allclose(
@@ -169,7 +172,7 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
     # Re-run prospects manually with the same keys, then TD directly.
     keys = jr.split(key, len(critic.prospect_features))
     fresh = eqx.nn.State(critic)
-    goal = fresh.get(critic.td_feature.last_dissonance_index)
+    costs = fresh.get(critic.td_feature.last_costs_index)
     prospects: list = []
     for feature, k, oc, pi in zip(
         critic.prospect_features, keys, observation_content, predictor_instruments, strict=True
@@ -180,7 +183,8 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
             observation_content=oc,
             predictor_instrument=pi,
             gain=None,
-            goal=goal,
+            reconstruction=costs.reconstruction,
+            confounding=costs.confounding,
         )
         prospects.append(out)
     expected_predictor = InstrumentedMessage(
@@ -195,21 +199,23 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
         inference=True,
     )
     assert jnp.allclose(outputs.td.advantage, td_out.advantage)
-    assert jnp.allclose(outputs.td.dissonance, td_out.dissonance)
+    assert jnp.allclose(outputs.td.reconstruction_cost, td_out.reconstruction_cost)
+    assert jnp.allclose(outputs.td.confounding_cost, td_out.confounding_cost)
 
 
-def test_reward_critic_feeds_td_dissonance_back_as_prospect_goal(
+def test_reward_critic_feeds_td_costs_back_to_prospects(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """Prospect features consume the TD feature's previous-step dissonance as goal."""
+    """Prospects receive the previous TD reconstruction and confounding costs."""
     critic = _critic(streams)
     state = eqx.nn.State(critic)
 
-    # Seed the TD feature's last_dissonance_index with a known non-zero value.
-    stored_goal = jnp.asarray(0.75, dtype=jnp.float64)
-    state = state.set(critic.td_feature.last_dissonance_index, stored_goal)
+    stored_costs = TDCosts(
+        reconstruction=jnp.asarray(0.7, dtype=jnp.float64),
+        confounding=jnp.asarray(0.2, dtype=jnp.float64),
+    )
+    state = state.set(critic.td_feature.last_costs_index, stored_costs)
 
-    # Run with the same key; the prospects should see `stored_goal` as goal.
     key = jr.key(0)
     observation_content = [
         _message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
@@ -230,7 +236,6 @@ def test_reward_critic_feeds_td_dissonance_back_as_prospect_goal(
         inference=True,
     )
 
-    # Rerun the first prospect directly with goal=stored_goal; outputs should match.
     keys = jr.split(key, len(critic.prospect_features))
     fresh = eqx.nn.State(critic)
     _, direct = critic.prospect_features[0].step(
@@ -239,7 +244,8 @@ def test_reward_critic_feeds_td_dissonance_back_as_prospect_goal(
         observation_content=observation_content[0],
         predictor_instrument=predictor_instruments[0],
         gain=None,
-        goal=stored_goal,
+        reconstruction=stored_costs.reconstruction,
+        confounding=stored_costs.confounding,
     )
     assert jnp.allclose(
         critic_outputs.prospects[0].message.observation.mean_times_precision,

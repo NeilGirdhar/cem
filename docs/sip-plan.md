@@ -52,8 +52,8 @@ Order of unblocked work: 1–12 (need `Emitter`, `Mismatch`, and `Credit`) then 
 
 - [ ] Smoke-test `SIPAgent.step` with `eqx.filter_jit` and with `vmap` over a batch of agents.
 - [ ] Test `_predictor_for` with three layers in both `Sensations` and `Intentions`.
-- [ ] Test that `SIPAgent` broadcasts summed TD advantage to all intention levels and sends TD
-  dissonance to prospects.
+- [ ] Test that `SIPAgent` broadcasts each summed TD advantage source to all intention levels
+  and sends both TD costs to prospects.
 
 ## Open design questions
 
