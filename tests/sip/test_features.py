@@ -224,7 +224,6 @@ def test_recruiter_feature_observation_equals_pre_gain(
     feature = _recruiter_feature(n, streams)
     observation_weight = feature.feature.emitter.observation_map.layers[0].weight
     assert isinstance(observation_weight, LossBalancedParameter)
-    assert observation_weight.loss_names == ("confounding", "reconstruction")
     state = eqx.nn.State(feature)
     _, outputs = feature.step(
         state,

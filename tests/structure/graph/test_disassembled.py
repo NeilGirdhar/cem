@@ -48,7 +48,7 @@ def test_multi_loss_group_receives_separate_loss_gradients() -> None:
     def partition(prediction: float, auxiliary: float) -> DisModel:
         return DisModel.create(
             _Model(
-                LossBalancedParameter(jnp.asarray(prediction), loss_names=loss_ids),
+                LossBalancedParameter(jnp.asarray(prediction)),
                 SummedGradientParameter(jnp.asarray(auxiliary)),
             ),
             parameter_types,
@@ -101,9 +101,9 @@ def _grouped_partition(
 ) -> DisModel:
     return DisModel.create(
         _GroupedModel(
-            prediction=LossBalancedParameter(jnp.asarray(prediction), loss_names=("third",)),
+            prediction=LossBalancedParameter(jnp.asarray(prediction)),
             auxiliary=SummedGradientParameter(jnp.asarray(auxiliary)),
-            other=_OtherBalancedParameter(jnp.asarray(other), loss_names=("first", "second")),
+            other=_OtherBalancedParameter(jnp.asarray(other)),
         ),
         tuple(transform.learnable_parameter_types()),
     )

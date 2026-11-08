@@ -31,7 +31,6 @@ def test_intentions_create_sizes_readouts_demands_and_predictors(
         expected = readout_features[i] + (0 if i == top else 2 * sizes[i + 1])
         assert observation_weight.value.shape[-1] == expected
         assert isinstance(observation_weight, LossBalancedParameter)
-        assert observation_weight.loss_names == ("curiosity", "reward", "tracking")
         assert isinstance(feature.emitter.instrument_map.layers[0].weight, SummedGradientParameter)
         predictor_width = feature.mismatch.prediction_map.input_pool.dummy_mean.value.size
         assert predictor_width == (sizes[i - 1] if i else 0)

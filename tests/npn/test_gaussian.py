@@ -1,7 +1,6 @@
 """Check Gaussian message encodings, moment propagation, and parameter counts."""
 
 from collections.abc import Mapping
-from functools import partial
 
 import jax.numpy as jnp
 from efax import NormalVP
@@ -86,13 +85,12 @@ def test_gaussian_npn_factory_wraps_input_pool_and_all_layers(
         1,
         hidden_features=(3,),
         streams=streams,
-        parameter_factory=partial(LossBalancedParameter, loss_names=("reward", "curiosity")),
+        parameter_factory=LossBalancedParameter,
     )
     parameters = tree.leaves(model, is_leaf=is_parameter)
     assert len(parameters) == 2 + 2 * len(model.layers)
     for parameter in parameters:
         assert isinstance(parameter, LossBalancedParameter)
-        assert parameter.loss_names == ("curiosity", "reward")
 
 
 def test_gaussian_npn_matches_perceptron_parameter_count(

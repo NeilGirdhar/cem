@@ -27,13 +27,10 @@ class SummedGradientParameter[A](LearnableParameter[A]):
 
 
 class LossBalancedParameter[A](LearnableParameter[A]):
-    """A parameter whose named loss gradients are balanced before the update."""
+    """A parameter whose loss gradients are to be balanced before the update.
 
-    loss_names: tuple[str, ...] = eqx.field(static=True)
-
-    def __init__(self, value: A, *, loss_names: tuple[str, ...]) -> None:
-        self.value = value
-        self.loss_names = tuple(sorted(set(loss_names)))
+    Each balancing group uses its own subclass, and the group's routing entry names its losses.
+    """
 
 
 class FixedParameter[A](Parameter[A]):

@@ -74,8 +74,8 @@ Every JAX array leaf inside a `Model` pytree must be wrapped in one of two param
 
 `LearnableParameter[A]`\
 Carries a JAX array updated by the optimizer. A `SummedGradientParameter` uses the sum of the
-gradients that reach it. A `LossBalancedParameter` stores a sorted tuple of `loss_names` for
-gradient balancing.
+gradients that reach it. A `LossBalancedParameter` marks a parameter for gradient balancing;
+each balancing group uses its own subclass.
 
 `FixedParameter[A]`\
 Carries a JAX array that is part of the model pytree but is *never* differentiated or updated

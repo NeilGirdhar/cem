@@ -17,10 +17,13 @@ from cem.sip.emitter import Emitter
 from cem.sip.losses import SIPLossOutputs, combine_losses
 from cem.sip.messages import InstrumentedMessage, evidence_scale, mean_and_precision
 from cem.sip.mismatch import Mismatch
-from cem.sip.parameters import dissonance_parameter, disutility_parameter
 from cem.sip.settings import CreditSettings, MismatchSettings, TDSettings
 from cem.sip.td_error import TDError
-from cem.structure.graph import LearnableParameterFactory, SummedGradientParameter
+from cem.structure.graph import (
+    LearnableParameterFactory,
+    LossBalancedParameter,
+    SummedGradientParameter,
+)
 
 
 class SIPFeatureSizes(eqx.Module):
@@ -314,7 +317,7 @@ class RecruiterFeature(eqx.Module):
                 credit_settings=credit_settings,
                 mismatch_settings=mismatch_settings,
                 streams=streams,
-                observation_parameter_factory=disutility_parameter,
+                observation_parameter_factory=LossBalancedParameter,
             )
         )
 
@@ -370,7 +373,7 @@ class ProspectFeature(eqx.Module):
             in_features=observation_content_features,
             out_features=n,
             streams=streams,
-            parameter_factory=dissonance_parameter,
+            parameter_factory=LossBalancedParameter,
         )
         instrument_map = GaussianNPN.create(
             in_features=predictor_features, out_features=n, streams=streams

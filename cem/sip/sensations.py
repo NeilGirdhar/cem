@@ -16,8 +16,8 @@ from cem.sip.features import (
     SIPFeatureSizes,
 )
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
-from cem.sip.parameters import dissonance_parameter
 from cem.sip.settings import CreditSettings, MismatchSettings
+from cem.structure.graph import LossBalancedParameter
 
 
 class Sensations(ExplanatoryCoupling):
@@ -78,7 +78,7 @@ class Sensations(ExplanatoryCoupling):
                     credit_settings=credit_settings,
                     mismatch_settings=mismatch_settings,
                     streams=streams,
-                    observation_parameter_factory=dissonance_parameter,
+                    observation_parameter_factory=LossBalancedParameter,
                 )
             )
         return cls(input_feature=input_feature, interior_features=tuple(interior))
