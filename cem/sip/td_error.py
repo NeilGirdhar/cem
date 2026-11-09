@@ -17,8 +17,9 @@ from cem.sip.messages import (
     mean_and_precision,
     variance_from_precision,
 )
+from cem.sip.parameters import TDPredictionParameter
 from cem.sip.settings import TDSettings
-from cem.structure.graph import FixedParameter, LossBalancedParameter
+from cem.structure.graph import FixedParameter
 
 
 class TDTraces(eqx.Module):
@@ -76,7 +77,7 @@ class TDError(eqx.Module):
                 out_features=n,
                 hidden_features=td_settings.prediction_hidden_features,
                 streams=streams,
-                parameter_factory=LossBalancedParameter,
+                parameter_factory=TDPredictionParameter,
             ),
             witness_map=MLP.create(
                 in_features=2 * predictor_features,

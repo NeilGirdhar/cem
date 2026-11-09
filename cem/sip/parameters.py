@@ -12,3 +12,10 @@ class MismatchPredictionParameter(LossBalancedParameter[JaxRealArray]):
 
     # Reconstruction comes first because MTAdam takes the first loss as its reference scale.
     loss_ids: ClassVar[Final[tuple[str, ...]]] = ("reconstruction", "confounding")
+
+
+class TDPredictionParameter(LossBalancedParameter[JaxRealArray]):
+    """A TD prediction parameter, balanced over reconstruction, confounding, and uncertainty."""
+
+    # Reconstruction comes first because MTAdam takes the first loss as its reference scale.
+    loss_ids: ClassVar[Final[tuple[str, ...]]] = ("reconstruction", "confounding", "uncertainty")

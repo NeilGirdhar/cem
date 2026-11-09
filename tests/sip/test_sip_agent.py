@@ -18,7 +18,7 @@ from cem.sip import (
     SIPObservation,
     TDSettings,
 )
-from cem.sip.parameters import MismatchPredictionParameter
+from cem.sip.parameters import MismatchPredictionParameter, TDPredictionParameter
 from cem.structure.graph import (
     FixedParameter,
     LossBalancedParameter,
@@ -94,7 +94,7 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
     assert td_error.prediction_map.layers[-1].bias.value.shape == (6,)
     assert td_error.prediction_map.input_pool.dummy_mean.value.shape == (12,)
     td_prediction_weight = td_error.prediction_map.layers[0].weight
-    assert isinstance(td_prediction_weight, LossBalancedParameter)
+    assert isinstance(td_prediction_weight, TDPredictionParameter)
     assert isinstance(td_error.witness_map.layers[0].weight, SummedGradientParameter)
 
 
@@ -180,7 +180,7 @@ class _Problem(Problem):
         return state.observation
 
 
-def test_shared_training_balances_sip_mismatch_predictions(
+def test_shared_training_balances_sip_predictions(
     streams: Mapping[str, RngStream],
 ) -> None:
     model = SIPModel.create(_agent(streams))
@@ -234,6 +234,16 @@ def test_shared_training_balances_sip_mismatch_predictions(
         is None
     )
 
+    td_state = dict(result.solution_state.gradient_states)[ParameterType(TDPredictionParameter)]
+    assert isinstance(td_state, MTAdamState)
+    assert td_state.count == 1
+    td_norms = td_state.gradient_norms
+    assert set(td_norms) == {"reconstruction", "confounding", "uncertainty"}
+    for name in td_norms:
+        norm = td_norms[name].agent.reward_critic.td_feature.td_error.prediction_map.layers[0]
+        assert jnp.isfinite(norm.weight.value)
+        assert norm.weight.value > 0
+
     updated = solution.inference.assemble_model(
         result.solution_state.dis_learnable_parameters.assembled()
     )
@@ -246,3 +256,6 @@ def test_shared_training_balances_sip_mismatch_predictions(
     assert not jnp.allclose(
         new.witness_map.layers[0].weight.value, old.witness_map.layers[0].weight.value
     )
+    old_td = model.agent.reward_critic.td_feature.td_error.prediction_map.layers[0].weight.value
+    new_td = updated.agent.reward_critic.td_feature.td_error.prediction_map.layers[0].weight.value
+    assert not jnp.allclose(new_td, old_td)
