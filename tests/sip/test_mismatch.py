@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from typing import TypedDict
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from efax import NormalNP
 from jax import tree
@@ -88,6 +89,28 @@ def test_separate_mismatch_gradients_sum_to_scalar_loss_gradient(
         gradients.fixed_weight_gradient,
     )
     assert eqx.tree_equal(total, eqx.filter_grad(scalar_loss)(mismatch), rtol=1e-7, atol=1e-9)
+
+
+def test_mismatch_holds_target_observation_fixed(streams: Mapping[str, RngStream]) -> None:
+    """No mismatch loss or mismatch component sends gradient into the raw observation or noise."""
+    n = 2
+    mismatch = _mismatch(n, streams)
+    inputs = _inputs(n)
+
+    def loss_fn(raw_observation: NormalNP, local_variance: JaxRealArray) -> JaxRealArray:
+        target_inputs = _StepInputs(
+            raw_observation=raw_observation,
+            local_variance=local_variance,
+            predictor=inputs["predictor"],
+            gain=inputs["gain"],
+        )
+        outputs = mismatch.step(**target_inputs, streams=streams, inference=True)
+        return outputs.loss + jnp.sum(outputs.mismatch.mean_times_precision)
+
+    gradients = jax.grad(loss_fn, argnums=(0, 1))(
+        inputs["raw_observation"], inputs["local_variance"] + 0.5
+    )
+    assert all(jnp.allclose(leaf, 0.0) for leaf in tree.leaves(gradients))
 
 
 def test_reconstruction_cost_trains_prediction_map(streams: Mapping[str, RngStream]) -> None:

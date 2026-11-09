@@ -135,15 +135,19 @@ class Mismatch(eqx.Module):
         predictor_observations: NormalNP,
         gain_observation: NormalNP | None,
     ) -> _Moments:
-        """Include fresh local noise in the target variance while keeping the raw target mean."""
+        """Include fresh local noise in the target variance while keeping the raw target mean.
+
+        Hold the target fixed so that mismatch costs cannot move the observation or its local
+        noise towards the prediction. See `sip-target-observation` in the thesis.
+        """
         raw_mean, raw_precision = mean_and_precision(raw_observation)
         pred_mean, pred_precision = mean_and_precision(
             self.prediction_map.infer(*mean_and_precision(predictor_observations))
         )
         gain = None if gain_observation is None else mean_and_precision(gain_observation)[0]
         return _Moments(
-            target_mean=raw_mean,
-            target_variance=1 / raw_precision + local_variance,
+            target_mean=jax.lax.stop_gradient(raw_mean),
+            target_variance=jax.lax.stop_gradient(1 / raw_precision + local_variance),
             pred_mean=pred_mean,
             pred_variance=1 / pred_precision,
             gain=gain,
