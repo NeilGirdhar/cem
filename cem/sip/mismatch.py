@@ -10,11 +10,11 @@ from efax import NormalNP
 from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
-from cem.perceptron.mlp import MLP
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import InstrumentedMessage, mean_and_precision
+from cem.sip.messages import InstrumentedMessage, concat_messages, mean_and_precision
 from cem.sip.parameters import MismatchPredictionParameter
 from cem.sip.settings import MismatchSettings
+from cem.sip.witness import WitnessMap
 
 
 class MismatchOutputs(SIPLossOutputs):
@@ -50,7 +50,7 @@ class Mismatch(eqx.Module):
     """
 
     prediction_map: GaussianNPN
-    witness_map: MLP
+    witness_map: WitnessMap
 
     @classmethod
     def create(
@@ -70,9 +70,9 @@ class Mismatch(eqx.Module):
                 streams=streams,
                 parameter_factory=MismatchPredictionParameter,
             ),
-            witness_map=MLP.create(
-                in_features=2 * (predictor_features + gain_features),
-                out_features=2 * n,
+            witness_map=WitnessMap.create(
+                n,
+                instrument_features=predictor_features + gain_features,
                 hidden_features=mismatch_settings.witness_hidden_features,
                 streams=streams,
             ),
@@ -153,19 +153,13 @@ class Mismatch(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxRealArray:
-        """Map instrument natural parameters to one mean and one variance weight per channel."""
-        parts = [
-            predictor_instruments.mean_times_precision,
-            predictor_instruments.negative_half_precision,
-        ]
-        if gain_instrument is not None:
-            parts.extend(
-                [gain_instrument.mean_times_precision, gain_instrument.negative_half_precision]
-            )
-        witness_input = jnp.concat(parts)
-        return self.witness_map.infer(witness_input, streams=streams, inference=inference).reshape(
-            -1, 2
+        """Return the witness over the predictor and gain instruments jointly."""
+        instruments = (
+            predictor_instruments
+            if gain_instrument is None
+            else concat_messages(predictor_instruments, gain_instrument)
         )
+        return self.witness_map.infer(instruments, streams=streams, inference=inference)
 
     def _witness_training(
         self,

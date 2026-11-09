@@ -82,20 +82,20 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
     )
     for mismatch in mismatches:
         assert mismatch.prediction_map.layers[0].bias.value.shape == (5,)
-        assert mismatch.witness_map.layers[0].bias.value.shape == (7,)
+        assert mismatch.witness_map.perceptron.layers[0].bias.value.shape == (7,)
         prediction_weight = mismatch.prediction_map.layers[0].weight
         assert isinstance(prediction_weight, MismatchPredictionParameter)
-        assert isinstance(mismatch.witness_map.layers[0].weight, SummedGradientParameter)
+        assert isinstance(mismatch.witness_map.perceptron.layers[0].weight, SummedGradientParameter)
 
     td_error = agent.reward_critic.td_feature.td_error
     assert jnp.isclose(td_error.discount.value, settings.td_settings.discount)
     assert td_error.prediction_map.layers[0].bias.value.shape == (9,)
-    assert td_error.witness_map.layers[0].bias.value.shape == (8,)
+    assert td_error.witness_map.perceptron.layers[0].bias.value.shape == (8,)
     assert td_error.prediction_map.layers[-1].bias.value.shape == (6,)
     assert td_error.prediction_map.input_pool.dummy_mean.value.shape == (12,)
     td_prediction_weight = td_error.prediction_map.layers[0].weight
     assert isinstance(td_prediction_weight, TDPredictionParameter)
-    assert isinstance(td_error.witness_map.layers[0].weight, SummedGradientParameter)
+    assert isinstance(td_error.witness_map.perceptron.layers[0].weight, SummedGradientParameter)
 
 
 def test_sip_agent_create_matches_coupling_shapes(
@@ -254,7 +254,8 @@ def test_shared_training_balances_sip_predictions(
         new.prediction_map.layers[0].weight.value, old.prediction_map.layers[0].weight.value
     )
     assert not jnp.allclose(
-        new.witness_map.layers[0].weight.value, old.witness_map.layers[0].weight.value
+        new.witness_map.perceptron.layers[0].weight.value,
+        old.witness_map.perceptron.layers[0].weight.value,
     )
     old_td = model.agent.reward_critic.td_feature.td_error.prediction_map.layers[0].weight.value
     new_td = updated.agent.reward_critic.td_feature.td_error.prediction_map.layers[0].weight.value

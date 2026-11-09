@@ -16,6 +16,9 @@ Circuit sub-modules:
 - `Credit` — eligibility-based parameter-update rule.
 - `Mismatch` — witness over predictor and gain instruments producing reconstruction and confounding
   costs.
+- `WitnessMap` — the confounding witness shared by `Mismatch` and `TDError`. It encodes each
+  instrument with bounded presence and returns tanh-bounded coefficients centred at the
+  all-certain-zero context.
 - `TDError` — Gaussian bootstrap value error with uncertainty penalty.
 - `Emitter` — forward dynamics: observation map, instrument map, noise top-up, injection.
 
@@ -114,9 +117,9 @@ The framework (`Problem` / `Model` / `Solver` / `Plotter` / `Experiment`) is doc
   value-learning and control tests (13–17) use the RL `Problem` in `cem/structure/rl/`.
 - The circuit needs the precision-κ transform on `DisGradientTransformation`.
 - Reuses `cem/npn/gaussian.py` (`GaussianNPN`, `normal_from_mean_and_presence`),
-  `cem/perceptron/mlp.py` (`MLP` for witness, witness-gain, and inherited-variance maps), and
-  `cem/transforms/` as needed. Gaussian natural-parameter conversions come from `efax` (`NormalNP`
-  / `NormalVP`).
+  `cem/perceptron/mlp.py` (`MLP` inside the witness map, and for the witness-gain and
+  inherited-variance maps), and `cem/transforms/` as needed. Gaussian natural-parameter conversions
+  come from `efax` (`NormalNP` / `NormalVP`).
 
 ## Tested claims
 

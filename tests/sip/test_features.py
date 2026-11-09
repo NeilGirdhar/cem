@@ -259,7 +259,7 @@ def test_recruiter_feature_witness_input_omits_gain(
     """The recruiter's witness map input dim is 2 * predictor_features only."""
     n = 2
     feature = _recruiter_feature(n, streams)
-    first_layer = feature.feature.mismatch.witness_map.layers[0]
+    first_layer = feature.feature.mismatch.witness_map.perceptron.layers[0]
     # predictor_features=2 → witness input dim = 2 * 2 (no gain concat).
     expected_input_dim = 2 * 2
     assert first_layer.weight.value.shape[-1] == expected_input_dim

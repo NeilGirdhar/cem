@@ -110,7 +110,7 @@ def test_reward_critic_td_predictor_dim_equals_sum_of_prospect_sizes(
     critic = _critic(streams)
     # TDError's witness_map input is 2 * (predictor_features + gain_features)
     # = 2 * sum(prospect_sizes); check the first layer's input dim.
-    witness = critic.td_feature.td_error.witness_map.layers[0].weight.value
+    witness = critic.td_feature.td_error.witness_map.perceptron.layers[0].weight.value
     assert witness.shape[-1] == 2 * (2 + 3)
 
 

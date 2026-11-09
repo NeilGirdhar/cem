@@ -10,7 +10,6 @@ from efax import NormalNP
 from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN
-from cem.perceptron.mlp import MLP
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import (
     InstrumentedMessage,
@@ -19,6 +18,7 @@ from cem.sip.messages import (
 )
 from cem.sip.parameters import TDPredictionParameter
 from cem.sip.settings import TDSettings
+from cem.sip.witness import WitnessMap
 from cem.structure.graph import FixedParameter
 
 
@@ -58,7 +58,7 @@ class TDError(eqx.Module):
     """
 
     prediction_map: GaussianNPN
-    witness_map: MLP
+    witness_map: WitnessMap
     discount: FixedParameter[JaxRealArray]  # scalar
     delay_index: eqx.nn.StateIndex[TDTraces]
 
@@ -79,9 +79,9 @@ class TDError(eqx.Module):
                 streams=streams,
                 parameter_factory=TDPredictionParameter,
             ),
-            witness_map=MLP.create(
-                in_features=2 * predictor_features,
-                out_features=2 * n,
+            witness_map=WitnessMap.create(
+                n,
+                instrument_features=predictor_features,
                 hidden_features=td_settings.witness_hidden_features,
                 streams=streams,
             ),
@@ -109,7 +109,7 @@ class TDError(eqx.Module):
         delayed_prediction = self.prediction_map.infer(
             *mean_and_precision(delayed.predictor.observation)
         )
-        delayed_witness = self._witness(
+        delayed_witness = self.witness_map.infer(
             delayed.predictor.instrument, streams=streams, inference=inference
         )
         current_prediction = self.prediction_map.infer(*mean_and_precision(predictor.observation))
@@ -138,24 +138,6 @@ class TDError(eqx.Module):
                 "uncertainty": uncertainty_loss,
             },
             fixed_weight_loss=witness_loss,
-        )
-
-    def _witness(
-        self,
-        predictor_instruments: NormalNP,
-        *,
-        streams: Mapping[str, RngStream],
-        inference: bool,
-    ) -> JaxRealArray:
-        """Map predictor instrument natural parameters to mean and variance weights for reward."""
-        witness_input = jnp.concat(
-            [
-                predictor_instruments.mean_times_precision,
-                predictor_instruments.negative_half_precision,
-            ]
-        )
-        return self.witness_map.infer(witness_input, streams=streams, inference=inference).reshape(
-            -1, 2
         )
 
     def _moments(

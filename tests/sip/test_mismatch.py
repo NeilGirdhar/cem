@@ -115,7 +115,7 @@ def test_confounding_cost_does_not_train_witness_map(
         return m.step(**inputs, streams=streams, inference=True).confounding_cost
 
     grads = eqx.filter_grad(loss_fn)(mismatch)
-    assert jnp.allclose(grads.witness_map.layers[-1].weight.value, 0.0)
+    assert jnp.allclose(grads.witness_map.perceptron.layers[-1].weight.value, 0.0)
 
 
 def test_witness_loss_does_not_train_prediction_map(
@@ -142,7 +142,7 @@ def test_witness_loss_trains_witness_map(streams: Mapping[str, RngStream]) -> No
         return m.step(**inputs, streams=streams, inference=True).witness_loss
 
     grads = eqx.filter_grad(loss_fn)(mismatch)
-    assert jnp.any(jnp.abs(grads.witness_map.layers[-1].weight.value) > 0)
+    assert jnp.any(jnp.abs(grads.witness_map.perceptron.layers[-1].weight.value) > 0)
 
 
 def _recruiter_mismatch(n: int, streams: Mapping[str, RngStream]) -> Mismatch:

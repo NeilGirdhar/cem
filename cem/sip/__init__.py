@@ -39,6 +39,7 @@ from cem.sip.settings import (
 )
 from cem.sip.sip_agent import SIPAgent, SIPAgentOutputs
 from cem.sip.td_error import TDError, TDErrorOutputs, TDTraces
+from cem.sip.witness import WitnessMap
 
 __all__ = [
     "Credit",
@@ -78,6 +79,7 @@ __all__ = [
     "TDFeatureOutputs",
     "TDSettings",
     "TDTraces",
+    "WitnessMap",
     "concat_instrumented_messages",
     "concat_messages",
     "evidence_scale",
