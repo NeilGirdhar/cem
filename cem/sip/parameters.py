@@ -4,7 +4,7 @@ from typing import ClassVar, Final
 
 from tjax import JaxRealArray
 
-from cem.structure.graph import LossBalancedParameter
+from cem.structure.graph import LearnableParameter, LossBalancedParameter
 
 
 class MismatchPredictionParameter(LossBalancedParameter[JaxRealArray]):
@@ -19,3 +19,7 @@ class TDPredictionParameter(LossBalancedParameter[JaxRealArray]):
 
     # Reconstruction comes first because MTAdam takes the first loss as its reference scale.
     loss_ids: ClassVar[Final[tuple[str, ...]]] = ("reconstruction", "confounding", "uncertainty")
+
+
+class WitnessMultiplierParameter(LearnableParameter[JaxRealArray]):
+    """A witness multiplier, projected onto the nonnegative reals after each update."""

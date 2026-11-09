@@ -16,9 +16,9 @@ from cem.sip.messages import (
     mean_and_precision,
     variance_from_precision,
 )
-from cem.sip.parameters import TDPredictionParameter
+from cem.sip.parameters import TDPredictionParameter, WitnessMultiplierParameter
 from cem.sip.settings import TDSettings
-from cem.sip.witness import WitnessMap
+from cem.sip.witness import WitnessMap, witness_loss
 from cem.structure.graph import FixedParameter
 
 
@@ -59,6 +59,7 @@ class TDError(eqx.Module):
 
     prediction_map: GaussianNPN
     witness_map: WitnessMap
+    witness_multiplier: WitnessMultiplierParameter  # scalar
     discount: FixedParameter[JaxRealArray]  # scalar
     delay_index: eqx.nn.StateIndex[TDTraces]
 
@@ -85,6 +86,7 @@ class TDError(eqx.Module):
                 hidden_features=td_settings.witness_hidden_features,
                 streams=streams,
             ),
+            witness_multiplier=WitnessMultiplierParameter(jnp.zeros(())),
             discount=FixedParameter(jnp.asarray(td_settings.discount, dtype=jnp.float64)),
             delay_index=eqx.nn.StateIndex(TDTraces.initial(predictor_features)),
         )
@@ -120,7 +122,7 @@ class TDError(eqx.Module):
         reconstruction_cost = _reconstruction_cost(moments)
         confounding_cost = jnp.sum(witness_residuals * jax.lax.stop_gradient(delayed_witness))
         uncertainty_loss = jnp.sum(moments.del_variance)
-        witness_loss = self._witness_training(witness_residuals, delayed_witness)
+        loss = witness_loss(witness_residuals, delayed_witness, None, self.witness_multiplier.value)
 
         advantage = moments.boot_mean - moments.del_mean
 
@@ -131,13 +133,13 @@ class TDError(eqx.Module):
             reconstruction_cost=reconstruction_cost,
             confounding_cost=confounding_cost,
             uncertainty_loss=uncertainty_loss,
-            witness_loss=witness_loss,
+            witness_loss=loss,
             balanced_losses={
                 "reconstruction": reconstruction_cost,
                 "confounding": confounding_cost,
                 "uncertainty": uncertainty_loss,
             },
-            fixed_weight_loss=witness_loss,
+            fixed_weight_loss=loss,
         )
 
     def _moments(
@@ -167,18 +169,6 @@ class TDError(eqx.Module):
             del_mean=del_mean,
             del_variance=1 / del_precision,
         )
-
-    def _witness_training(
-        self,
-        witness_residuals: JaxRealArray,
-        confounding_witness: JaxRealArray,
-    ) -> JaxRealArray:
-        """Train the witness on fixed TD residuals and penalize squared norm above one."""
-        covariance = -jnp.sum(jax.lax.stop_gradient(witness_residuals) * confounding_witness)
-        # At unit gain, the witness's expected squared norm is bounded by one.
-        # See `sip-norm-constraint` in the thesis.
-        constraint_violation = jnp.sum(jnp.square(confounding_witness)) - 1.0
-        return covariance + jnp.square(jnp.maximum(constraint_violation, 0.0))
 
 
 def _reconstruction_cost(moments: _Moments) -> JaxRealArray:

@@ -18,7 +18,8 @@ Circuit sub-modules:
   costs.
 - `WitnessMap` — the confounding witness shared by `Mismatch` and `TDError`. It encodes each
   instrument with bounded presence and returns tanh-bounded coefficients centred at the
-  all-certain-zero context.
+  all-certain-zero context. `witness_loss` trains it under the participation-weighted norm bound,
+  enforced by each circuit's learned witness multiplier.
 - `TDError` — Gaussian bootstrap value error with uncertainty penalty.
 - `Emitter` — forward dynamics: observation map, instrument map, noise top-up, injection.
 

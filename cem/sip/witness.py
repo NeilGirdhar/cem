@@ -1,9 +1,10 @@
-"""SIP confounding witness map: a bounded test of residuals against instrument context."""
+"""SIP confounding witness: a bounded test of residuals against instrument context."""
 
 from collections.abc import Mapping
 from typing import Self
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray, RngStream
@@ -73,3 +74,40 @@ def _encode(instruments: NormalNP) -> tuple[JaxRealArray, JaxRealArray]:
     precision = -2.0 * instruments.negative_half_precision
     scale = 1.0 / (1.0 + precision)
     return scale * instruments.mean_times_precision, scale * precision
+
+
+def witness_loss(
+    witness_residuals: JaxRealArray,
+    witness: JaxRealArray,
+    gain: JaxRealArray | None,
+    multiplier: JaxRealArray,
+) -> JaxRealArray:
+    """Return the witness loss plus its Lagrangian norm-constraint term.
+
+    Descending this loss trains the witness map to increase confounding error within the
+    participation-weighted norm bound and trains the multiplier to ascend on the bound's excess.
+    The constraint term contributes gradients only, so the value is the negated confounding
+    covariance. Without a gain, every channel has unit gain. See `sip-norm-constraint` in the
+    thesis.
+
+    Args:
+        witness_residuals: The mean and variance residuals, shape (n, 2), held fixed.
+        witness: The confounding witness, shape (n, 2).
+        gain: The gain observation, shape (n,), held fixed, or None.
+        multiplier: The witness multiplier, a nonnegative scalar.
+    """
+    if gain is None:
+        gated_residuals = jax.lax.stop_gradient(witness_residuals)
+        squared_norm = jnp.sum(jnp.square(witness))
+        norm_bound = 1.0
+    else:
+        gain = jax.lax.stop_gradient(gain)
+        gated_residuals = jax.lax.stop_gradient(gain[:, None] * witness_residuals)
+        squared_norm = jnp.sum(gain[:, None] * jnp.square(witness))
+        norm_bound = jnp.mean(gain)
+    covariance = jnp.sum(gated_residuals * witness)
+    excess = squared_norm - norm_bound
+    # The witness map descends on the multiplier times the excess, while the multiplier ascends.
+    fixed_multiplier = jax.lax.stop_gradient(multiplier)
+    constraint = fixed_multiplier * excess - multiplier * jax.lax.stop_gradient(excess)
+    return constraint - covariance

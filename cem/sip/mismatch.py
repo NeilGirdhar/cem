@@ -12,9 +12,9 @@ from tjax import JaxRealArray, RngStream
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, concat_messages, mean_and_precision
-from cem.sip.parameters import MismatchPredictionParameter
+from cem.sip.parameters import MismatchPredictionParameter, WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
-from cem.sip.witness import WitnessMap
+from cem.sip.witness import WitnessMap, witness_loss
 
 
 class MismatchOutputs(SIPLossOutputs):
@@ -51,6 +51,7 @@ class Mismatch(eqx.Module):
 
     prediction_map: GaussianNPN
     witness_map: WitnessMap
+    witness_multiplier: WitnessMultiplierParameter  # scalar
 
     @classmethod
     def create(
@@ -76,6 +77,7 @@ class Mismatch(eqx.Module):
                 hidden_features=mismatch_settings.witness_hidden_features,
                 streams=streams,
             ),
+            witness_multiplier=WitnessMultiplierParameter(jnp.zeros(())),
         )
 
     def step(
@@ -93,8 +95,8 @@ class Mismatch(eqx.Module):
         The outgoing mismatch carries mean and raw second-moment errors. The witness instead
         tests centred residuals for error predictable from the instruments.
 
-        When there is no gain parent, construct the witness with zero gain features. The
-        circuit then uses unit gain for both the losses and the witness norm constraint.
+        When there is no gain parent, construct the witness without gain features. The circuit
+        then uses unit gain for both the losses and the witness norm constraint.
         """
         gain_observation = None if gain is None else gain.observation
         gain_instrument = None if gain is None else gain.instrument
@@ -110,18 +112,20 @@ class Mismatch(eqx.Module):
             _scale_rows(witness_residuals, moments.gain)
             * jax.lax.stop_gradient(confounding_witness)
         )
-        witness_loss = self._witness_training(moments.gain, witness_residuals, confounding_witness)
+        loss = witness_loss(
+            witness_residuals, confounding_witness, moments.gain, self.witness_multiplier.value
+        )
 
         return MismatchOutputs(
             mismatch=reconstruction.mismatch,
             reconstruction_cost=reconstruction.cost,
             confounding_cost=confounding_cost,
-            witness_loss=witness_loss,
+            witness_loss=loss,
             balanced_losses={
                 "reconstruction": reconstruction.cost,
                 "confounding": confounding_cost,
             },
-            fixed_weight_loss=witness_loss,
+            fixed_weight_loss=loss,
         )
 
     def _moments(
@@ -160,22 +164,6 @@ class Mismatch(eqx.Module):
             else concat_messages(predictor_instruments, gain_instrument)
         )
         return self.witness_map.infer(instruments, streams=streams, inference=inference)
-
-    def _witness_training(
-        self,
-        gain: JaxRealArray | None,
-        witness_residuals: JaxRealArray,
-        confounding_witness: JaxRealArray,
-    ) -> JaxRealArray:
-        """Train the witness on fixed residuals and penalize excess gain-weighted norm."""
-        covariance = -jnp.sum(
-            _scale_rows(jax.lax.stop_gradient(witness_residuals), gain) * confounding_witness
-        )
-        norm_bound = 1.0 if gain is None else jnp.mean(gain)
-        constraint_violation = (
-            jnp.sum(_scale_rows(jnp.square(confounding_witness), gain)) - norm_bound
-        )
-        return covariance + jnp.square(jnp.maximum(constraint_violation, 0.0))
 
 
 def _reconstruction_and_mismatch(moments: _Moments) -> _Reconstruction:

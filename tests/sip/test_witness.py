@@ -1,13 +1,19 @@
-"""Check the confounding witness at the instrument contexts that the thesis constrains."""
+"""Check the confounding witness, its training loss, and the multiplier projection."""
 
 from collections.abc import Mapping
 
+import jax
 import jax.numpy as jnp
 import pytest
+from jax.experimental import checkify
 from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import normal_from_mean_and_presence
-from cem.sip import WitnessMap
+from cem.sip import SIPModel, WitnessMap
+from cem.sip.parameters import WitnessMultiplierParameter
+from cem.sip.witness import witness_loss
+from cem.structure.graph import DisModel, Model
+from cem.structure.graph.losses import LossGradients
 
 _N = 3
 _FEATURES = 4
@@ -65,3 +71,55 @@ def test_witness_is_bounded_for_extreme_instruments(
     )
     assert jnp.all(jnp.isfinite(witness))
     assert jnp.all(jnp.abs(witness) <= 1.0)
+
+
+_RESIDUALS = jnp.asarray([[0.5, -1.0], [2.0, 0.25]])
+_WITNESS = jnp.asarray([[0.8, -0.6], [0.3, 0.9]])
+_GAIN = jnp.asarray([1.0, 0.5])
+
+
+@pytest.mark.parametrize("gain", [None, _GAIN])
+def test_witness_loss_gradients_follow_the_lagrangian(gain: JaxRealArray | None) -> None:
+    multiplier = jnp.asarray(0.7)
+    unit_gain = jnp.ones(2) if gain is None else gain
+    excess = jnp.sum(unit_gain[:, None] * jnp.square(_WITNESS)) - jnp.mean(unit_gain)
+    witness_gradient, multiplier_gradient = jax.grad(witness_loss, argnums=(1, 3))(
+        _RESIDUALS, _WITNESS, gain, multiplier
+    )
+    expected_witness_gradient = unit_gain[:, None] * (2.0 * multiplier * _WITNESS - _RESIDUALS)
+    assert jnp.allclose(witness_gradient, expected_witness_gradient)
+    # Descending on the negated excess makes the multiplier ascend on the excess.
+    assert jnp.isclose(multiplier_gradient, -excess)
+
+
+def test_witness_loss_value_is_the_negated_covariance() -> None:
+    loss = witness_loss(_RESIDUALS, _WITNESS, _GAIN, jnp.asarray(3.0))
+    assert jnp.isclose(loss, -jnp.sum(_GAIN[:, None] * _RESIDUALS * _WITNESS))
+
+
+class _MultiplierModel(Model):
+    multiplier: WitnessMultiplierParameter
+
+
+@pytest.mark.parametrize(("gradient", "expect_positive"), [(1.0, False), (-1.0, True)])
+def test_sip_routing_projects_the_multiplier_onto_nonnegative_values(
+    gradient: float, *, expect_positive: bool
+) -> None:
+    transform = SIPModel.gradient_transformations(0.1)
+    parameter_types = tuple(transform.learnable_parameter_types())
+
+    def partition(value: float) -> DisModel:
+        model = _MultiplierModel(WitnessMultiplierParameter(jnp.asarray(value)))
+        return DisModel.create(model, parameter_types)
+
+    model = partition(0.0)
+    gradients = LossGradients(
+        {name: partition(0.0) for name in transform.requested_loss_ids()}, partition(gradient)
+    )
+    checked = checkify.checkify(transform.update, errors=checkify.user_checks)
+    error, (delta, _) = checked(gradients, transform.init(model), model)
+    error.throw()
+    update = delta.assembled()
+    assert isinstance(update, _MultiplierModel)
+    multiplier = update.multiplier.value
+    assert multiplier > 0 if expect_positive else multiplier == 0

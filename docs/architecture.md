@@ -96,12 +96,15 @@ are architectural constants.
 
 **Nonnegative learnable parameters.**
 
-Store the unconstrained `LearnableParameter[JaxRealArray]` in ℝ and apply `jax.nn.softplus` at
-every read site. This is the canonical pattern — no projection step, smooth autodiff, bounded
-nonnegativity at the API surface. Use the same pattern for scalars (Lagrange multipliers, loss
-scales) and arrays (per-channel precisions, loss weights). Alternatives like projected updates
-(`jnp.maximum(value, 0)` after each step) require a post-update hook the gradient-transform pipeline
-doesn't currently provide.
+By default, store the unconstrained `LearnableParameter[JaxRealArray]` in ℝ and apply
+`jax.nn.softplus` at every read site. This gives smooth autodiff and nonnegativity at the API
+surface. Use it for scales such as per-channel precisions and loss weights, which should stay
+positive.
+
+A Lagrange multiplier must be able to reach zero when its constraint is slack, which softplus never
+does. Give it its own parameter class and route that class to a transform chained with
+`KeepParamsNonnegative`, which projects the parameter onto the nonnegative reals after each update.
+The SIP witness multiplier (`WitnessMultiplierParameter`) uses this pattern.
 
 ## Training infrastructure
 
