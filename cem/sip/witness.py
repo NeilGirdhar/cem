@@ -20,6 +20,9 @@ class WitnessMap(eqx.Module):
     context that supplies neither displacement nor spread. See `sip-confounding-witness` in the
     thesis.
 
+    The instruments enter held fixed, which leaves instrument fitting to each emitter's instrument
+    mismatch.
+
     Each Gaussian instrument coordinate enters as the pair (u, r) with r = 1 / (1 + σ²) and
     u = r m. The perceptron output is centred at the all-certain-zero context, whose pairs all equal
     (0, 1), and passed through tanh.
@@ -57,7 +60,7 @@ class WitnessMap(eqx.Module):
 
         The perceptron has no dropout, so subtracting its output at the reference is exact.
         """
-        encoded = _encode(instruments)
+        encoded = _encode(jax.lax.stop_gradient(instruments))
         reference = jnp.concat([jnp.zeros_like(encoded[0]), jnp.ones_like(encoded[1])])
         batch = jnp.stack([jnp.concat(encoded), reference])
         output, reference_output = self.perceptron.infer(

@@ -11,7 +11,12 @@ from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import InstrumentedMessage, concat_messages, mean_and_precision
+from cem.sip.messages import (
+    InstrumentedMessage,
+    concat_messages,
+    gaussian_cross_entropy,
+    mean_and_precision,
+)
 from cem.sip.parameters import MismatchPredictionParameter, WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
 from cem.sip.witness import WitnessMap, witness_loss
@@ -138,13 +143,22 @@ class Mismatch(eqx.Module):
         """Include fresh local noise in the target variance while keeping the raw target mean.
 
         Hold the target fixed so that mismatch costs cannot move the observation or its local
-        noise towards the prediction. See `sip-target-observation` in the thesis.
+        noise towards the prediction. Hold the predictor observations fixed so that the parents
+        learn from their own goals rather than from these costs. Hold the gain fixed because
+        differentiating a positive cost through it would favour reducing participation. See
+        `sip-target-observation` and `sip-prediction-map` in the thesis.
         """
         raw_mean, raw_precision = mean_and_precision(raw_observation)
         pred_mean, pred_precision = mean_and_precision(
-            self.prediction_map.infer(*mean_and_precision(predictor_observations))
+            self.prediction_map.infer(
+                *mean_and_precision(jax.lax.stop_gradient(predictor_observations))
+            )
         )
-        gain = None if gain_observation is None else mean_and_precision(gain_observation)[0]
+        gain = (
+            None
+            if gain_observation is None
+            else jax.lax.stop_gradient(mean_and_precision(gain_observation)[0])
+        )
         return _Moments(
             target_mean=jax.lax.stop_gradient(raw_mean),
             target_variance=jax.lax.stop_gradient(1 / raw_precision + local_variance),
@@ -172,9 +186,8 @@ class Mismatch(eqx.Module):
 
 def _reconstruction_and_mismatch(moments: _Moments) -> _Reconstruction:
     mean_resid = moments.pred_mean - moments.target_mean
-    recon_density = 0.5 * (
-        jnp.log(2.0 * jnp.pi * moments.pred_variance)
-        + (moments.target_variance + jnp.square(mean_resid)) / moments.pred_variance
+    recon_density = gaussian_cross_entropy(
+        moments.target_mean, moments.target_variance, moments.pred_mean, moments.pred_variance
     )
     recon_error = recon_density if moments.gain is None else moments.gain * recon_density
     reconstruction_cost = jnp.sum(recon_error)

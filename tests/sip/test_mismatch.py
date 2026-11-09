@@ -196,3 +196,22 @@ def test_mismatch_accepts_none_gain(streams: Mapping[str, RngStream]) -> None:
     outputs = mismatch.step(**_recruiter_inputs(n), streams=streams, inference=True)
     assert jnp.isfinite(outputs.loss)
     assert outputs.mismatch.mean_times_precision.shape == (2 * n,)
+
+
+def test_mismatch_holds_predictor_and_gain_fixed(streams: Mapping[str, RngStream]) -> None:
+    """No mismatch loss sends gradient into the parents' observations, instruments, or gain."""
+    n = 2
+    mismatch = _mismatch(n, streams)
+    inputs = _inputs(n)
+
+    def loss_fn(predictor: InstrumentedMessage, gain: InstrumentedMessage) -> JaxRealArray:
+        parent_inputs = _StepInputs(
+            raw_observation=inputs["raw_observation"],
+            local_variance=inputs["local_variance"],
+            predictor=predictor,
+            gain=gain,
+        )
+        return mismatch.step(**parent_inputs, streams=streams, inference=True).loss
+
+    gradients = jax.grad(loss_fn, argnums=(0, 1))(inputs["predictor"], inputs["gain"])
+    assert all(jnp.allclose(leaf, 0.0) for leaf in tree.leaves(gradients))

@@ -2,14 +2,16 @@ from collections.abc import Mapping
 from typing import TypedDict
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from efax import NormalNP
-from tjax import RngStream
+from jax import tree
+from tjax import JaxRealArray, RngStream
 
 from cem.sip import InstrumentedMessage
 from cem.sip.messages import mean_and_precision
 from cem.sip.settings import TDSettings
-from cem.sip.td_error import TDError
+from cem.sip.td_error import TDError, TDTraces
 
 from .tools import _i_message, _message
 
@@ -220,3 +222,27 @@ def test_discount_scales_current_prediction_contribution_to_advantage(
     )
     cur_mean, _ = mean_and_precision(current_prediction)
     assert jnp.allclose(out_one.advantage - out_zero.advantage, cur_mean)
+
+
+def test_td_error_holds_predictor_inputs_fixed(streams: Mapping[str, RngStream]) -> None:
+    """No TD loss sends gradient into the current or stored predictor messages."""
+    n = 2
+    td = _td_error(n, streams)
+    inputs = _inputs(n)
+    stored = _i_message(
+        jnp.asarray([-0.4, 0.2]), jnp.asarray([2.0, 1.0]), jnp.asarray([0.1, 0.3]), jnp.ones(2)
+    )
+
+    def loss_fn(current: InstrumentedMessage, delayed: InstrumentedMessage) -> JaxRealArray:
+        state = eqx.nn.State(td).set(td.delay_index, TDTraces(predictor=delayed))
+        _, outputs = td.step(
+            state,
+            reward_observation=inputs["reward_observation"],
+            predictor=current,
+            streams=streams,
+            inference=True,
+        )
+        return outputs.loss
+
+    gradients = jax.grad(loss_fn, argnums=(0, 1))(inputs["predictor"], stored)
+    assert all(jnp.allclose(leaf, 0.0) for leaf in tree.leaves(gradients))

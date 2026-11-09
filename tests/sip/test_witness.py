@@ -123,3 +123,15 @@ def test_sip_routing_projects_the_multiplier_onto_nonnegative_values(
     assert isinstance(update, _MultiplierModel)
     multiplier = update.multiplier.value
     assert multiplier > 0 if expect_positive else multiplier == 0
+
+
+def test_witness_holds_instruments_fixed(
+    witness_map: WitnessMap, streams: Mapping[str, RngStream]
+) -> None:
+    """Witness learning leaves instrument fitting to the instrument mismatch."""
+    mean = jnp.asarray([0.5, -0.3, 0.2, 0.1])
+    precision = jnp.asarray([1.0, 2.0, 0.5, 4.0])
+    gradients = jax.grad(
+        lambda m, p: jnp.sum(_witness(witness_map, m, p, streams)), argnums=(0, 1)
+    )(mean, precision)
+    assert all(jnp.allclose(gradient, 0.0) for gradient in gradients)

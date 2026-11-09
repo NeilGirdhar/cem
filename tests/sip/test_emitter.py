@@ -4,6 +4,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from efax import NormalNP
+from jax import tree
 from tjax import RngStream
 
 from cem.npn.gaussian import GaussianNPN
@@ -172,3 +173,39 @@ def test_observation_projection_stops_gradients_at_its_input(
     assert jnp.allclose(content_gradient.mean_times_precision, 0.0)
     assert jnp.allclose(content_gradient.negative_half_precision, 0.0)
     assert jnp.any(emitter_gradient.observation_map.layers[-1].bias.value != 0)
+
+
+def test_instrument_mismatch_trains_only_the_instrument_map(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """The emitter's loss trains its instrument map but not the parents' instruments or gain."""
+    n = 2
+    emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=True, streams=streams)
+    state = eqx.nn.State(emitter)
+
+    def loss_fn(
+        em: Emitter, predictor_instrument: NormalNP, gain_observation: NormalNP
+    ) -> jnp.ndarray:
+        _, outputs = em.step(
+            state,
+            jr.key(0),
+            observation_content=_message(jnp.asarray([0.5]), jnp.ones(1)),
+            predictor_instrument=predictor_instrument,
+            gain_observation=gain_observation,
+            goals={"reward": jnp.asarray(0.0)},
+        )
+        return outputs.loss
+
+    model_gradient, instrument_gradient, gain_gradient = eqx.filter_grad(
+        lambda args: loss_fn(*args)
+    )(
+        (
+            emitter,
+            _message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 2.0])),
+            _message(jnp.asarray([0.6, 0.9]), jnp.ones(n)),
+        )
+    )
+    assert jnp.any(jnp.abs(model_gradient.instrument_map.layers[-1].weight.value) > 0)
+    assert all(
+        jnp.allclose(leaf, 0.0) for leaf in tree.leaves((instrument_gradient, gain_gradient))
+    )

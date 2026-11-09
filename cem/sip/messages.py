@@ -19,6 +19,7 @@ __all__ = [
     "concat_instrumented_messages",
     "concat_messages",
     "evidence_scale",
+    "gaussian_cross_entropy",
     "mean_and_precision",
     "promoting_link_loss",
     "suppressing_link_loss",
@@ -116,4 +117,17 @@ def evidence_scale(message: NormalNP, gain: JaxRealArray) -> NormalNP:
     return NormalNP(
         mean_times_precision=gain * message.mean_times_precision,
         negative_half_precision=gain * message.negative_half_precision,
+    )
+
+
+def gaussian_cross_entropy(
+    target_mean: JaxRealArray,
+    target_variance: JaxRealArray,
+    pred_mean: JaxRealArray,
+    pred_variance: JaxRealArray,
+) -> JaxRealArray:
+    """Return the per-channel cross-entropy of a Gaussian target under a Gaussian prediction."""
+    return 0.5 * (
+        jnp.log(2.0 * jnp.pi * pred_variance)
+        + (target_variance + jnp.square(target_mean - pred_mean)) / pred_variance
     )

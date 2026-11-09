@@ -14,6 +14,7 @@ from tjax import JaxRealArray, KeyArray, RngStream
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
+from cem.sip.instrument import inherit_instrument, instrument_mismatch_loss
 from cem.sip.losses import SIPLossOutputs, combine_losses
 from cem.sip.messages import InstrumentedMessage, evidence_scale, mean_and_precision
 from cem.sip.mismatch import Mismatch
@@ -254,17 +255,18 @@ class SensationInputFeature(eqx.Module):
         """Pair the supplied observation with an inherited instrument and score its prediction.
 
         The supplied observation is already the target, so there is no learned observation map
-        or local noise. Save the outgoing message after any gain scaling.
+        or local noise. The instrument mismatch fits the inherited instrument to the supplied
+        observation. Save the outgoing message after any gain scaling.
         """
-        inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictor.instrument))
+        inherited_instrument = inherit_instrument(self.instrument_map, predictor.instrument)
         inherited_mean, _ = mean_and_precision(inherited_instrument)
         local_variance = jnp.zeros_like(inherited_mean)
 
-        if gain is None:
+        gain_mean = None if gain is None else mean_and_precision(gain.observation)[0]
+        if gain_mean is None:
             out_observation = observation
             out_instrument = inherited_instrument
         else:
-            gain_mean, _ = mean_and_precision(gain.observation)
             out_observation = evidence_scale(observation, gain_mean)
             out_instrument = evidence_scale(inherited_instrument, gain_mean)
 
@@ -284,7 +286,8 @@ class SensationInputFeature(eqx.Module):
             reconstruction_cost=mismatch_outputs.reconstruction_cost,
             confounding_cost=mismatch_outputs.confounding_cost,
             balanced_losses=mismatch_outputs.balanced_losses,
-            fixed_weight_loss=mismatch_outputs.fixed_weight_loss,
+            fixed_weight_loss=mismatch_outputs.fixed_weight_loss
+            + instrument_mismatch_loss(inherited_instrument, observation, gain_mean),
         )
 
 

@@ -22,6 +22,12 @@ Circuit sub-modules:
   enforced by each circuit's learned witness multiplier.
 - `TDError` — Gaussian bootstrap value error with uncertainty penalty.
 - `Emitter` — forward dynamics: observation map, instrument map, noise top-up, injection.
+- `inherit_instrument`, `instrument_mismatch_loss` — the first-stage instrument map and the
+  gain-gated cross-entropy that fits it to the raw observation.
+
+Circuits train only their own maps. Prediction maps, witness maps, and instrument maps take their
+parents' messages with gradients stopped, and mismatch costs hold the target and the gain fixed.
+Parents learn from their own goals through credit.
 
 Features (per causal node):
 
@@ -83,9 +89,12 @@ is one.
 
 - `cem/sip/` — the circuit.
     - `messages.py` — `InstrumentedMessage` plus SIP-specific Gaussian helpers (concatenation,
-      evidence scaling, variance-from-precision, promoting/suppressing link losses).
+      evidence scaling, variance-from-precision, Gaussian cross-entropy, promoting/suppressing
+      link losses).
     - `credit.py` — `Credit`.
     - `mismatch.py` — `Mismatch`.
+    - `witness.py` — `WitnessMap`, `witness_loss`.
+    - `instrument.py` — `inherit_instrument`, `instrument_mismatch_loss`.
     - `td_error.py` — `TDError`.
     - `emitter.py` — `Emitter`.
     - `features.py` — `SIPFeature`, `SensationInputFeature`, `ProspectFeature`, `TDFeature`,

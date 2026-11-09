@@ -12,6 +12,7 @@ from tjax import JaxRealArray, KeyArray
 
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.sip.credit import Credit, CreditOutputs
+from cem.sip.instrument import inherit_instrument, instrument_mismatch_loss
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import (
     InstrumentedMessage,
@@ -96,10 +97,11 @@ class Emitter(eqx.Module):
         both at their original precision and use unit gain for credit.
 
         Each named goal scales the mean trace. The fixed-weight loss uses the full goal prediction
-        error for precision credit and baseline learning, and includes mean shrinkage.
+        error for precision credit and baseline learning, and includes mean shrinkage and the
+        instrument mismatch.
         """
         raw_observation, pullback = self.observation_projection.infer(observation_content)
-        inherited_instrument = self.instrument_map.infer(*mean_and_precision(predictor_instrument))
+        inherited_instrument = inherit_instrument(self.instrument_map, predictor_instrument)
         inherited_mean, inherited_precision = mean_and_precision(inherited_instrument)
 
         if self.controllable:
@@ -112,11 +114,11 @@ class Emitter(eqx.Module):
             noised_raw_observation = raw_observation
             noised_instrument = inherited_instrument
 
-        if gain_observation is None:
+        gain = None if gain_observation is None else mean_and_precision(gain_observation)[0]
+        if gain is None:
             observation = noised_raw_observation
             instrument = noised_instrument
         else:
-            gain, _ = mean_and_precision(gain_observation)
             observation = evidence_scale(noised_raw_observation, gain)
             instrument = evidence_scale(noised_instrument, gain)
 
@@ -163,6 +165,7 @@ class Emitter(eqx.Module):
         fixed_weight_loss += promoting_link_loss(
             credit_outputs.goal_baseline, credit_outputs.goal_prediction_error
         )
+        fixed_weight_loss += instrument_mismatch_loss(inherited_instrument, raw_observation, gain)
         outputs = EmitterOutputs(
             message=InstrumentedMessage(observation, instrument),
             raw_observation=raw_observation,
