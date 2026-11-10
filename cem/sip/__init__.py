@@ -22,7 +22,6 @@ from cem.sip.messages import (
     concat_instrumented_messages,
     concat_messages,
     evidence_scale,
-    mean_and_precision,
     promoting_link_loss,
     suppressing_link_loss,
 )
@@ -83,7 +82,6 @@ __all__ = [
     "concat_instrumented_messages",
     "concat_messages",
     "evidence_scale",
-    "mean_and_precision",
     "promoting_link_loss",
     "suppressing_link_loss",
 ]

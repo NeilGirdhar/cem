@@ -6,18 +6,17 @@ from typing import Self
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from efax import NormalNP
+from efax import NormalNP, NormalPP
 from jax.lax import stop_gradient
 from tjax import JaxRealArray, KeyArray
 
-from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
+from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit, CreditOutputs
 from cem.sip.instrument import inherit_instrument, instrument_mismatch_loss
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import (
     InstrumentedMessage,
     evidence_scale,
-    mean_and_precision,
     promoting_link_loss,
 )
 from cem.structure.graph import EligibilityTraining
@@ -154,7 +153,7 @@ class Emitter(eqx.Module):
         new_state = new_state.set(
             self.trace_index, _ObservationTraces(mean=mean_trace, precision=precision_trace)
         )
-        raw_mean, _ = mean_and_precision(raw_observation)
+        raw_mean = raw_observation.mean()
         balanced_losses = {
             name: self.observation_projection.get_loss(mean_trace, goal)
             for name, goal in goals.items()
@@ -205,12 +204,12 @@ def _project_observation(
     model: GaussianNPN, content: NormalNP
 ) -> tuple[_ObservationCoordinates, NormalNP]:
     """Project the content while confining observation credit to the map parameters."""
-    observation = model.infer(*mean_and_precision(stop_gradient(content)))
-    mean, precision = mean_and_precision(observation)
-    return _ObservationCoordinates(mean=mean, precision=precision), observation
+    observation = model.infer(stop_gradient(content))
+    moments = observation.to_precision_parametrization()
+    return _ObservationCoordinates(mean=moments.mean, precision=moments.precision), observation
 
 
 def _shift_mean(message: NormalNP, displacement: JaxRealArray) -> NormalNP:
     """Shift a Gaussian message's mean by `displacement`, preserving precision."""
-    mean, precision = mean_and_precision(message)
-    return normal_from_mean_and_presence(mean + displacement, precision)
+    moments = message.to_precision_parametrization()
+    return NormalPP(moments.mean + displacement, moments.precision).to_nat()

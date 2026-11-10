@@ -9,7 +9,7 @@ from typing import Self, override
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from efax import NormalNP, UnitVarianceNormalNP
+from efax import NormalNP, NormalPP, UnitVarianceNormalNP
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream
 from tjax.gradient import Adam
@@ -273,7 +273,7 @@ class GaussianNPNSupervisedModel(Model):
             self.missing_probability,
             streams=streams,
         )
-        prediction = self.link.infer(observation.x, presence)
+        prediction = self.link.infer(NormalPP(observation.x, presence).to_nat())
         config = self.target.infer(_y_flat_observed(observation.y), prediction)
         return ModelResult(
             configurations=frozendict({"target": config}),

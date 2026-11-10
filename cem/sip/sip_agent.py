@@ -9,10 +9,9 @@ from typing import Self
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from efax import NormalNP
+from efax import NormalNP, NormalPP
 from tjax import KeyArray, RngStream
 
-from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip.features import SIPFeatureOutputs
 from cem.sip.intentions import Intentions
 from cem.sip.losses import SIPLossOutputs, combine_losses
@@ -183,8 +182,8 @@ class SIPAgent(eqx.Module):
         intrinsic_precision = jnp.ones_like(curiosity)
         reward_observation = concat_messages(
             environment_reward_observation,
-            normal_from_mean_and_presence(curiosity, intrinsic_precision),
-            normal_from_mean_and_presence(tracking, intrinsic_precision),
+            NormalPP(curiosity, intrinsic_precision).to_nat(),
+            NormalPP(tracking, intrinsic_precision).to_nat(),
         )
         state, critic_outputs = self.reward_critic.step(
             state,

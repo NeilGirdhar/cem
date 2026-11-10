@@ -4,10 +4,9 @@ from typing import Final
 
 import equinox as eqx
 import jax.numpy as jnp
-from efax import NormalNP
-from tjax import JaxRealArray, divide_or_zero, divide_where
+from efax import NormalNP, NormalPP
+from tjax import JaxRealArray, divide_where
 
-from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.structure.graph.surrogate import (
     promoting_link_loss,
     suppressing_link_loss,
@@ -19,7 +18,6 @@ __all__ = [
     "concat_instrumented_messages",
     "concat_messages",
     "evidence_scale",
-    "mean_and_precision",
     "promoting_link_loss",
     "suppressing_link_loss",
     "variance_from_precision",
@@ -41,8 +39,8 @@ class InstrumentedMessage(eqx.Module):
     def standard(cls, size: int) -> InstrumentedMessage:
         """Standard normal on both halves: mean 0, precision 1."""
         return InstrumentedMessage(
-            observation=normal_from_mean_and_presence(jnp.zeros(size), jnp.ones(size)),
-            instrument=normal_from_mean_and_presence(jnp.zeros(size), jnp.ones(size)),
+            observation=NormalPP(jnp.zeros(size), jnp.ones(size)).to_nat(),
+            instrument=NormalPP(jnp.zeros(size), jnp.ones(size)).to_nat(),
         )
 
     @classmethod
@@ -57,16 +55,9 @@ class InstrumentedMessage(eqx.Module):
         """
         zero = jnp.zeros(size)
         return InstrumentedMessage(
-            observation=normal_from_mean_and_presence(zero, jnp.ones(size)),
-            instrument=normal_from_mean_and_presence(zero, zero),
+            observation=NormalPP(zero, jnp.ones(size)).to_nat(),
+            instrument=NormalPP(zero, zero).to_nat(),
         )
-
-
-def mean_and_precision(distribution: NormalNP) -> tuple[JaxRealArray, JaxRealArray]:
-    """Extract the mean and precision from a Gaussian natural-parameter message."""
-    precision = -2 * distribution.negative_half_precision
-    mean = divide_or_zero(distribution.mean_times_precision, precision)
-    return mean, precision
 
 
 def variance_from_precision(

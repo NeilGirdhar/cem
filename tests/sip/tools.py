@@ -1,7 +1,6 @@
 import jax.numpy as jnp
 from efax import NormalNP, NormalPP
 
-from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip import InstrumentedMessage
 from cem.sip.settings import CreditSettings, MismatchSettings
 
@@ -10,7 +9,7 @@ MISMATCH_SETTINGS = MismatchSettings()
 
 
 def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
-    return normal_from_mean_and_presence(mean, precision)
+    return NormalPP(mean, precision).to_nat()
 
 
 def _i_message(observation: NormalPP, instrument: NormalPP) -> InstrumentedMessage:

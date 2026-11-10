@@ -11,7 +11,7 @@ from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import InstrumentedMessage, mean_and_precision, variance_from_precision
+from cem.sip.messages import InstrumentedMessage, variance_from_precision
 from cem.sip.parameters import TDPredictionParameter, WitnessMultiplierParameter
 from cem.sip.settings import TDSettings
 from cem.sip.witness import WitnessMap, witness_loss, witness_residuals
@@ -140,9 +140,7 @@ class TDError(eqx.Module):
         The features that supplied the observations learn from their own goals rather than from
         the TD costs. See `sip-td-error-circuit` in the thesis.
         """
-        return self.prediction_map.infer(
-            *mean_and_precision(jax.lax.stop_gradient(predictor_observations))
-        )
+        return self.prediction_map.infer(jax.lax.stop_gradient(predictor_observations))
 
     def _moments(
         self,

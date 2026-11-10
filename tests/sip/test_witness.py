@@ -5,11 +5,10 @@ from collections.abc import Mapping
 import jax
 import jax.numpy as jnp
 import pytest
-from efax import NormalVP
+from efax import NormalPP, NormalVP
 from jax.experimental import checkify
 from tjax import JaxRealArray, RngStream
 
-from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip import SIPModel, WitnessMap
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.witness import witness_loss, witness_residuals
@@ -26,7 +25,7 @@ def _witness(
     precision: JaxRealArray,
     streams: Mapping[str, RngStream],
 ) -> JaxRealArray:
-    instruments = normal_from_mean_and_presence(mean, precision)
+    instruments = NormalPP(mean, precision).to_nat()
     return witness_map.infer(instruments, streams=streams, inference=False)
 
 

@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 
 import jax.numpy as jnp
-from efax import NormalVP
+from efax import NormalPP, NormalVP
 from jax import tree
 from tjax import RngStream
 
@@ -12,7 +12,6 @@ from cem.npn.gaussian import (
     GaussianNPNInputPool,
     GaussianNPNLinear,
     gaussian_relu,
-    normal_from_mean_and_presence,
 )
 from cem.structure.graph import (
     LossBalancedParameter,
@@ -22,30 +21,14 @@ from cem.structure.graph import (
 )
 
 
-def test_normal_natural_parameters_store_mean_times_presence() -> None:
-    mean = jnp.asarray([-2.0, 3.0])
-    presence = jnp.asarray([0.5, 4.0])
-
-    distribution = normal_from_mean_and_presence(mean, presence)
-    recovered = distribution.to_variance_parametrization()
-
-    assert jnp.allclose(distribution.mean_times_precision, mean * presence)
-    assert jnp.allclose(-2 * distribution.negative_half_precision, presence)
-    assert jnp.allclose(recovered.mean, mean)
-    assert jnp.allclose(recovered.variance, 1 / presence)
-
-
 def test_gaussian_npn_linear_propagates_marginal_moments() -> None:
     layer = GaussianNPNLinear(
         weight=SummedGradientParameter(jnp.asarray([[2.0, -1.0], [0.5, 3.0]])),
         bias=SummedGradientParameter(jnp.asarray([0.25, -0.5])),
     )
-    inputs = NormalVP(
-        mean=jnp.asarray([1.0, -2.0]),
-        variance=jnp.asarray([0.5, 4.0]),
-    ).to_nat()
+    inputs = NormalVP(mean=jnp.asarray([1.0, -2.0]), variance=jnp.asarray([0.5, 4.0]))
 
-    output = layer.infer(inputs).to_variance_parametrization()
+    output = layer.infer(inputs)
 
     assert jnp.allclose(output.mean, jnp.asarray([4.25, -6.0]))
     assert jnp.allclose(output.variance, jnp.asarray([6.0, 36.125]))
@@ -57,10 +40,7 @@ def test_gaussian_npn_input_pool_adds_dummy_evidence() -> None:
         dummy_mean=SummedGradientParameter(jnp.zeros(2)),
         dummy_raw_presence=SummedGradientParameter(jnp.full(2, jnp.log(jnp.expm1(1.0)))),
     )
-    inputs = normal_from_mean_and_presence(
-        mean=jnp.asarray([99.0, 2.0]),
-        presence=jnp.asarray([0.0, 4.0]),
-    )
+    inputs = NormalPP(mean=jnp.asarray([99.0, 2.0]), precision=jnp.asarray([0.0, 4.0])).to_nat()
 
     output = pool.infer(inputs).to_variance_parametrization()
 
@@ -69,9 +49,7 @@ def test_gaussian_npn_input_pool_adds_dummy_evidence() -> None:
 
 
 def test_gaussian_relu_matches_standard_normal_moments() -> None:
-    standard_normal = NormalVP(jnp.zeros(()), jnp.ones(())).to_nat()
-
-    rectified = gaussian_relu(standard_normal).to_variance_parametrization()
+    rectified = gaussian_relu(NormalVP(jnp.zeros(()), jnp.ones(())))
 
     assert jnp.allclose(rectified.mean, 1 / jnp.sqrt(2 * jnp.pi))
     assert jnp.allclose(rectified.variance, 0.5 - 1 / (2 * jnp.pi))

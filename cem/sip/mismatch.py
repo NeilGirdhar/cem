@@ -6,12 +6,12 @@ from typing import Self
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from efax import NormalNP, NormalVP
+from efax import NormalNP, NormalPP, NormalVP
 from tjax import JaxRealArray, RngStream
 
-from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
+from cem.npn.gaussian import GaussianNPN
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import InstrumentedMessage, concat_messages, mean_and_precision
+from cem.sip.messages import InstrumentedMessage, concat_messages
 from cem.sip.parameters import MismatchPredictionParameter, WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
 from cem.sip.witness import WitnessMap, witness_loss, witness_residuals
@@ -142,9 +142,7 @@ class Mismatch(eqx.Module):
         """
         raw = raw_observation.to_variance_parametrization()
         target = NormalVP(raw.mean, raw.variance + local_variance)
-        prediction = self.prediction_map.infer(
-            *mean_and_precision(jax.lax.stop_gradient(predictor_observations))
-        )
+        prediction = self.prediction_map.infer(jax.lax.stop_gradient(predictor_observations))
         gain = None if gain_observation is None else gain_observation.mean()
         return _Moments(
             target=jax.lax.stop_gradient(target),
@@ -181,7 +179,7 @@ def _reconstruction_and_mismatch(moments: _Moments) -> _Reconstruction:
     second_moment_difference = prediction.to_exp().second_moment - target.to_exp().second_moment
     mismatch_pair = jnp.stack([mean_residual, second_moment_difference], axis=-1)
     mismatch_flat = _scale_rows(mismatch_pair, moments.gain).reshape(-1)
-    mismatch_message = normal_from_mean_and_presence(mismatch_flat, jnp.ones_like(mismatch_flat))
+    mismatch_message = NormalPP(mismatch_flat, jnp.ones_like(mismatch_flat)).to_nat()
     return _Reconstruction(cost=reconstruction_cost, mismatch=mismatch_message)
 
 

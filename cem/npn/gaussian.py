@@ -7,7 +7,7 @@ from typing import Self
 
 import equinox as eqx
 import jax.numpy as jnp
-from efax import NormalNP, NormalVP
+from efax import NormalNP, NormalPP, NormalVP
 from jax.nn import initializers, softplus
 from jax.scipy.special import ndtr
 from tjax import JaxRealArray, RngStream
@@ -24,33 +24,12 @@ _LECUN_NORMAL = initializers.variance_scaling(1.0, "fan_in", "truncated_normal")
 _UNIT_PRESENCE_RAW = math.log(math.expm1(1.0))
 
 
-def normal_from_mean_and_presence(
-    mean: JaxRealArray,
-    presence: JaxRealArray,
-) -> NormalNP:
-    """Encode a Gaussian using its mean and nonnegative precision.
-
-    A finite placeholder mean with zero precision gives an absent message.
-    """
-    return NormalNP(
-        mean_times_precision=mean * presence,
-        negative_half_precision=-0.5 * presence,
-    )
-
-
-def _mean_and_variance(distribution: NormalNP) -> tuple[JaxRealArray, JaxRealArray]:
-    presence = -2 * distribution.negative_half_precision
-    mean = distribution.mean_times_precision / presence
-    variance = 1 / presence
-    return mean, variance
-
-
-def gaussian_relu(distribution: NormalNP) -> NormalNP:
+def gaussian_relu(distribution: NormalVP) -> NormalVP:
     """Approximate a rectified Gaussian by matching its first two moments.
 
     Floor the resulting variance so the output remains a proper Gaussian.
     """
-    mean, variance = _mean_and_variance(distribution)
+    mean, variance = distribution.mean, distribution.variance
     deviation = jnp.sqrt(variance)
     standardized_mean = mean / deviation
     cdf = ndtr(standardized_mean)
@@ -61,7 +40,7 @@ def gaussian_relu(distribution: NormalNP) -> NormalNP:
         output_second_moment - output_mean**2,
         _MINIMUM_VARIANCE,
     )
-    return NormalVP(output_mean, output_variance).to_nat()
+    return NormalVP(output_mean, output_variance)
 
 
 class GaussianNPNLinear(eqx.Module):
@@ -90,19 +69,15 @@ class GaussianNPNLinear(eqx.Module):
             bias=parameter_factory(jnp.zeros(out_features, dtype=jnp.float64)),
         )
 
-    def infer(self, inputs: NormalNP) -> NormalNP:
+    def infer(self, inputs: NormalVP) -> NormalVP:
         """Return a factorized Gaussian with the affine output's marginal means and variances.
 
-        Supply inputs with positive precision so their moments are defined. The
-        factorized output retains marginal uncertainty and drops cross-covariances.
+        Supply inputs with finite variance. The factorized output retains marginal uncertainty and
+        drops cross-covariances.
         """
-        input_mean, input_variance = _mean_and_variance(inputs)
-        output_mean = input_mean @ self.weight.value.T + self.bias.value
-        output_variance = input_variance @ jnp.square(self.weight.value).T
-        return NormalVP(
-            output_mean,
-            jnp.maximum(output_variance, _MINIMUM_VARIANCE),
-        ).to_nat()
+        output_mean = inputs.mean @ self.weight.value.T + self.bias.value
+        output_variance = inputs.variance @ jnp.square(self.weight.value).T
+        return NormalVP(output_mean, jnp.maximum(output_variance, _MINIMUM_VARIANCE))
 
 
 class GaussianNPNInputPool(eqx.Module):
@@ -128,10 +103,7 @@ class GaussianNPNInputPool(eqx.Module):
 
     def infer(self, inputs: NormalNP) -> NormalNP:
         """Pool evidence by adding the background and input natural parameters."""
-        dummy = normal_from_mean_and_presence(
-            self.dummy_mean.value,
-            softplus(self.dummy_raw_presence.value),
-        )
+        dummy = NormalPP(self.dummy_mean.value, softplus(self.dummy_raw_presence.value)).to_nat()
         return NormalNP(
             mean_times_precision=inputs.mean_times_precision + dummy.mean_times_precision,
             negative_half_precision=(
@@ -176,19 +148,14 @@ class GaussianNPN(eqx.Module):
             ),
         )
 
-    def infer(
-        self,
-        values: JaxRealArray,
-        presences: JaxRealArray | None = None,
-    ) -> NormalNP:
-        """Propagate Gaussian messages from feature values and their precisions.
+    def infer(self, inputs: NormalNP) -> NormalNP:
+        """Propagate Gaussian input messages through the network.
 
-        Omit presences for unit precision. Zero presence marks an absent input.
-        Background evidence gives each input positive precision before moment conversion.
+        Zero precision marks an absent input. Background evidence gives each input positive
+        precision before moment conversion. The layers propagate means and variances, so the
+        network converts only at its edges.
         """
-        if presences is None:
-            presences = jnp.ones_like(values)
-        result = self.input_pool.infer(normal_from_mean_and_presence(values, presences))
+        moments = self.input_pool.infer(inputs).to_variance_parametrization()
         for layer in self.layers[:-1]:
-            result = gaussian_relu(layer.infer(result))
-        return self.layers[-1].infer(result)
+            moments = gaussian_relu(layer.infer(moments))
+        return self.layers[-1].infer(moments).to_nat()

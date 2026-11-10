@@ -9,7 +9,6 @@ from jax.lax import stop_gradient
 from tjax import JaxRealArray
 
 from cem.npn.gaussian import GaussianNPN
-from cem.sip.messages import mean_and_precision
 from cem.sip.settings import CreditSettings
 from cem.structure.graph import FixedParameter
 
@@ -89,29 +88,26 @@ class Credit(eqx.Module):
         traces = state.get(self.trace_index)
         decay = self.trace_decay()
 
-        inst_mean, inst_precision = mean_and_precision(noised_instrument)
-        raw_mean, raw_precision = mean_and_precision(raw_observation)
+        instrument = noised_instrument.to_precision_parametrization()
+        raw = raw_observation.to_precision_parametrization()
         gain = 1.0 if gain_observation is None else gain_observation.mean()
-        mean_contribution = gain * inst_precision * inst_mean
-        precision_contribution = -0.5 * gain * jnp.square(inst_mean)
+        mean_contribution = gain * instrument.precision * instrument.mean
+        precision_contribution = -0.5 * gain * jnp.square(instrument.mean)
 
         new_traces = CreditTraces(
             goal_penalty=decay * traces.goal_penalty
-            + jnp.sum(raw_precision * precision_contribution),
-            obs_precision=decay * traces.obs_precision + gain * raw_precision,
+            + jnp.sum(raw.precision * precision_contribution),
+            obs_precision=decay * traces.obs_precision + gain * raw.precision,
         )
         new_state = state.set(self.trace_index, new_traces)
 
-        baseline_message = self.goal_baseline_map.infer(
-            *mean_and_precision(stop_gradient(observation_content))
-        )
-        baseline_values, _ = mean_and_precision(baseline_message)
-        baseline = baseline_values.reshape(())
+        baseline_message = self.goal_baseline_map.infer(stop_gradient(observation_content))
+        baseline = baseline_message.mean().reshape(())
         error = stop_gradient(goal) - (baseline + new_traces.goal_penalty)
         return new_state, CreditOutputs(
             mean_contribution=mean_contribution,
             precision_contribution=precision_contribution,
             goal_prediction_error=error,
-            shrinkage_cotangent=-raw_mean * new_traces.obs_precision,
+            shrinkage_cotangent=-raw.mean * new_traces.obs_precision,
             goal_baseline=baseline,
         )

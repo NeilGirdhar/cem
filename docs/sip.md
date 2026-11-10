@@ -42,8 +42,8 @@ Messages (`messages.py`):
 - `InstrumentedMessage` — paired observation and instrument Gaussian message, the unit exchanged
   between features.
 - `concat_messages`, `concat_instrumented_messages` — component-axis concatenation.
-- `mean_and_precision`, `variance_from_precision`, `evidence_scale`, `promoting_link_loss`,
-  `suppressing_link_loss` — Gaussian-message utilities.
+- `variance_from_precision`, `evidence_scale`, `promoting_link_loss`, `suppressing_link_loss` —
+  Gaussian-message utilities. Moment conversions use efax's normal parametrizations.
 
 Composition modules (plain `eqx.Module`s, not `Model` subclasses):
 
@@ -125,10 +125,10 @@ The framework (`Problem` / `Model` / `Solver` / `Plotter` / `Experiment`) is doc
 - Identification tests (1–12) use a feed-forward `Problem` over a structural causal model;
   value-learning and control tests (13–17) use the RL `Problem` in `cem/structure/rl/`.
 - The circuit needs the precision-κ transform on `DisGradientTransformation`.
-- Reuses `cem/npn/gaussian.py` (`GaussianNPN`, `normal_from_mean_and_presence`),
+- Reuses `cem/npn/gaussian.py` (`GaussianNPN`),
   `cem/perceptron/mlp.py` (`MLP` inside the witness map, and for the witness-gain and
   inherited-variance maps), and `cem/transforms/` as needed. Gaussian natural-parameter conversions
-  come from `efax` (`NormalNP` / `NormalVP`).
+  come from `efax` (`NormalNP`, `NormalPP`, `NormalVP`).
 
 ## Tested claims
 

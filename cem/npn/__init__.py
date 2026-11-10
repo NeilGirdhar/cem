@@ -5,7 +5,6 @@ from cem.npn.gaussian import (
     GaussianNPNInputPool,
     GaussianNPNLinear,
     gaussian_relu,
-    normal_from_mean_and_presence,
 )
 
 __all__ = [
@@ -13,5 +12,4 @@ __all__ = [
     "GaussianNPNInputPool",
     "GaussianNPNLinear",
     "gaussian_relu",
-    "normal_from_mean_and_presence",
 ]

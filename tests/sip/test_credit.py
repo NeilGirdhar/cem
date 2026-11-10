@@ -122,7 +122,7 @@ def test_step_goal_prediction_error_uses_goal_penalty(
         return outputs.goal_prediction_error
 
     # Recover baseline the way Credit does, so the test does not depend on NPN init.
-    baseline_message = credit.goal_baseline_map.infer(content_mean, content_precision)
+    baseline_message = credit.goal_baseline_map.infer(_message(content_mean, content_precision))
     baseline = baseline_message.mean_times_precision[0] / (
         -2 * baseline_message.negative_half_precision[0]
     )

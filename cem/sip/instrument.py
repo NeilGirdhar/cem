@@ -6,7 +6,6 @@ from efax import NormalNP
 from tjax import JaxRealArray
 
 from cem.npn.gaussian import GaussianNPN
-from cem.sip.messages import mean_and_precision
 
 
 def inherit_instrument(instrument_map: GaussianNPN, predictor_instrument: NormalNP) -> NormalNP:
@@ -15,7 +14,7 @@ def inherit_instrument(instrument_map: GaussianNPN, predictor_instrument: Normal
     Hold the parents' instruments fixed so that each feature's instrument mismatch trains only
     its own instrument map. See `sip-inherited-variation` in the thesis.
     """
-    return instrument_map.infer(*mean_and_precision(jax.lax.stop_gradient(predictor_instrument)))
+    return instrument_map.infer(jax.lax.stop_gradient(predictor_instrument))
 
 
 def instrument_mismatch_loss(

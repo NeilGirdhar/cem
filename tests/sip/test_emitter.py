@@ -10,7 +10,6 @@ from tjax import RngStream
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
-from cem.sip.messages import mean_and_precision
 
 from .tools import CREDIT_SETTINGS, _message
 
@@ -42,9 +41,8 @@ def _emitter(
 
 
 def _inherited(emitter: Emitter, predictor_instrument: NormalNP) -> tuple[jnp.ndarray, jnp.ndarray]:
-    inst_mean, inst_precision = mean_and_precision(predictor_instrument)
-    inherited = emitter.instrument_map.infer(inst_mean, inst_precision)
-    return mean_and_precision(inherited)
+    inherited = emitter.instrument_map.infer(predictor_instrument).to_precision_parametrization()
+    return inherited.mean, inherited.precision
 
 
 def test_local_variance_matches_inherited_moments(
@@ -89,12 +87,12 @@ def test_same_displacement_shifts_both_means(streams: Mapping[str, RngStream]) -
         gain_observation=_message(jnp.ones(n), jnp.ones(n)),
         goals={"reconstruction": jnp.asarray(0.0), "confounding": jnp.asarray(0.0)},
     )
-    noised_inst_mean, _ = mean_and_precision(outputs.noised_instrument)
+    noised_inst_mean = outputs.noised_instrument.mean()
     inst_displacement = noised_inst_mean - inherited_mean
     # `observation` is gain-scaled with gain=1 here, so its mean equals the noised
     # raw mean; `raw_observation.mean` is pre-noise.
-    raw_mean, _ = mean_and_precision(outputs.raw_observation)
-    obs_mean, _ = mean_and_precision(outputs.message.observation)
+    raw_mean = outputs.raw_observation.mean()
+    obs_mean = outputs.message.observation.mean()
     obs_displacement = obs_mean - raw_mean
     assert jnp.allclose(inst_displacement, obs_displacement)
 
@@ -166,7 +164,7 @@ def test_observation_projection_stops_gradients_at_its_input(
     def raw_mean(inputs: tuple[Emitter, NormalNP]) -> jnp.ndarray:
         model, observation_content = inputs
         observation, _ = model.observation_projection.infer(observation_content)
-        mean, _ = mean_and_precision(observation)
+        mean = observation.mean()
         return jnp.sum(mean)
 
     emitter_gradient, content_gradient = eqx.filter_grad(raw_mean)((emitter, content))
