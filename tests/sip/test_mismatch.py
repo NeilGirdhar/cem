@@ -216,3 +216,25 @@ def test_mismatch_holds_predictor_and_gain_fixed(streams: Mapping[str, RngStream
 
     gradients = jax.grad(loss_fn, argnums=(0, 1))(inputs["predictor"], inputs["gain"])
     assert all(jnp.allclose(leaf, 0.0) for leaf in tree.leaves(gradients))
+
+
+def test_mismatch_message_carries_mean_and_deviation_errors(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """Each channel carries the mean error and predicted deviation minus actual deviation."""
+    n = 2
+    mismatch = _mismatch(n, streams)
+    inputs = _inputs(n)
+    outputs = mismatch.step(**inputs, streams=streams, inference=True)
+    prediction = mismatch.prediction_map.infer(
+        inputs["predictor"].observation
+    ).to_variance_parametrization()
+    target = inputs["raw_observation"].to_variance_parametrization()
+    assert inputs["gain"] is not None
+    gain = inputs["gain"].observation.mean()
+    mean_error = prediction.mean - target.mean
+    deviation_error = jnp.sqrt(prediction.variance) - jnp.sqrt(
+        target.variance + jnp.square(mean_error)
+    )
+    expected = gain[:, None] * jnp.stack([mean_error, deviation_error], axis=-1)
+    assert jnp.allclose(outputs.mismatch.mean().reshape(n, 2), expected)

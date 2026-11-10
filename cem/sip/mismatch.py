@@ -90,8 +90,11 @@ class Mismatch(eqx.Module):
     ) -> MismatchOutputs:
         """Score the observation prediction and return its mismatch and training losses.
 
-        The outgoing mismatch carries mean and raw second-moment errors. The witness instead
-        tests centred residuals for error predictable from the instruments.
+        The outgoing mismatch carries, for each channel, the mean error and the deviation error:
+        the predicted standard deviation minus the target's root-mean-square deviation about the
+        predicted mean. Both scale linearly with the messages, so mismatch content does not
+        compound powers of scale as it passes between features. The witness instead tests centred
+        residuals for error predictable from the instruments.
 
         When there is no gain parent, construct the witness without gain features. The circuit
         then uses unit gain for both the losses and the witness norm constraint.
@@ -176,8 +179,9 @@ def _reconstruction_and_mismatch(moments: _Moments) -> _Reconstruction:
     )
     reconstruction_cost = jnp.sum(reconstruction_error)
 
-    second_moment_difference = prediction.to_exp().second_moment - target.to_exp().second_moment
-    mismatch_pair = jnp.stack([mean_residual, second_moment_difference], axis=-1)
+    actual_deviation = jnp.sqrt(target.variance + jnp.square(mean_residual))
+    deviation_residual = jnp.sqrt(prediction.variance) - actual_deviation
+    mismatch_pair = jnp.stack([mean_residual, deviation_residual], axis=-1)
     mismatch_flat = _scale_rows(mismatch_pair, moments.gain).reshape(-1)
     mismatch_message = NormalPP(mismatch_flat, jnp.ones_like(mismatch_flat)).to_nat()
     return _Reconstruction(cost=reconstruction_cost, mismatch=mismatch_message)
