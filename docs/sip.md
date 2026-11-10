@@ -89,11 +89,10 @@ is one.
 
 - `cem/sip/` — the circuit.
     - `messages.py` — `InstrumentedMessage` plus SIP-specific Gaussian helpers (concatenation,
-      evidence scaling, variance-from-precision, Gaussian cross-entropy, promoting/suppressing
-      link losses).
+      evidence scaling, variance-from-precision, promoting/suppressing link losses).
     - `credit.py` — `Credit`.
     - `mismatch.py` — `Mismatch`.
-    - `witness.py` — `WitnessMap`, `witness_loss`.
+    - `witness.py` — `WitnessMap`, `witness_residuals`, `witness_loss`.
     - `instrument.py` — `inherit_instrument`, `instrument_mismatch_loss`.
     - `td_error.py` — `TDError`.
     - `emitter.py` — `Emitter`.

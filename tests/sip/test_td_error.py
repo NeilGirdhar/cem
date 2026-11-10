@@ -4,7 +4,7 @@ from typing import TypedDict
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from efax import NormalNP
+from efax import NormalNP, NormalPP
 from jax import tree
 from tjax import JaxRealArray, RngStream
 
@@ -34,10 +34,8 @@ def _inputs(n: int) -> _StepInputs:
     return _StepInputs(
         reward_observation=_message(jnp.ones(n), jnp.ones(n)),
         predictor=_i_message(
-            jnp.asarray([0.3, -0.2]),
-            jnp.asarray([1.0, 1.0]),
-            jnp.asarray([0.5, 0.1]),
-            jnp.asarray([1.0, 1.0]),
+            NormalPP(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+            NormalPP(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
     )
 
@@ -101,10 +99,8 @@ def test_second_step_delayed_prediction_matches_first_step_current_prediction(
     second = _StepInputs(
         reward_observation=_message(jnp.zeros(n), jnp.ones(n)),
         predictor=_i_message(
-            jnp.asarray([-0.5, 0.4]),
-            jnp.asarray([1.0, 1.0]),
-            jnp.asarray([0.2, -0.3]),
-            jnp.asarray([1.0, 1.0]),
+            NormalPP(jnp.asarray([-0.5, 0.4]), jnp.ones(2)),
+            NormalPP(jnp.asarray([0.2, -0.3]), jnp.ones(2)),
         ),
     )
     _, second_outputs = td.step(**second, state=state, streams=streams, inference=True)
@@ -230,7 +226,8 @@ def test_td_error_holds_predictor_inputs_fixed(streams: Mapping[str, RngStream])
     td = _td_error(n, streams)
     inputs = _inputs(n)
     stored = _i_message(
-        jnp.asarray([-0.4, 0.2]), jnp.asarray([2.0, 1.0]), jnp.asarray([0.1, 0.3]), jnp.ones(2)
+        NormalPP(jnp.asarray([-0.4, 0.2]), jnp.asarray([2.0, 1.0])),
+        NormalPP(jnp.asarray([0.1, 0.3]), jnp.ones(2)),
     )
 
     def loss_fn(current: InstrumentedMessage, delayed: InstrumentedMessage) -> JaxRealArray:

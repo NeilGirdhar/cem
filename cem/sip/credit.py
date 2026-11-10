@@ -91,7 +91,7 @@ class Credit(eqx.Module):
 
         inst_mean, inst_precision = mean_and_precision(noised_instrument)
         raw_mean, raw_precision = mean_and_precision(raw_observation)
-        gain = 1.0 if gain_observation is None else mean_and_precision(gain_observation)[0]
+        gain = 1.0 if gain_observation is None else gain_observation.mean()
         mean_contribution = gain * inst_precision * inst_mean
         precision_contribution = -0.5 * gain * jnp.square(inst_mean)
 

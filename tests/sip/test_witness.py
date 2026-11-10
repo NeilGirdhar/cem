@@ -5,13 +5,14 @@ from collections.abc import Mapping
 import jax
 import jax.numpy as jnp
 import pytest
+from efax import NormalVP
 from jax.experimental import checkify
 from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import normal_from_mean_and_presence
 from cem.sip import SIPModel, WitnessMap
 from cem.sip.parameters import WitnessMultiplierParameter
-from cem.sip.witness import witness_loss
+from cem.sip.witness import witness_loss, witness_residuals
 from cem.structure.graph import DisModel, Model
 from cem.structure.graph.losses import LossGradients
 
@@ -135,3 +136,12 @@ def test_witness_holds_instruments_fixed(
         lambda m, p: jnp.sum(_witness(witness_map, m, p, streams)), argnums=(0, 1)
     )(mean, precision)
     assert all(jnp.allclose(gradient, 0.0) for gradient in gradients)
+
+
+def test_witness_residuals_vanish_for_a_calibrated_variance() -> None:
+    """A calibrated variance leaves only the mean residual."""
+    target = NormalVP(jnp.zeros(2), jnp.ones(2))
+    prediction = NormalVP(jnp.asarray([0.5, -1.0]), jnp.asarray([1.25, 2.0]))
+    assert jnp.allclose(
+        witness_residuals(target, prediction), jnp.asarray([[0.5, 0.0], [-1.0, 0.0]])
+    )

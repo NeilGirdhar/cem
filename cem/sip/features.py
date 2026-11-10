@@ -16,7 +16,7 @@ from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 from cem.sip.instrument import inherit_instrument, instrument_mismatch_loss
 from cem.sip.losses import SIPLossOutputs, combine_losses
-from cem.sip.messages import InstrumentedMessage, evidence_scale, mean_and_precision
+from cem.sip.messages import InstrumentedMessage, evidence_scale
 from cem.sip.mismatch import Mismatch
 from cem.sip.settings import CreditSettings, MismatchSettings, TDSettings
 from cem.sip.td_error import TDError
@@ -259,10 +259,9 @@ class SensationInputFeature(eqx.Module):
         observation. Save the outgoing message after any gain scaling.
         """
         inherited_instrument = inherit_instrument(self.instrument_map, predictor.instrument)
-        inherited_mean, _ = mean_and_precision(inherited_instrument)
-        local_variance = jnp.zeros_like(inherited_mean)
+        local_variance = jnp.zeros_like(inherited_instrument.mean())
 
-        gain_mean = None if gain is None else mean_and_precision(gain.observation)[0]
+        gain_mean = None if gain is None else gain.observation.mean()
         if gain_mean is None:
             out_observation = observation
             out_instrument = inherited_instrument

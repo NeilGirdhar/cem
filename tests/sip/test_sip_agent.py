@@ -4,6 +4,7 @@ from dataclasses import replace
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
+from efax import NormalPP
 from tjax import KeyArray, RngStream
 from tjax.gradient import MTAdamState
 
@@ -185,7 +186,8 @@ def test_shared_training_balances_sip_predictions(
 ) -> None:
     model = SIPModel.create(_agent(streams))
     previous_intention = _i_message(
-        jnp.ones(ENV_ACT), jnp.ones(ENV_ACT), jnp.ones(ENV_ACT), jnp.ones(ENV_ACT)
+        NormalPP(jnp.ones(ENV_ACT), jnp.ones(ENV_ACT)),
+        NormalPP(jnp.ones(ENV_ACT), jnp.ones(ENV_ACT)),
     )
     model = replace(
         model,

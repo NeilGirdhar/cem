@@ -6,7 +6,7 @@ from typing import Self
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from efax import NormalNP
+from efax import NormalNP, NormalVP
 from tjax import JaxRealArray, RngStream
 
 from cem.perceptron.mlp import MLP
@@ -77,6 +77,18 @@ def _encode(instruments: NormalNP) -> tuple[JaxRealArray, JaxRealArray]:
     precision = -2.0 * instruments.negative_half_precision
     scale = 1.0 / (1.0 + precision)
     return scale * instruments.mean_times_precision, scale * precision
+
+
+def witness_residuals(target: NormalVP, prediction: NormalVP) -> JaxRealArray:
+    """Return the mean and variance residuals of a prediction, shape (n, 2).
+
+    The variance residual compares the predicted variance with the target's expected squared
+    error about the predicted mean, so each residual has zero expectation for a calibrated
+    prediction. See `sip-witness-residuals` in the thesis.
+    """
+    mean_residual = prediction.mean - target.mean
+    variance_residual = prediction.variance - target.variance - jnp.square(mean_residual)
+    return jnp.stack([mean_residual, variance_residual], axis=-1)
 
 
 def witness_loss(

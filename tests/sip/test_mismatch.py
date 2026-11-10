@@ -4,7 +4,7 @@ from typing import TypedDict
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from efax import NormalNP
+from efax import NormalNP, NormalPP
 from jax import tree
 from tjax import JaxRealArray, RngStream
 
@@ -37,12 +37,12 @@ def _inputs(n: int) -> _StepInputs:
         raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
         local_variance=jnp.zeros(n),
         predictor=_i_message(
-            jnp.asarray([0.3, -0.2]),
-            jnp.asarray([1.0, 1.0]),
-            jnp.asarray([0.5, 0.1]),
-            jnp.asarray([1.0, 1.0]),
+            NormalPP(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+            NormalPP(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
-        gain=_i_message(jnp.ones(n), jnp.ones(n), jnp.asarray([0.4]), jnp.asarray([1.0])),
+        gain=_i_message(
+            NormalPP(jnp.ones(n), jnp.ones(n)), NormalPP(jnp.asarray([0.4]), jnp.ones(1))
+        ),
     )
 
 
@@ -183,7 +183,8 @@ def _recruiter_inputs(n: int) -> _StepInputs:
         raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
         local_variance=jnp.zeros(n),
         predictor=_i_message(
-            jnp.asarray([0.3, -0.2]), jnp.ones(2), jnp.asarray([0.5, 0.1]), jnp.ones(2)
+            NormalPP(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+            NormalPP(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         ),
         gain=None,
     )

@@ -6,7 +6,7 @@ from efax import NormalNP
 from tjax import JaxRealArray
 
 from cem.npn.gaussian import GaussianNPN
-from cem.sip.messages import gaussian_cross_entropy, mean_and_precision
+from cem.sip.messages import mean_and_precision
 
 
 def inherit_instrument(instrument_map: GaussianNPN, predictor_instrument: NormalNP) -> NormalNP:
@@ -35,10 +35,8 @@ def instrument_mismatch_loss(
         raw_observation: The raw observation before local noise and gain, held fixed.
         gain: The gain observation's means, shape (n,), held fixed, or None.
     """
-    raw_mean, raw_precision = mean_and_precision(jax.lax.stop_gradient(raw_observation))
-    inst_mean, inst_precision = mean_and_precision(inherited_instrument)
-    cross_entropy = gaussian_cross_entropy(
-        raw_mean, 1 / raw_precision, inst_mean, 1 / inst_precision
+    cross_entropy = (
+        jax.lax.stop_gradient(raw_observation).to_exp().cross_entropy(inherited_instrument)
     )
     if gain is not None:
         cross_entropy = jax.lax.stop_gradient(gain) * cross_entropy

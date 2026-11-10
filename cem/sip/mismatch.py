@@ -6,20 +6,15 @@ from typing import Self
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from efax import NormalNP
+from efax import NormalNP, NormalVP
 from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN, normal_from_mean_and_presence
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import (
-    InstrumentedMessage,
-    concat_messages,
-    gaussian_cross_entropy,
-    mean_and_precision,
-)
+from cem.sip.messages import InstrumentedMessage, concat_messages, mean_and_precision
 from cem.sip.parameters import MismatchPredictionParameter, WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
-from cem.sip.witness import WitnessMap, witness_loss
+from cem.sip.witness import WitnessMap, witness_loss, witness_residuals
 
 
 class MismatchOutputs(SIPLossOutputs):
@@ -32,12 +27,10 @@ class MismatchOutputs(SIPLossOutputs):
 
 
 class _Moments(eqx.Module):
-    """Target and prediction statistics with the gain that weights their mismatch."""
+    """The target and prediction with the gain that weights their mismatch."""
 
-    target_mean: JaxRealArray
-    target_variance: JaxRealArray
-    pred_mean: JaxRealArray
-    pred_variance: JaxRealArray
+    target: NormalVP
+    prediction: NormalVP
     gain: JaxRealArray | None
 
 
@@ -109,16 +102,15 @@ class Mismatch(eqx.Module):
             raw_observation, local_variance, predictor.observation, gain_observation
         )
         reconstruction = _reconstruction_and_mismatch(moments)
-        witness_residuals = _witness_residuals(moments)
+        residuals = witness_residuals(moments.target, moments.prediction)
         confounding_witness = self._confounding_witness(
             predictor.instrument, gain_instrument, streams=streams, inference=inference
         )
         confounding_cost = jnp.sum(
-            _scale_rows(witness_residuals, moments.gain)
-            * jax.lax.stop_gradient(confounding_witness)
+            _scale_rows(residuals, moments.gain) * jax.lax.stop_gradient(confounding_witness)
         )
         loss = witness_loss(
-            witness_residuals, confounding_witness, moments.gain, self.witness_multiplier.value
+            residuals, confounding_witness, moments.gain, self.witness_multiplier.value
         )
 
         return MismatchOutputs(
@@ -148,23 +140,16 @@ class Mismatch(eqx.Module):
         differentiating a positive cost through it would favour reducing participation. See
         `sip-target-observation` and `sip-prediction-map` in the thesis.
         """
-        raw_mean, raw_precision = mean_and_precision(raw_observation)
-        pred_mean, pred_precision = mean_and_precision(
-            self.prediction_map.infer(
-                *mean_and_precision(jax.lax.stop_gradient(predictor_observations))
-            )
+        raw = raw_observation.to_variance_parametrization()
+        target = NormalVP(raw.mean, raw.variance + local_variance)
+        prediction = self.prediction_map.infer(
+            *mean_and_precision(jax.lax.stop_gradient(predictor_observations))
         )
-        gain = (
-            None
-            if gain_observation is None
-            else jax.lax.stop_gradient(mean_and_precision(gain_observation)[0])
-        )
+        gain = None if gain_observation is None else gain_observation.mean()
         return _Moments(
-            target_mean=jax.lax.stop_gradient(raw_mean),
-            target_variance=jax.lax.stop_gradient(1 / raw_precision + local_variance),
-            pred_mean=pred_mean,
-            pred_variance=1 / pred_precision,
-            gain=gain,
+            target=jax.lax.stop_gradient(target),
+            prediction=prediction.to_variance_parametrization(),
+            gain=None if gain is None else jax.lax.stop_gradient(gain),
         )
 
     def _confounding_witness(
@@ -185,29 +170,19 @@ class Mismatch(eqx.Module):
 
 
 def _reconstruction_and_mismatch(moments: _Moments) -> _Reconstruction:
-    mean_resid = moments.pred_mean - moments.target_mean
-    recon_density = gaussian_cross_entropy(
-        moments.target_mean, moments.target_variance, moments.pred_mean, moments.pred_variance
+    target, prediction = moments.target, moments.prediction
+    mean_residual = prediction.mean - target.mean
+    reconstruction_density = target.cross_entropy(prediction)
+    reconstruction_error = (
+        reconstruction_density if moments.gain is None else moments.gain * reconstruction_density
     )
-    recon_error = recon_density if moments.gain is None else moments.gain * recon_density
-    reconstruction_cost = jnp.sum(recon_error)
+    reconstruction_cost = jnp.sum(reconstruction_error)
 
-    second_moment_diff = (
-        jnp.square(moments.pred_mean)
-        + moments.pred_variance
-        - jnp.square(moments.target_mean)
-        - moments.target_variance
-    )
-    mismatch_pair = jnp.stack([mean_resid, second_moment_diff], axis=-1)
+    second_moment_difference = prediction.to_exp().second_moment - target.to_exp().second_moment
+    mismatch_pair = jnp.stack([mean_residual, second_moment_difference], axis=-1)
     mismatch_flat = _scale_rows(mismatch_pair, moments.gain).reshape(-1)
     mismatch_message = normal_from_mean_and_presence(mismatch_flat, jnp.ones_like(mismatch_flat))
     return _Reconstruction(cost=reconstruction_cost, mismatch=mismatch_message)
-
-
-def _witness_residuals(moments: _Moments) -> JaxRealArray:
-    mean_resid = moments.pred_mean - moments.target_mean
-    var_resid = moments.pred_variance - moments.target_variance - jnp.square(mean_resid)
-    return jnp.stack([mean_resid, var_resid], axis=-1)
 
 
 def _scale_rows(x: JaxRealArray, gain: JaxRealArray | None) -> JaxRealArray:

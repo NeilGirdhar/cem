@@ -6,20 +6,15 @@ from typing import Self
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from efax import NormalNP
+from efax import NormalNP, NormalVP
 from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import (
-    InstrumentedMessage,
-    gaussian_cross_entropy,
-    mean_and_precision,
-    variance_from_precision,
-)
+from cem.sip.messages import InstrumentedMessage, mean_and_precision, variance_from_precision
 from cem.sip.parameters import TDPredictionParameter, WitnessMultiplierParameter
 from cem.sip.settings import TDSettings
-from cem.sip.witness import WitnessMap, witness_loss
+from cem.sip.witness import WitnessMap, witness_loss, witness_residuals
 from cem.structure.graph import FixedParameter
 
 
@@ -44,12 +39,10 @@ class TDErrorOutputs(SIPLossOutputs):
 
 
 class _Moments(eqx.Module):
-    """Gaussian statistics for comparing the bootstrap target with the delayed prediction."""
+    """The bootstrap target and the delayed prediction it scores."""
 
-    boot_mean: JaxRealArray
-    boot_variance: JaxRealArray
-    del_mean: JaxRealArray
-    del_variance: JaxRealArray
+    bootstrap: NormalVP
+    delayed: NormalVP
 
 
 class TDError(eqx.Module):
@@ -116,14 +109,14 @@ class TDError(eqx.Module):
         current_prediction = self._predict(predictor.observation)
 
         moments = self._moments(reward_observation, current_prediction, delayed_prediction)
-        witness_residuals = _witness_residuals(moments)
+        residuals = witness_residuals(moments.bootstrap, moments.delayed)
 
         reconstruction_cost = _reconstruction_cost(moments)
-        confounding_cost = jnp.sum(witness_residuals * jax.lax.stop_gradient(delayed_witness))
-        uncertainty_loss = jnp.sum(moments.del_variance)
-        loss = witness_loss(witness_residuals, delayed_witness, None, self.witness_multiplier.value)
+        confounding_cost = jnp.sum(residuals * jax.lax.stop_gradient(delayed_witness))
+        uncertainty_loss = jnp.sum(moments.delayed.variance)
+        loss = witness_loss(residuals, delayed_witness, None, self.witness_multiplier.value)
 
-        advantage = moments.boot_mean - moments.del_mean
+        advantage = moments.bootstrap.mean - moments.delayed.mean
 
         new_state = state.set(self.delay_index, TDTraces(predictor=predictor))
 
@@ -163,32 +156,18 @@ class TDError(eqx.Module):
         discount. Stop gradients through both target terms so the fit updates the delayed
         prediction.
         """
-        reward_mean, reward_precision = mean_and_precision(reward_observation)
-        cur_mean, cur_precision = mean_and_precision(current_prediction)
-        del_mean, del_precision = mean_and_precision(delayed_prediction)
-
+        reward = reward_observation.to_precision_parametrization()
+        current = current_prediction.to_variance_parametrization()
         gamma = self.discount.value
-        boot_mean = jax.lax.stop_gradient(reward_mean) + gamma * jax.lax.stop_gradient(cur_mean)
-        boot_variance = jax.lax.stop_gradient(variance_from_precision(reward_precision)) + (
-            jnp.square(gamma) * jax.lax.stop_gradient(1 / cur_precision)
+        bootstrap = NormalVP(
+            reward.mean + gamma * current.mean,
+            variance_from_precision(reward.precision) + jnp.square(gamma) * current.variance,
         )
         return _Moments(
-            boot_mean=boot_mean,
-            boot_variance=boot_variance,
-            del_mean=del_mean,
-            del_variance=1 / del_precision,
+            bootstrap=jax.lax.stop_gradient(bootstrap),
+            delayed=delayed_prediction.to_variance_parametrization(),
         )
 
 
 def _reconstruction_cost(moments: _Moments) -> JaxRealArray:
-    return jnp.sum(
-        gaussian_cross_entropy(
-            moments.boot_mean, moments.boot_variance, moments.del_mean, moments.del_variance
-        )
-    )
-
-
-def _witness_residuals(moments: _Moments) -> JaxRealArray:
-    mean_resid = moments.del_mean - moments.boot_mean
-    var_resid = moments.del_variance - moments.boot_variance - jnp.square(mean_resid)
-    return jnp.stack([mean_resid, var_resid], axis=-1)
+    return jnp.sum(moments.bootstrap.cross_entropy(moments.delayed))

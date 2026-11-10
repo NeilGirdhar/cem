@@ -102,19 +102,19 @@ class Emitter(eqx.Module):
         """
         raw_observation, pullback = self.observation_projection.infer(observation_content)
         inherited_instrument = inherit_instrument(self.instrument_map, predictor_instrument)
-        inherited_mean, inherited_precision = mean_and_precision(inherited_instrument)
+        inherited = inherited_instrument.to_variance_parametrization()
 
         if self.controllable:
-            local_variance = jnp.maximum(0.0, 1 / inherited_precision - jnp.square(inherited_mean))
-            displacement = jnp.sqrt(local_variance) * jr.normal(key, inherited_mean.shape)
+            local_variance = jnp.maximum(0.0, inherited.variance - jnp.square(inherited.mean))
+            displacement = jnp.sqrt(local_variance) * jr.normal(key, inherited.mean.shape)
             noised_raw_observation = _shift_mean(raw_observation, displacement)
             noised_instrument = _shift_mean(inherited_instrument, displacement)
         else:
-            local_variance = jnp.zeros_like(inherited_mean)
+            local_variance = jnp.zeros_like(inherited.mean)
             noised_raw_observation = raw_observation
             noised_instrument = inherited_instrument
 
-        gain = None if gain_observation is None else mean_and_precision(gain_observation)[0]
+        gain = None if gain_observation is None else gain_observation.mean()
         if gain is None:
             observation = noised_raw_observation
             instrument = noised_instrument

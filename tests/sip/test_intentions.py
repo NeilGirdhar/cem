@@ -3,6 +3,7 @@ from collections.abc import Mapping
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
+from efax import NormalPP
 from tjax import RngStream
 
 from cem.sip.intentions import Intentions
@@ -84,7 +85,7 @@ def test_intentions_infer_uses_previous_lower_message_and_current_upper_mismatch
 
     bottom_index = intentions.features[0].last_message_index
     bottom_message = _i_message(
-        jnp.array([0.5, -0.3]), jnp.ones(2), jnp.array([0.2, -0.1]), jnp.ones(2)
+        NormalPP(jnp.array([0.5, -0.3]), jnp.ones(2)), NormalPP(jnp.array([0.2, -0.1]), jnp.ones(2))
     )
     state = eqx.nn.State(intentions).set(bottom_index, bottom_message)
     _, outputs = intentions.infer(
