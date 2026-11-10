@@ -21,7 +21,7 @@ from cem.structure.graph import (
 _MINIMUM_VARIANCE = 1e-8
 _STANDARD_NORMAL_DENSITY_SCALE = 1 / jnp.sqrt(2 * jnp.pi)
 _LECUN_NORMAL = initializers.variance_scaling(1.0, "fan_in", "truncated_normal")
-_UNIT_PRESENCE_RAW = math.log(math.expm1(1.0))
+_UNIT_SOFTPLUS_RAW = math.log(math.expm1(1.0))  # softplus of this is one
 
 
 def gaussian_relu(distribution: NormalVP) -> NormalVP:
@@ -44,10 +44,16 @@ def gaussian_relu(distribution: NormalVP) -> NormalVP:
 
 
 class GaussianNPNLinear(eqx.Module):
-    """Propagate the marginal moments of a factorized Gaussian through a learned affine map."""
+    """Propagate the marginal moments of a factorized Gaussian through a learned affine map.
+
+    The weights are deterministic and the bias is Gaussian. The bias variance lets the layer
+    predict spread that its inputs do not carry, including when it has no inputs. See
+    `natural-parameter-networks` in the thesis.
+    """
 
     weight: LearnableParameter[JaxRealArray]
     bias: LearnableParameter[JaxRealArray]
+    bias_raw_variance: LearnableParameter[JaxRealArray]  # softplus gives the bias variance
 
     @classmethod
     def create(
@@ -67,16 +73,21 @@ class GaussianNPNLinear(eqx.Module):
         return cls(
             weight=parameter_factory(weight),
             bias=parameter_factory(jnp.zeros(out_features, dtype=jnp.float64)),
+            bias_raw_variance=parameter_factory(
+                jnp.full(out_features, _UNIT_SOFTPLUS_RAW, dtype=jnp.float64)
+            ),
         )
 
     def infer(self, inputs: NormalVP) -> NormalVP:
         """Return a factorized Gaussian with the affine output's marginal means and variances.
 
         Supply inputs with finite variance. The factorized output retains marginal uncertainty and
-        drops cross-covariances.
+        drops cross-covariances. The bias variance adds to the propagated input variance.
         """
         output_mean = inputs.mean @ self.weight.value.T + self.bias.value
-        output_variance = inputs.variance @ jnp.square(self.weight.value).T
+        output_variance = inputs.variance @ jnp.square(self.weight.value).T + softplus(
+            self.bias_raw_variance.value
+        )
         return NormalVP(output_mean, jnp.maximum(output_variance, _MINIMUM_VARIANCE))
 
 
@@ -97,7 +108,7 @@ class GaussianNPNInputPool(eqx.Module):
         return cls(
             dummy_mean=parameter_factory(jnp.zeros(n_features, dtype=jnp.float64)),
             dummy_raw_presence=parameter_factory(
-                jnp.full(n_features, _UNIT_PRESENCE_RAW, dtype=jnp.float64)
+                jnp.full(n_features, _UNIT_SOFTPLUS_RAW, dtype=jnp.float64)
             ),
         )
 

@@ -1,7 +1,9 @@
 """Check Gaussian message encodings, moment propagation, and parameter counts."""
 
+import math
 from collections.abc import Mapping
 
+import equinox as eqx
 import jax.numpy as jnp
 from efax import NormalPP, NormalVP
 from jax import tree
@@ -25,13 +27,14 @@ def test_gaussian_npn_linear_propagates_marginal_moments() -> None:
     layer = GaussianNPNLinear(
         weight=SummedGradientParameter(jnp.asarray([[2.0, -1.0], [0.5, 3.0]])),
         bias=SummedGradientParameter(jnp.asarray([0.25, -0.5])),
+        bias_raw_variance=SummedGradientParameter(jnp.full(2, math.log(math.expm1(0.5)))),
     )
     inputs = NormalVP(mean=jnp.asarray([1.0, -2.0]), variance=jnp.asarray([0.5, 4.0]))
 
     output = layer.infer(inputs)
 
     assert jnp.allclose(output.mean, jnp.asarray([4.25, -6.0]))
-    assert jnp.allclose(output.variance, jnp.asarray([6.0, 36.125]))
+    assert jnp.allclose(output.variance, jnp.asarray([6.5, 36.625]))
 
 
 def test_gaussian_npn_input_pool_adds_dummy_evidence() -> None:
@@ -66,14 +69,28 @@ def test_gaussian_npn_factory_wraps_input_pool_and_all_layers(
         parameter_factory=LossBalancedParameter,
     )
     parameters = tree.leaves(model, is_leaf=is_parameter)
-    assert len(parameters) == 2 + 2 * len(model.layers)
+    assert len(parameters) == 2 + 3 * len(model.layers)
     for parameter in parameters:
         assert isinstance(parameter, LossBalancedParameter)
 
 
-def test_gaussian_npn_matches_perceptron_parameter_count(
-    streams: Mapping[str, RngStream],
-) -> None:
+def test_gaussian_npn_parameter_count(streams: Mapping[str, RngStream]) -> None:
+    """The input pool has two parameters per input; each layer has weights and a bias pair."""
     network = GaussianNPN.create(4, 2, hidden_features=8, streams=streams)
 
-    assert count_real_learnable_parameters(network) == 2 * 4 + 4 * 8 + 8 + 8 * 2 + 2
+    assert count_real_learnable_parameters(network) == 2 * 4 + (4 * 8 + 2 * 8) + (8 * 2 + 2 * 2)
+
+
+def test_gaussian_npn_without_inputs_is_a_learned_prior(streams: Mapping[str, RngStream]) -> None:
+    """With no inputs, the output is the last layer's Gaussian bias, which training can reach."""
+    network = GaussianNPN.create(0, 2, streams=streams)
+    empty = NormalPP(jnp.zeros(0), jnp.zeros(0)).to_nat()
+    output = network.infer(empty).to_variance_parametrization()
+    assert jnp.allclose(output.mean, network.layers[-1].bias.value)
+    assert jnp.allclose(output.variance, 1.0)
+
+    target = NormalVP(jnp.zeros(2), jnp.full(2, 4.0))
+    gradient = eqx.filter_grad(
+        lambda n: jnp.sum(target.cross_entropy(n.infer(empty).to_variance_parametrization()))
+    )(network)
+    assert jnp.all(gradient.layers[-1].bias_raw_variance.value < 0)
