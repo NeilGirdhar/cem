@@ -1,17 +1,21 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from efax import NormalPP
+import pytest
+from efax import NormalNP, NormalPP
 from tjax import KeyArray, RngStream
 from tjax.gradient import MTAdamState
 
 from cem.sip import (
     CreditSettings,
     EnvironmentFeatures,
+    InstrumentedMessage,
     MismatchSettings,
+    RewardCritic,
+    RewardCriticOutputs,
     SIPActionConfiguration,
     SIPAgent,
     SIPAgentSettings,
@@ -133,6 +137,56 @@ def test_sip_agent_step_returns_action_at_bottom_intention(
     bottom_intention = outputs.intentions[0].message.observation
     assert jnp.allclose(outputs.action.mean_times_precision, bottom_intention.mean_times_precision)
     assert outputs.action.mean_times_precision.shape == (ENV_ACT,)
+
+
+def test_tracking_rewards_low_reconstruction_cost(
+    streams: Mapping[str, RngStream], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reward observation ends with curiosity and the negated reconstruction costs."""
+    agent = _agent(streams)
+    captured: list[NormalNP] = []
+    original_step = RewardCritic.step
+
+    def capture(  # ruff: ignore[too-many-arguments]
+        self: RewardCritic,
+        state: eqx.nn.State,
+        key: KeyArray,
+        *,
+        observation_content: Sequence[NormalNP],
+        predictor_instruments: Sequence[NormalNP],
+        gains: Sequence[InstrumentedMessage | None] | None = None,
+        reward_observation: NormalNP,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> tuple[eqx.nn.State, RewardCriticOutputs]:
+        captured.append(reward_observation)
+        return original_step(
+            self,
+            state,
+            key,
+            observation_content=observation_content,
+            predictor_instruments=predictor_instruments,
+            gains=gains,
+            reward_observation=reward_observation,
+            streams=streams,
+            inference=inference,
+        )
+
+    monkeypatch.setattr(RewardCritic, "step", capture)
+    _, outputs = agent.step(
+        eqx.nn.State(agent),
+        jr.key(0),
+        observation=_message(jnp.ones(ENV_OBS), jnp.ones(ENV_OBS)),
+        environment_reward_observation=_message(jnp.asarray([0.3]), jnp.ones(1)),
+        streams=streams,
+        inference=True,
+    )
+    n_levels = len(outputs.sensations)
+    rewards = captured[0].mean()
+    curiosity = jnp.stack([out.confounding_cost for out in outputs.sensations])
+    reconstruction = jnp.stack([out.reconstruction_cost for out in outputs.sensations])
+    assert jnp.allclose(rewards[-2 * n_levels : -n_levels], curiosity)
+    assert jnp.allclose(rewards[-n_levels:], -reconstruction)
 
 
 def test_sip_agent_step_produces_one_output_per_level(

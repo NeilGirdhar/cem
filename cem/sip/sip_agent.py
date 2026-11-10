@@ -75,7 +75,7 @@ class SIPAgent(eqx.Module):
         diffuse_content = sum(sensation_sizes) + sum(intention_sizes)
         n_levels = len(sensation_sizes)
         # Augment reward with one curiosity (confounding cost) and one tracking
-        # (reconstruction cost) channel per sensation feature.
+        # (negated reconstruction cost) channel per sensation feature.
         reward_features = environment.reward_features + 2 * n_levels
         sensations = Sensations.create(
             sensation_sizes,
@@ -175,10 +175,11 @@ class SIPAgent(eqx.Module):
         prospect_predictor_instruments = [out.message.instrument for out in sensation_outputs] + [
             out.message.instrument for out in intention_outputs
         ]
-        # Each sensation contributes its confounding cost as curiosity and its reconstruction
-        # cost as tracking. Both enter the reward observation with unit precision.
+        # Each sensation contributes its confounding cost as curiosity and its negated
+        # reconstruction cost as tracking, so tracking rewards predictable sensation. Both enter
+        # the reward observation with unit precision.
         curiosity = jnp.stack([out.confounding_cost for out in sensation_outputs])
-        tracking = jnp.stack([out.reconstruction_cost for out in sensation_outputs])
+        tracking = -jnp.stack([out.reconstruction_cost for out in sensation_outputs])
         intrinsic_precision = jnp.ones_like(curiosity)
         reward_observation = concat_messages(
             environment_reward_observation,
