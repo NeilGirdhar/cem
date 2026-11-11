@@ -1,15 +1,15 @@
-"""Gaussian natural-parameter network primitives."""
+"""Gaussian neural projection primitives."""
 
 from cem.npn.gaussian import (
-    GaussianNPN,
-    GaussianNPNInputPool,
-    GaussianNPNLinear,
+    GaussianNeuralProjection,
+    GaussianNeuralProjectionInputPool,
+    GaussianNeuralProjectionLayer,
     gaussian_relu,
 )
 
 __all__ = [
-    "GaussianNPN",
-    "GaussianNPNInputPool",
-    "GaussianNPNLinear",
+    "GaussianNeuralProjection",
+    "GaussianNeuralProjectionInputPool",
+    "GaussianNeuralProjectionLayer",
     "gaussian_relu",
 ]

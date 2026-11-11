@@ -14,7 +14,7 @@ from optuna.distributions import CategoricalDistribution, FloatDistribution, Int
 from tjax import JaxRealArray, RngStream
 from tjax.gradient import Adam
 
-from cem.npn.gaussian import GaussianNPN
+from cem.npn.gaussian import GaussianNeuralProjection
 from cem.perceptron.mlp import MLP
 from cem.perceptron.target_node import PerceptronTargetNode
 from cem.structure.graph import (
@@ -231,7 +231,7 @@ class GaussianNPNTarget(eqx.Module):
 class GaussianNPNSupervisedModel(Model):
     """A supervised Gaussian NPN that represents missing inputs as absent evidence."""
 
-    link: GaussianNPN
+    link: GaussianNeuralProjection
     target: GaussianNPNTarget
     missing_probability: float = eqx.field(static=True)
 
@@ -246,7 +246,7 @@ class GaussianNPNSupervisedModel(Model):
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
-            link=GaussianNPN.create(
+            link=GaussianNeuralProjection.create(
                 sup.n_features,
                 sup.n_targets,
                 hidden_features=hidden_size,

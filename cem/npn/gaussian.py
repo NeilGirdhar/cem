@@ -1,4 +1,4 @@
-"""Gaussian natural-parameter networks with moment-matched activations."""
+"""Gaussian neural projections: Gaussian NPNs with point-estimate weights and Gaussian biases."""
 
 import itertools as it
 import math
@@ -43,7 +43,7 @@ def gaussian_relu(distribution: NormalVP) -> NormalVP:
     return NormalVP(output_mean, output_variance)
 
 
-class GaussianNPNLinear(eqx.Module):
+class GaussianNeuralProjectionLayer(eqx.Module):
     """Propagate the marginal moments of a factorized Gaussian through a learned affine map.
 
     The weights are deterministic and the bias is Gaussian. The bias variance lets the layer
@@ -91,7 +91,7 @@ class GaussianNPNLinear(eqx.Module):
         return NormalVP(output_mean, jnp.maximum(output_variance, _MINIMUM_VARIANCE))
 
 
-class GaussianNPNInputPool(eqx.Module):
+class GaussianNeuralProjectionInputPool(eqx.Module):
     """Combine inputs with learned background evidence so absent inputs have defined moments."""
 
     dummy_mean: LearnableParameter[JaxRealArray]
@@ -123,11 +123,15 @@ class GaussianNPNInputPool(eqx.Module):
         )
 
 
-class GaussianNPN(eqx.Module):
-    """A feedforward network that propagates Gaussian messages and accepts missing inputs."""
+class GaussianNeuralProjection(eqx.Module):
+    """A feedforward network that maps Gaussian evidence to a Gaussian message.
 
-    input_pool: GaussianNPNInputPool
-    layers: tuple[GaussianNPNLinear, ...]
+    It specializes the Gaussian NPN by using point estimates for the weights while keeping
+    Gaussian biases, and it accepts missing inputs. See `neural-computation` in the thesis.
+    """
+
+    input_pool: GaussianNeuralProjectionInputPool
+    layers: tuple[GaussianNeuralProjectionLayer, ...]
 
     @classmethod
     def create(
@@ -148,11 +152,11 @@ class GaussianNPN(eqx.Module):
             hidden_features = (hidden_features,)
         feature_sizes = (in_features, *hidden_features, out_features)
         return cls(
-            input_pool=GaussianNPNInputPool.create(
+            input_pool=GaussianNeuralProjectionInputPool.create(
                 in_features, parameter_factory=parameter_factory
             ),
             layers=tuple(
-                GaussianNPNLinear.create(
+                GaussianNeuralProjectionLayer.create(
                     n_in, n_out, streams=streams, parameter_factory=parameter_factory
                 )
                 for n_in, n_out in it.pairwise(feature_sizes)

@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from efax import NormalNP, NormalVP
 from tjax import JaxRealArray, RngStream
 
-from cem.npn.gaussian import GaussianNPN
+from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, variance_from_precision
 from cem.sip.parameters import TDPredictionParameter, WitnessMultiplierParameter
@@ -52,7 +52,7 @@ class TDError(eqx.Module):
     See `sip-td-error-circuit` in the thesis.
     """
 
-    prediction_map: GaussianNPN
+    prediction_map: GaussianNeuralProjection
     witness_map: WitnessMap
     witness_multiplier: WitnessMultiplierParameter  # scalar
     discount: FixedParameter[JaxRealArray]  # scalar
@@ -68,7 +68,7 @@ class TDError(eqx.Module):
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
-            prediction_map=GaussianNPN.create(
+            prediction_map=GaussianNeuralProjection.create(
                 in_features=predictor_features,
                 out_features=n,
                 hidden_features=td_settings.prediction_hidden_features,

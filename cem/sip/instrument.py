@@ -5,10 +5,12 @@ import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray
 
-from cem.npn.gaussian import GaussianNPN
+from cem.npn.gaussian import GaussianNeuralProjection
 
 
-def inherit_instrument(instrument_map: GaussianNPN, predictor_instrument: NormalNP) -> NormalNP:
+def inherit_instrument(
+    instrument_map: GaussianNeuralProjection, predictor_instrument: NormalNP
+) -> NormalNP:
     """Return the inherited instrument that the map predicts from the parents' instruments.
 
     Hold the parents' instruments fixed so that each feature's instrument loss trains only

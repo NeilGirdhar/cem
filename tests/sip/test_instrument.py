@@ -8,7 +8,7 @@ from efax import NormalNP
 from jax import tree
 from tjax import JaxRealArray, RngStream
 
-from cem.npn.gaussian import GaussianNPN
+from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.instrument import inherit_instrument, instrument_loss
 
 from .tools import _message
@@ -21,7 +21,7 @@ def _all_zero(gradients: object) -> bool:
 def test_inherit_instrument_holds_parent_instruments_fixed(
     streams: Mapping[str, RngStream],
 ) -> None:
-    instrument_map = GaussianNPN.create(in_features=2, out_features=3, streams=streams)
+    instrument_map = GaussianNeuralProjection.create(in_features=2, out_features=3, streams=streams)
 
     def output_sum(predictor_instrument: NormalNP) -> JaxRealArray:
         inherited = inherit_instrument(instrument_map, predictor_instrument)

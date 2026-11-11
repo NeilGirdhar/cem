@@ -10,7 +10,7 @@ from efax import NormalNP, NormalPP
 from jax.lax import stop_gradient
 from tjax import JaxRealArray, KeyArray
 
-from cem.npn.gaussian import GaussianNPN
+from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit, CreditOutputs
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs
@@ -34,7 +34,7 @@ class _ObservationCoordinates(eqx.Module):
 
 
 type _ObservationProjection = EligibilityTraining[
-    GaussianNPN, NormalNP, _ObservationCoordinates, NormalNP
+    GaussianNeuralProjection, NormalNP, _ObservationCoordinates, NormalNP
 ]
 
 
@@ -46,8 +46,8 @@ class _ObservationTraces(eqx.Module):
     output coordinate.
     """
 
-    mean: GaussianNPN
-    precision: GaussianNPN
+    mean: GaussianNeuralProjection
+    precision: GaussianNeuralProjection
 
 
 class EmitterOutputs(SIPLossOutputs):
@@ -68,12 +68,12 @@ class Emitter(eqx.Module):
 
     observation_projection: _ObservationProjection
     trace_index: eqx.nn.StateIndex[_ObservationTraces]
-    instrument_map: GaussianNPN
+    instrument_map: GaussianNeuralProjection
     credit: Credit
     controllable: bool = eqx.field(static=True)
 
     @property
-    def observation_map(self) -> GaussianNPN:
+    def observation_map(self) -> GaussianNeuralProjection:
         return self.observation_projection.model
 
     def step(
@@ -177,8 +177,8 @@ class Emitter(eqx.Module):
     @classmethod
     def create(
         cls,
-        observation_map: GaussianNPN,
-        instrument_map: GaussianNPN,
+        observation_map: GaussianNeuralProjection,
+        instrument_map: GaussianNeuralProjection,
         credit: Credit,
         *,
         controllable: bool,
@@ -199,7 +199,7 @@ class Emitter(eqx.Module):
 
 
 def _project_observation(
-    model: GaussianNPN, content: NormalNP
+    model: GaussianNeuralProjection, content: NormalNP
 ) -> tuple[_ObservationCoordinates, NormalNP]:
     """Project the content while confining observation credit to the map parameters."""
     observation = model.infer(stop_gradient(content))

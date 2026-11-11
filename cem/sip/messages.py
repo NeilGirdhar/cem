@@ -65,7 +65,7 @@ def variance_from_precision(
 
     Use for precisions that aren't strictly positive by construction — external
     inputs such as an observed reward that may arrive in absent-message encoding.
-    For `GaussianNPN` and `MLP` outputs whose softplus readout keeps precision
+    For `GaussianNeuralProjection` and `MLP` outputs whose softplus readout keeps precision
     strictly positive, use `1 / precision` directly.
     """
     return divide_where(

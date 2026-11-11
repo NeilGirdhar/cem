@@ -7,7 +7,7 @@ from efax import NormalNP
 from jax import tree
 from tjax import RngStream
 
-from cem.npn.gaussian import GaussianNPN
+from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 
@@ -22,13 +22,13 @@ def _emitter(
     controllable: bool,
     streams: Mapping[str, RngStream],
 ) -> Emitter:
-    observation_map = GaussianNPN.create(
+    observation_map = GaussianNeuralProjection.create(
         in_features=content_dim, out_features=n, hidden_features=(), streams=streams
     )
-    instrument_map = GaussianNPN.create(
+    instrument_map = GaussianNeuralProjection.create(
         in_features=instrument_dim, out_features=n, hidden_features=(), streams=streams
     )
-    baseline_map = GaussianNPN.create(
+    baseline_map = GaussianNeuralProjection.create(
         in_features=content_dim, out_features=1, hidden_features=(), streams=streams
     )
     credit = Credit.create(n, baseline_map, credit_settings=CREDIT_SETTINGS)

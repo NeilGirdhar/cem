@@ -8,7 +8,7 @@ from efax import NormalNP
 from jax.lax import stop_gradient
 from tjax import JaxRealArray
 
-from cem.npn.gaussian import GaussianNPN
+from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.settings import CreditSettings
 from cem.structure.graph import FixedParameter
 
@@ -41,14 +41,14 @@ class Credit(eqx.Module):
     """
 
     trace_decay_rate: FixedParameter[JaxRealArray]
-    goal_baseline_map: GaussianNPN
+    goal_baseline_map: GaussianNeuralProjection
     trace_index: eqx.nn.StateIndex[CreditTraces]
 
     @classmethod
     def create(
         cls,
         n: int,
-        goal_baseline_map: GaussianNPN,
+        goal_baseline_map: GaussianNeuralProjection,
         *,
         credit_settings: CreditSettings,
     ) -> Self:

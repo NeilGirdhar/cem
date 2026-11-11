@@ -11,7 +11,7 @@ import jax.numpy as jnp
 from efax import NormalNP
 from tjax import JaxRealArray, KeyArray, RngStream
 
-from cem.npn.gaussian import GaussianNPN
+from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 from cem.sip.instrument import inherit_instrument, instrument_loss
@@ -74,16 +74,16 @@ class SIPFeature(eqx.Module):
         predictor supplies the causal prediction and its instrument. The gain width controls
         whether the witness also receives a gain instrument.
         """
-        observation_map = GaussianNPN.create(
+        observation_map = GaussianNeuralProjection.create(
             in_features=sizes.observation_content,
             out_features=n,
             streams=streams,
             parameter_factory=observation_parameter_factory,
         )
-        instrument_map = GaussianNPN.create(
+        instrument_map = GaussianNeuralProjection.create(
             in_features=sizes.predictor, out_features=n, streams=streams
         )
-        baseline_map = GaussianNPN.create(
+        baseline_map = GaussianNeuralProjection.create(
             in_features=sizes.observation_content, out_features=1, streams=streams
         )
         emitter = Emitter.create(
@@ -214,7 +214,7 @@ class IntentionFeature(SIPFeature):
 class SensationInputFeature(eqx.Module):
     """Use the supplied observation as the prediction target at the base of the sensation stack."""
 
-    instrument_map: GaussianNPN
+    instrument_map: GaussianNeuralProjection
     mismatch: Mismatch
     last_message_index: eqx.nn.StateIndex[InstrumentedMessage]
 
@@ -229,7 +229,7 @@ class SensationInputFeature(eqx.Module):
         streams: Mapping[str, RngStream],
     ) -> Self:
         return cls(
-            instrument_map=GaussianNPN.create(
+            instrument_map=GaussianNeuralProjection.create(
                 in_features=predictor_features, out_features=n, streams=streams
             ),
             mismatch=Mismatch.create(
@@ -371,16 +371,16 @@ class ProspectFeature(eqx.Module):
         credit_settings: CreditSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
-        observation_map = GaussianNPN.create(
+        observation_map = GaussianNeuralProjection.create(
             in_features=observation_content_features,
             out_features=n,
             streams=streams,
             parameter_factory=LossBalancedParameter,
         )
-        instrument_map = GaussianNPN.create(
+        instrument_map = GaussianNeuralProjection.create(
             in_features=predictor_features, out_features=n, streams=streams
         )
-        baseline_map = GaussianNPN.create(
+        baseline_map = GaussianNeuralProjection.create(
             in_features=observation_content_features, out_features=1, streams=streams
         )
         emitter = Emitter.create(

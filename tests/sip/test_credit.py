@@ -8,15 +8,17 @@ from efax import NormalNP
 from jax import tree, value_and_grad
 from tjax import JaxRealArray, RngStream
 
-from cem.npn.gaussian import GaussianNPN
+from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit, CreditTraces
 from cem.sip.settings import CreditSettings
 
 from .tools import CREDIT_SETTINGS, _message
 
 
-def _baseline_npn(obs_content_dim: int, streams: Mapping[str, RngStream]) -> GaussianNPN:
-    return GaussianNPN.create(
+def _baseline_projection(
+    obs_content_dim: int, streams: Mapping[str, RngStream]
+) -> GaussianNeuralProjection:
+    return GaussianNeuralProjection.create(
         in_features=obs_content_dim,
         out_features=1,
         hidden_features=(),
@@ -39,7 +41,7 @@ def test_credit_settings_reject_invalid_decay_rates(rate: float) -> None:
 
 def test_step_advances_traces_from_zero(streams: Mapping[str, RngStream]) -> None:
     n = 2
-    credit = Credit.create(n, _baseline_npn(1, streams), credit_settings=CREDIT_SETTINGS)
+    credit = Credit.create(n, _baseline_projection(1, streams), credit_settings=CREDIT_SETTINGS)
     initial_state = eqx.nn.State(credit)
 
     inst_mean = jnp.asarray([2.0, -3.0])
@@ -71,7 +73,7 @@ def test_step_shrinkage_uses_observation_precision_trace(
     streams: Mapping[str, RngStream],
 ) -> None:
     n = 2
-    credit = Credit.create(n, _baseline_npn(1, streams), credit_settings=CREDIT_SETTINGS)
+    credit = Credit.create(n, _baseline_projection(1, streams), credit_settings=CREDIT_SETTINGS)
     initial_state = eqx.nn.State(credit)
 
     inst_mean = jnp.asarray([2.0, -1.0])
@@ -98,7 +100,7 @@ def test_step_goal_prediction_error_uses_goal_penalty(
     streams: Mapping[str, RngStream],
 ) -> None:
     n = 2
-    credit = Credit.create(n, _baseline_npn(1, streams), credit_settings=CREDIT_SETTINGS)
+    credit = Credit.create(n, _baseline_projection(1, streams), credit_settings=CREDIT_SETTINGS)
     initial_state = eqx.nn.State(credit)
 
     inst_mean = jnp.asarray([1.0, 2.0])
@@ -139,7 +141,7 @@ def test_goal_prediction_loss_trains_only_the_baseline_map(
 ) -> None:
     """The loss holds the observation content and the goal penalty fixed."""
     n = 1
-    credit = Credit.create(n, _baseline_npn(1, streams), credit_settings=CREDIT_SETTINGS)
+    credit = Credit.create(n, _baseline_projection(1, streams), credit_settings=CREDIT_SETTINGS)
     initial_state = eqx.nn.State(credit)
 
     content = _message(jnp.ones(n), jnp.ones(n))
@@ -169,7 +171,9 @@ def test_goal_penalty_retains_precision_from_emission(streams: Mapping[str, RngS
     n = 1
     decay_rate = jnp.log(2.0).item()  # exp(-ln 2) = 0.5
     credit = Credit.create(
-        n, _baseline_npn(1, streams), credit_settings=CreditSettings(trace_decay_rate=decay_rate)
+        n,
+        _baseline_projection(1, streams),
+        credit_settings=CreditSettings(trace_decay_rate=decay_rate),
     )
     state = eqx.nn.State(credit)
 
