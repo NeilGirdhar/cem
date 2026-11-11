@@ -14,7 +14,7 @@ from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, concat_messages
 from cem.sip.parameters import MismatchPredictionParameter, WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
-from cem.sip.witness import WitnessMap, witness_loss, witness_residuals
+from cem.sip.witness import WitnessMap, witness_loss, witness_norm_penalty, witness_residuals
 
 
 class MismatchOutputs(SIPLossOutputs):
@@ -24,6 +24,7 @@ class MismatchOutputs(SIPLossOutputs):
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
     witness_loss: JaxRealArray  # scalar
+    witness_norm_penalty: JaxRealArray  # scalar
 
 
 class _Moments(eqx.Module):
@@ -112,8 +113,9 @@ class Mismatch(eqx.Module):
         confounding_cost = jnp.sum(
             _scale_rows(residuals, moments.gain) * jax.lax.stop_gradient(confounding_witness)
         )
-        loss = witness_loss(
-            residuals, confounding_witness, moments.gain, self.witness_multiplier.value
+        loss = witness_loss(residuals, confounding_witness, moments.gain)
+        norm_penalty = witness_norm_penalty(
+            confounding_witness, moments.gain, self.witness_multiplier.value
         )
 
         return MismatchOutputs(
@@ -121,11 +123,12 @@ class Mismatch(eqx.Module):
             reconstruction_cost=reconstruction.cost,
             confounding_cost=confounding_cost,
             witness_loss=loss,
+            witness_norm_penalty=norm_penalty,
             balanced_losses={
                 "reconstruction": reconstruction.cost,
                 "confounding": confounding_cost,
             },
-            fixed_weight_loss=loss,
+            fixed_weight_loss=loss + norm_penalty,
         )
 
     def _moments(
@@ -172,16 +175,17 @@ class Mismatch(eqx.Module):
 
 def _reconstruction_and_mismatch(moments: _Moments) -> _Reconstruction:
     target, prediction = moments.target, moments.prediction
-    mean_residual = prediction.mean - target.mean
+    mean_error = prediction.mean - target.mean
     reconstruction_density = target.cross_entropy(prediction)
     reconstruction_error = (
         reconstruction_density if moments.gain is None else moments.gain * reconstruction_density
     )
     reconstruction_cost = jnp.sum(reconstruction_error)
 
-    actual_deviation = jnp.sqrt(target.variance + jnp.square(mean_residual))
-    deviation_residual = jnp.sqrt(prediction.variance) - actual_deviation
-    mismatch_pair = jnp.stack([mean_residual, deviation_residual], axis=-1)
+    # The target's root-mean-square deviation about the predicted mean.
+    target_deviation = jnp.sqrt(target.variance + jnp.square(mean_error))
+    deviation_error = jnp.sqrt(prediction.variance) - target_deviation
+    mismatch_pair = jnp.stack([mean_error, deviation_error], axis=-1)
     mismatch_flat = _scale_rows(mismatch_pair, moments.gain).reshape(-1)
     mismatch_message = NormalPP(mismatch_flat, jnp.ones_like(mismatch_flat)).to_nat()
     return _Reconstruction(cost=reconstruction_cost, mismatch=mismatch_message)

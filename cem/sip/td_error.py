@@ -14,7 +14,7 @@ from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, variance_from_precision
 from cem.sip.parameters import TDPredictionParameter, WitnessMultiplierParameter
 from cem.sip.settings import TDSettings
-from cem.sip.witness import WitnessMap, witness_loss, witness_residuals
+from cem.sip.witness import WitnessMap, witness_loss, witness_norm_penalty, witness_residuals
 from cem.structure.graph import FixedParameter
 
 
@@ -36,6 +36,7 @@ class TDErrorOutputs(SIPLossOutputs):
     confounding_cost: JaxRealArray  # scalar
     uncertainty_loss: JaxRealArray  # scalar
     witness_loss: JaxRealArray  # scalar
+    witness_norm_penalty: JaxRealArray  # scalar
 
 
 class _Moments(eqx.Module):
@@ -114,7 +115,8 @@ class TDError(eqx.Module):
         reconstruction_cost = _reconstruction_cost(moments)
         confounding_cost = jnp.sum(residuals * jax.lax.stop_gradient(delayed_witness))
         uncertainty_loss = jnp.sum(moments.delayed.variance)
-        loss = witness_loss(residuals, delayed_witness, None, self.witness_multiplier.value)
+        loss = witness_loss(residuals, delayed_witness, None)
+        norm_penalty = witness_norm_penalty(delayed_witness, None, self.witness_multiplier.value)
 
         advantage = moments.bootstrap.mean - moments.delayed.mean
 
@@ -126,12 +128,13 @@ class TDError(eqx.Module):
             confounding_cost=confounding_cost,
             uncertainty_loss=uncertainty_loss,
             witness_loss=loss,
+            witness_norm_penalty=norm_penalty,
             balanced_losses={
                 "reconstruction": reconstruction_cost,
                 "confounding": confounding_cost,
                 "uncertainty": uncertainty_loss,
             },
-            fixed_weight_loss=loss,
+            fixed_weight_loss=loss + norm_penalty,
         )
 
     def _predict(self, predictor_observations: NormalNP) -> NormalNP:

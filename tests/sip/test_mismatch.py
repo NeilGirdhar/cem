@@ -62,7 +62,9 @@ def test_mismatch_reports_named_prediction_losses(
     outputs = mismatch.step(**_inputs(n), streams=streams, inference=True)
     assert jnp.allclose(outputs.balanced_losses["reconstruction"], outputs.reconstruction_cost)
     assert jnp.allclose(outputs.balanced_losses["confounding"], outputs.confounding_cost)
-    assert jnp.allclose(outputs.fixed_weight_loss, outputs.witness_loss)
+    assert jnp.allclose(
+        outputs.fixed_weight_loss, outputs.witness_loss + outputs.witness_norm_penalty
+    )
 
 
 def test_separate_mismatch_gradients_sum_to_scalar_loss_gradient(

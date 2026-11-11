@@ -25,13 +25,13 @@ class CreditTraces(eqx.Module):
 
 
 class CreditOutputs(eqx.Module):
-    """Trace contributions, shrinkage credit, and the signals for training the goal baseline."""
+    """Trace contributions, shrinkage credit, and the loss that trains the goal baseline."""
 
     mean_contribution: JaxRealArray
     precision_contribution: JaxRealArray
     goal_prediction_error: JaxRealArray
+    goal_prediction_loss: JaxRealArray  # scalar
     shrinkage_cotangent: JaxRealArray
-    goal_baseline: JaxRealArray
 
 
 class Credit(eqx.Module):
@@ -104,10 +104,13 @@ class Credit(eqx.Module):
         baseline_message = self.goal_baseline_map.infer(stop_gradient(observation_content))
         baseline = baseline_message.mean().reshape(())
         error = stop_gradient(goal) - (baseline + new_traces.goal_penalty)
+        # The goal prediction loss trains only the baseline map; precision credit reaches the
+        # penalty through the precision trace instead.
+        fixed_penalty_error = stop_gradient(goal - new_traces.goal_penalty) - baseline
         return new_state, CreditOutputs(
             mean_contribution=mean_contribution,
             precision_contribution=precision_contribution,
             goal_prediction_error=error,
+            goal_prediction_loss=0.5 * jnp.square(fixed_penalty_error),
             shrinkage_cotangent=-raw.mean * new_traces.obs_precision,
-            goal_baseline=baseline,
         )

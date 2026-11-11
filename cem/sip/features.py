@@ -14,7 +14,7 @@ from tjax import JaxRealArray, KeyArray, RngStream
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
-from cem.sip.instrument import inherit_instrument, instrument_mismatch_loss
+from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs, combine_losses
 from cem.sip.messages import InstrumentedMessage, evidence_scale
 from cem.sip.mismatch import Mismatch
@@ -255,7 +255,7 @@ class SensationInputFeature(eqx.Module):
         """Pair the supplied observation with an inherited instrument and score its prediction.
 
         The supplied observation is already the target, so there is no learned observation map
-        or local noise. The instrument mismatch fits the inherited instrument to the supplied
+        or local noise. The instrument loss fits the inherited instrument to the supplied
         observation. Save the outgoing message after any gain scaling.
         """
         inherited_instrument = inherit_instrument(self.instrument_map, predictor.instrument)
@@ -286,7 +286,7 @@ class SensationInputFeature(eqx.Module):
             confounding_cost=mismatch_outputs.confounding_cost,
             balanced_losses=mismatch_outputs.balanced_losses,
             fixed_weight_loss=mismatch_outputs.fixed_weight_loss
-            + instrument_mismatch_loss(inherited_instrument, observation, gain_mean),
+            + instrument_loss(inherited_instrument, observation, gain_mean),
         )
 
 

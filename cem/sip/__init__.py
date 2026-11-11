@@ -23,7 +23,6 @@ from cem.sip.messages import (
     concat_messages,
     evidence_scale,
     promoting_link_loss,
-    suppressing_link_loss,
 )
 from cem.sip.mismatch import Mismatch, MismatchOutputs
 from cem.sip.model import SIPActionConfiguration, SIPModel, SIPObservation
@@ -83,5 +82,4 @@ __all__ = [
     "concat_messages",
     "evidence_scale",
     "promoting_link_loss",
-    "suppressing_link_loss",
 ]

@@ -29,7 +29,7 @@ class RewardCriticOutputs(SIPLossOutputs):
 class RewardCritic(eqx.Module):
     """Learn to predict return from prospects and supply credit for reward-seeking behaviour.
 
-    See `reward-critic` in the thesis.
+    See `reward-prediction` in the thesis.
     """
 
     prospect_features: tuple[ProspectFeature, ...]

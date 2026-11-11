@@ -12,7 +12,7 @@ from tjax import JaxRealArray, KeyArray
 
 from cem.npn.gaussian import GaussianNPN
 from cem.sip.credit import Credit, CreditOutputs
-from cem.sip.instrument import inherit_instrument, instrument_mismatch_loss
+from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import (
     InstrumentedMessage,
@@ -97,7 +97,7 @@ class Emitter(eqx.Module):
 
         Each named goal scales the mean trace. The fixed-weight loss uses the full goal prediction
         error for precision credit and baseline learning, and includes mean shrinkage and the
-        instrument mismatch.
+        instrument loss.
         """
         raw_observation, pullback = self.observation_projection.infer(observation_content)
         inherited_instrument = inherit_instrument(self.instrument_map, predictor_instrument)
@@ -161,10 +161,8 @@ class Emitter(eqx.Module):
         fixed_weight_loss = self.observation_projection.get_loss(
             precision_trace, credit_outputs.goal_prediction_error
         ) + promoting_link_loss(raw_mean, credit_outputs.shrinkage_cotangent)
-        fixed_weight_loss += promoting_link_loss(
-            credit_outputs.goal_baseline, credit_outputs.goal_prediction_error
-        )
-        fixed_weight_loss += instrument_mismatch_loss(inherited_instrument, raw_observation, gain)
+        fixed_weight_loss += credit_outputs.goal_prediction_loss
+        fixed_weight_loss += instrument_loss(inherited_instrument, raw_observation, gain)
         outputs = EmitterOutputs(
             message=InstrumentedMessage(observation, instrument),
             raw_observation=raw_observation,

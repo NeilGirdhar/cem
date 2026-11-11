@@ -173,7 +173,7 @@ def test_observation_projection_stops_gradients_at_its_input(
     assert jnp.any(emitter_gradient.observation_map.layers[-1].bias.value != 0)
 
 
-def test_instrument_mismatch_trains_only_the_instrument_map(
+def test_instrument_loss_trains_only_the_instrument_map(
     streams: Mapping[str, RngStream],
 ) -> None:
     """The emitter's loss trains its instrument map but not the parents' instruments or gain."""

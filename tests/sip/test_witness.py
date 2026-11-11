@@ -11,7 +11,7 @@ from tjax import JaxRealArray, RngStream
 
 from cem.sip import SIPModel, WitnessMap
 from cem.sip.parameters import WitnessMultiplierParameter
-from cem.sip.witness import witness_loss, witness_residuals
+from cem.sip.witness import witness_loss, witness_norm_penalty, witness_residuals
 from cem.structure.graph import DisModel, Model
 from cem.structure.graph.losses import LossGradients
 
@@ -79,12 +79,18 @@ _GAIN = jnp.asarray([1.0, 0.5])
 
 
 @pytest.mark.parametrize("gain", [None, _GAIN])
-def test_witness_loss_gradients_follow_the_lagrangian(gain: JaxRealArray | None) -> None:
+def test_witness_gradients_follow_the_lagrangian(gain: JaxRealArray | None) -> None:
     multiplier = jnp.asarray(0.7)
     unit_gain = jnp.ones(2) if gain is None else gain
     excess = jnp.sum(unit_gain[:, None] * jnp.square(_WITNESS)) - jnp.mean(unit_gain)
-    witness_gradient, multiplier_gradient = jax.grad(witness_loss, argnums=(1, 3))(
-        _RESIDUALS, _WITNESS, gain, multiplier
+
+    def lagrangian(witness: JaxRealArray, multiplier: JaxRealArray) -> JaxRealArray:
+        return witness_loss(_RESIDUALS, witness, gain) + witness_norm_penalty(
+            witness, gain, multiplier
+        )
+
+    witness_gradient, multiplier_gradient = jax.grad(lagrangian, argnums=(0, 1))(
+        _WITNESS, multiplier
     )
     expected_witness_gradient = unit_gain[:, None] * (2.0 * multiplier * _WITNESS - _RESIDUALS)
     assert jnp.allclose(witness_gradient, expected_witness_gradient)
@@ -92,9 +98,13 @@ def test_witness_loss_gradients_follow_the_lagrangian(gain: JaxRealArray | None)
     assert jnp.isclose(multiplier_gradient, -excess)
 
 
-def test_witness_loss_value_is_the_negated_covariance() -> None:
-    loss = witness_loss(_RESIDUALS, _WITNESS, _GAIN, jnp.asarray(3.0))
+def test_witness_loss_is_the_negated_confounding_cost() -> None:
+    loss = witness_loss(_RESIDUALS, _WITNESS, _GAIN)
     assert jnp.isclose(loss, -jnp.sum(_GAIN[:, None] * _RESIDUALS * _WITNESS))
+
+
+def test_witness_norm_penalty_contributes_gradients_only() -> None:
+    assert witness_norm_penalty(_WITNESS, _GAIN, jnp.asarray(3.0)) == 0.0
 
 
 class _MultiplierModel(Model):
@@ -128,7 +138,7 @@ def test_sip_routing_projects_the_multiplier_onto_nonnegative_values(
 def test_witness_holds_instruments_fixed(
     witness_map: WitnessMap, streams: Mapping[str, RngStream]
 ) -> None:
-    """Witness learning leaves instrument fitting to the instrument mismatch."""
+    """Witness learning leaves instrument fitting to the instrument loss."""
     mean = jnp.asarray([0.5, -0.3, 0.2, 0.1])
     precision = jnp.asarray([1.0, 2.0, 0.5, 4.0])
     gradients = jax.grad(

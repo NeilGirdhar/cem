@@ -1,4 +1,4 @@
-"""Check the inherited instrument and the instrument mismatch that trains it."""
+"""Check the inherited instrument and the instrument loss that trains it."""
 
 from collections.abc import Mapping
 
@@ -9,7 +9,7 @@ from jax import tree
 from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN
-from cem.sip.instrument import inherit_instrument, instrument_mismatch_loss
+from cem.sip.instrument import inherit_instrument, instrument_loss
 
 from .tools import _message
 
@@ -31,30 +31,28 @@ def test_inherit_instrument_holds_parent_instruments_fixed(
     assert _all_zero(gradient)
 
 
-def test_instrument_mismatch_holds_observation_and_gain_fixed() -> None:
+def test_instrument_loss_holds_observation_and_gain_fixed() -> None:
     inherited = _message(jnp.asarray([0.2, -0.4]), jnp.asarray([2.0, 0.5]))
     raw_observation = _message(jnp.asarray([0.5, 0.1]), jnp.asarray([1.0, 3.0]))
     gain = jnp.asarray([0.3, 0.9])
-    gradients = jax.grad(
-        lambda raw, g: instrument_mismatch_loss(inherited, raw, g), argnums=(0, 1)
-    )(raw_observation, gain)
+    gradients = jax.grad(lambda raw, g: instrument_loss(inherited, raw, g), argnums=(0, 1))(
+        raw_observation, gain
+    )
     assert _all_zero(gradients)
 
 
-def test_instrument_mismatch_is_gain_weighted_cross_entropy() -> None:
+def test_instrument_loss_is_gain_weighted_cross_entropy() -> None:
     """A standard-normal fit costs the standard-normal entropy, scaled by the stopped gain."""
     standard = _message(jnp.zeros(2), jnp.ones(2))
     entropy = 0.5 * jnp.log(2.0 * jnp.pi * jnp.e)
-    assert jnp.allclose(instrument_mismatch_loss(standard, standard, None), 2.0 * entropy)
+    assert jnp.allclose(instrument_loss(standard, standard, None), 2.0 * entropy)
     gain = jnp.asarray([0.25, 0.0])
-    assert jnp.allclose(instrument_mismatch_loss(standard, standard, gain), 0.25 * entropy)
+    assert jnp.allclose(instrument_loss(standard, standard, gain), 0.25 * entropy)
 
 
-def test_instrument_mismatch_moves_instrument_towards_observation() -> None:
+def test_instrument_loss_moves_instrument_towards_observation() -> None:
     inherited = _message(jnp.asarray([0.0]), jnp.asarray([1.0]))
     raw_observation = _message(jnp.asarray([1.0]), jnp.asarray([1.0]))
-    gradient = jax.grad(lambda inst: instrument_mismatch_loss(inst, raw_observation, None))(
-        inherited
-    )
+    gradient = jax.grad(lambda inst: instrument_loss(inst, raw_observation, None))(inherited)
     # Descent raises the precision-weighted mean towards the observed mean.
     assert gradient.mean_times_precision[0] < 0

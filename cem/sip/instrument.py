@@ -11,13 +11,13 @@ from cem.npn.gaussian import GaussianNPN
 def inherit_instrument(instrument_map: GaussianNPN, predictor_instrument: NormalNP) -> NormalNP:
     """Return the inherited instrument that the map predicts from the parents' instruments.
 
-    Hold the parents' instruments fixed so that each feature's instrument mismatch trains only
+    Hold the parents' instruments fixed so that each feature's instrument loss trains only
     its own instrument map. See `sip-inherited-variation` in the thesis.
     """
     return instrument_map.infer(jax.lax.stop_gradient(predictor_instrument))
 
 
-def instrument_mismatch_loss(
+def instrument_loss(
     inherited_instrument: NormalNP,
     raw_observation: NormalNP,
     gain: JaxRealArray | None,

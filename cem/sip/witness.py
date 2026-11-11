@@ -21,7 +21,7 @@ class WitnessMap(eqx.Module):
     thesis.
 
     The instruments enter held fixed, which leaves instrument fitting to each emitter's instrument
-    mismatch.
+    loss.
 
     Each Gaussian instrument coordinate enters as the pair (u, r) with r = 1 / (1 + σ²) and
     u = r m. The perceptron output is centred at the all-certain-zero context, whose pairs all equal
@@ -92,37 +92,45 @@ def witness_residuals(target: NormalVP, prediction: NormalVP) -> JaxRealArray:
 
 
 def witness_loss(
-    witness_residuals: JaxRealArray,
-    witness: JaxRealArray,
-    gain: JaxRealArray | None,
-    multiplier: JaxRealArray,
+    witness_residuals: JaxRealArray, witness: JaxRealArray, gain: JaxRealArray | None
 ) -> JaxRealArray:
-    """Return the witness loss plus its Lagrangian norm-constraint term.
+    """Return the negated confounding cost with the gated residuals held fixed.
 
-    Descending this loss trains the witness map to increase confounding error within the
-    participation-weighted norm bound and trains the multiplier to ascend on the bound's excess.
-    The constraint term contributes gradients only, so the value is the negated confounding
-    covariance. Without a gain, every channel has unit gain. See `sip-norm-constraint` in the
-    thesis.
+    Descending this loss trains the witness map to increase confounding cost. Without a gain,
+    every channel has unit gain. See `sip-witness-learning` in the thesis.
 
     Args:
         witness_residuals: The mean and variance residuals, shape (n, 2), held fixed.
         witness: The confounding witness, shape (n, 2).
         gain: The gain observation, shape (n,), held fixed, or None.
+    """
+    gated_residuals = witness_residuals if gain is None else gain[:, None] * witness_residuals
+    return -jnp.sum(jax.lax.stop_gradient(gated_residuals) * witness)
+
+
+def witness_norm_penalty(
+    witness: JaxRealArray, gain: JaxRealArray | None, multiplier: JaxRealArray
+) -> JaxRealArray:
+    """Return the witness norm penalty, which bounds the witness's gain-weighted squared norm.
+
+    The penalty is the multiplier times the excess of the gain-weighted squared norm over mean
+    gain. Descending it trains the witness map with the multiplier held fixed, and trains the
+    multiplier to ascend on the excess with the witness held fixed. The two terms cancel in
+    value, so the penalty contributes gradients only. Without a gain, every channel has unit gain
+    and the bound is one. See `sip-norm-constraint` in the thesis.
+
+    Args:
+        witness: The confounding witness, shape (n, 2).
+        gain: The gain observation, shape (n,), held fixed, or None.
         multiplier: The witness multiplier, a nonnegative scalar.
     """
     if gain is None:
-        gated_residuals = jax.lax.stop_gradient(witness_residuals)
         squared_norm = jnp.sum(jnp.square(witness))
         norm_bound = 1.0
     else:
         gain = jax.lax.stop_gradient(gain)
-        gated_residuals = jax.lax.stop_gradient(gain[:, None] * witness_residuals)
         squared_norm = jnp.sum(gain[:, None] * jnp.square(witness))
         norm_bound = jnp.mean(gain)
-    covariance = jnp.sum(gated_residuals * witness)
     excess = squared_norm - norm_bound
-    # The witness map descends on the multiplier times the excess, while the multiplier ascends.
     fixed_multiplier = jax.lax.stop_gradient(multiplier)
-    constraint = fixed_multiplier * excess - multiplier * jax.lax.stop_gradient(excess)
-    return constraint - covariance
+    return fixed_multiplier * excess - multiplier * jax.lax.stop_gradient(excess)

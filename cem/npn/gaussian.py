@@ -48,7 +48,7 @@ class GaussianNPNLinear(eqx.Module):
 
     The weights are deterministic and the bias is Gaussian. The bias variance lets the layer
     predict spread that its inputs do not carry, including when it has no inputs. See
-    `natural-parameter-networks` in the thesis.
+    `neural-computation` and `gaussian-npn` in the thesis.
     """
 
     weight: LearnableParameter[JaxRealArray]

@@ -42,8 +42,9 @@ Messages (`messages.py`):
 - `InstrumentedMessage` — paired observation and instrument Gaussian message, the unit exchanged
   between features.
 - `concat_messages`, `concat_instrumented_messages` — component-axis concatenation.
-- `variance_from_precision`, `evidence_scale`, `promoting_link_loss`, `suppressing_link_loss` —
-  Gaussian-message utilities. Moment conversions use efax's normal parametrizations.
+- `variance_from_precision`, `evidence_scale`, `promoting_link_loss` — Gaussian-message
+  utilities and the surrogate for supplied cotangents. Moment conversions use efax's normal
+  parametrizations.
 
 Composition modules (plain `eqx.Module`s, not `Model` subclasses):
 

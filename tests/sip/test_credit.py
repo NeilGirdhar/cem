@@ -5,7 +5,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import pytest
 from efax import NormalNP
-from jax import value_and_grad
+from jax import tree, value_and_grad
 from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNPN
@@ -134,36 +134,34 @@ def test_step_goal_prediction_error_uses_goal_penalty(
     assert jnp.allclose(goal_gradient, 0.0)
 
 
-def test_goal_baseline_stops_gradients_at_its_input(
+def test_goal_prediction_loss_trains_only_the_baseline_map(
     streams: Mapping[str, RngStream],
 ) -> None:
+    """The loss holds the observation content and the goal penalty fixed."""
     n = 1
     credit = Credit.create(n, _baseline_npn(1, streams), credit_settings=CREDIT_SETTINGS)
     initial_state = eqx.nn.State(credit)
 
     content = _message(jnp.ones(n), jnp.ones(n))
+    raw = _message(jnp.zeros(n), jnp.ones(n))
 
-    def baseline(
-        inputs: tuple[Credit, NormalNP],
-    ) -> tuple[JaxRealArray, JaxRealArray]:
-        circuit, observation_content = inputs
+    def loss(inputs: tuple[Credit, NormalNP, NormalNP]) -> tuple[JaxRealArray, JaxRealArray]:
+        circuit, observation_content, raw_observation = inputs
         _, outputs = circuit.step(
             initial_state,
             gain_observation=_message(jnp.ones(n), jnp.ones(n)),
             noised_instrument=_message(jnp.ones(n), jnp.ones(n)),
             observation_content=observation_content,
-            raw_observation=_message(jnp.zeros(n), jnp.ones(n)),
+            raw_observation=raw_observation,
             goal=jnp.asarray(1.0),
         )
-        return outputs.goal_baseline, outputs.goal_prediction_error
+        return outputs.goal_prediction_loss, outputs.goal_prediction_error
 
-    (goal_baseline, error), (credit_gradient, content_gradient) = eqx.filter_value_and_grad(
-        baseline, has_aux=True
-    )((credit, content))
-    assert goal_baseline.shape == ()
-    assert error.shape == ()
-    assert jnp.allclose(content_gradient.mean_times_precision, 0.0)
-    assert jnp.allclose(content_gradient.negative_half_precision, 0.0)
+    (value, error), (credit_gradient, content_gradient, raw_gradient) = eqx.filter_value_and_grad(
+        loss, has_aux=True
+    )((credit, content, raw))
+    assert jnp.allclose(value, 0.5 * jnp.square(error))
+    assert all(jnp.allclose(leaf, 0.0) for leaf in tree.leaves((content_gradient, raw_gradient)))
     assert jnp.any(credit_gradient.goal_baseline_map.layers[-1].bias.value != 0)
 
 

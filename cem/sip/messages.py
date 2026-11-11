@@ -9,7 +9,6 @@ from tjax import JaxRealArray, divide_where
 
 from cem.structure.graph.surrogate import (
     promoting_link_loss,
-    suppressing_link_loss,
 )
 
 __all__ = [
@@ -19,7 +18,6 @@ __all__ = [
     "concat_messages",
     "evidence_scale",
     "promoting_link_loss",
-    "suppressing_link_loss",
     "variance_from_precision",
 ]
 

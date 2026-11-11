@@ -14,7 +14,7 @@ from cem.sip.features import (
     SIPFeatureSizes,
     TDFeature,
 )
-from cem.sip.instrument import inherit_instrument, instrument_mismatch_loss
+from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.messages import InstrumentedMessage
 from cem.sip.settings import TDSettings
 from cem.structure.graph import LossBalancedParameter
@@ -397,5 +397,5 @@ def test_sensation_input_reports_prediction_costs(
     assert jnp.allclose(outputs.reconstruction_cost, mismatch_outputs.reconstruction_cost)
     assert jnp.allclose(outputs.confounding_cost, mismatch_outputs.confounding_cost)
     inherited = inherit_instrument(feature.instrument_map, predictor.instrument)
-    instrument_loss = instrument_mismatch_loss(inherited, observation, None)
-    assert jnp.allclose(outputs.loss, mismatch_outputs.loss + instrument_loss)
+    expected_instrument_loss = instrument_loss(inherited, observation, None)
+    assert jnp.allclose(outputs.loss, mismatch_outputs.loss + expected_instrument_loss)
