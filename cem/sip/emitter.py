@@ -15,7 +15,7 @@ from cem.sip.credit import Credit, CreditOutputs
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, evidence_scale
-from cem.structure.graph import EligibilityTraining, cotangent_surrogate_loss
+from cem.structure.graph import EligibilityTraining
 
 
 class _ObservationCoordinates(eqx.Module):
@@ -92,8 +92,8 @@ class Emitter(eqx.Module):
         both at their original precision and use unit gain for credit.
 
         Each named goal scales the mean trace. The fixed-weight loss uses the full goal prediction
-        error for precision credit and baseline learning, and includes mean shrinkage and the
-        instrument loss.
+        error for precision credit and baseline learning, applies shrinkage credit through the
+        current pullback, and includes the instrument loss.
         """
         raw_observation, pullback = self.observation_projection.infer(observation_content)
         inherited_instrument = inherit_instrument(self.instrument_map, predictor_instrument)
@@ -149,14 +149,19 @@ class Emitter(eqx.Module):
         new_state = new_state.set(
             self.trace_index, _ObservationTraces(mean=mean_trace, precision=precision_trace)
         )
-        raw_mean = raw_observation.mean()
+        (shrinkage_credit,) = pullback(
+            _ObservationCoordinates(
+                mean=credit_outputs.shrinkage_cotangent,
+                precision=jnp.zeros_like(precision_contribution),
+            )
+        )
         balanced_losses = {
             name: self.observation_projection.get_loss(mean_trace, goal)
             for name, goal in goals.items()
         }
         fixed_weight_loss = self.observation_projection.get_loss(
             precision_trace, credit_outputs.goal_prediction_error
-        ) + cotangent_surrogate_loss(raw_mean, credit_outputs.shrinkage_cotangent)
+        ) + self.observation_projection.get_loss(shrinkage_credit, jnp.asarray(1.0))
         fixed_weight_loss += credit_outputs.goal_prediction_loss
         fixed_weight_loss += instrument_loss(inherited_instrument, raw_observation, gain)
         outputs = EmitterOutputs(

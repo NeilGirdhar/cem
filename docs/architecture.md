@@ -98,8 +98,7 @@ are architectural constants.
 
 By default, store the unconstrained `LearnableParameter[JaxRealArray]` in ℝ and apply
 `jax.nn.softplus` at every read site. This gives smooth autodiff and nonnegativity at the API
-surface. Use it for scales such as per-channel precisions and loss weights, which should stay
-positive.
+surface. Use it for scales, such as per-channel precisions, that should stay positive.
 
 A Lagrange multiplier must be able to reach zero when its constraint is slack, which softplus never
 does. Give it its own parameter class and route that class to a transform chained with

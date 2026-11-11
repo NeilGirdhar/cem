@@ -3,7 +3,7 @@
 Tracks remaining work for `cem/sip/`. The stable design — classes, module layout, plug points,
 tested claims — lives in [`sip.md`](sip.md).
 
-## Adaptive loss weighting
+## Gradient balancing
 
 - [x] Balance reconstruction and confounding in mismatch prediction maps.
 - [x] Balance reconstruction, confounding, and uncertainty in TD prediction maps.

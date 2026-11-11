@@ -25,7 +25,12 @@ class CreditTraces(eqx.Module):
 
 
 class CreditOutputs(eqx.Module):
-    """Trace contributions, shrinkage credit, and the loss that trains the goal baseline."""
+    """Trace contributions, shrinkage credit, and the loss that trains the goal baseline.
+
+    `shrinkage_cotangent` is shrinkage credit in raw-mean coordinates: the descent cotangent of the
+    mean shrinkage loss, with the observation precision trace held fixed. The observation
+    projection pulls it back through the current map. See `sip-shrinkage-credit` in the thesis.
+    """
 
     mean_contribution: JaxRealArray
     precision_contribution: JaxRealArray
@@ -84,6 +89,7 @@ class Credit(eqx.Module):
         The goal prediction combines the current baseline and the penalty accumulated at
         past and current emissions. Hold the arriving goal and the baseline's observation
         content fixed when fitting that prediction. Apply gain once to each new trace contribution.
+        Weight shrinkage credit for the current raw mean by the updated observation precision trace.
         """
         traces = state.get(self.trace_index)
         decay = self.trace_decay()

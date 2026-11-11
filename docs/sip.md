@@ -187,7 +187,7 @@ full configuration and writes chart JSON.
 
 13. **Return moments.** On a Markov chain with known return mean and variance, establish
     calibration without the uncertainty penalty first; then turn it on and measure its effect, and
-    compare the adaptation rules for the loss weights.
+    compare gradient balancing with an unbalanced sum of the prediction losses.
 14. **Causal value.** A hidden variable confounds prospect and reward; the witness is active.
 15. **Penalty escapes the variance trap.** From a broad, wrong start, compare learning with and
     without the penalty, checking the mean for bias.
@@ -202,7 +202,7 @@ full configuration and writes chart JSON.
 
 ## Methodology
 
-- **Notation.** κ is precision; π is loss weights.
+- **Notation.** κ is precision.
 - **Paired samples** for every ablation.
 - **Multiple seeds**, with per-seed and aggregated reports.
 - **Held-out intervention measurements** for every recovery claim.

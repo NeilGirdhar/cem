@@ -10,14 +10,14 @@ from cem.structure.graph import LearnableParameter, LossBalancedParameter
 class MismatchPredictionParameter(LossBalancedParameter[JaxRealArray]):
     """A mismatch prediction parameter, balanced over reconstruction and confounding."""
 
-    # Reconstruction comes first because MTAdam takes the first loss as its reference scale.
+    # Reconstruction is MTAdam's anchor, so the balanced steps follow its gradient magnitude.
     loss_ids: ClassVar[Final[tuple[str, ...]]] = ("reconstruction", "confounding")
 
 
 class TDPredictionParameter(LossBalancedParameter[JaxRealArray]):
     """A TD prediction parameter, balanced over reconstruction, confounding, and uncertainty."""
 
-    # Reconstruction comes first because MTAdam takes the first loss as its reference scale.
+    # Reconstruction is MTAdam's anchor, so the balanced steps follow its gradient magnitude.
     loss_ids: ClassVar[Final[tuple[str, ...]]] = ("reconstruction", "confounding", "uncertainty")
 
 
