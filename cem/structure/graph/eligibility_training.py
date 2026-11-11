@@ -9,7 +9,7 @@ from jax import tree
 from tjax import JaxRealArray, PyTree
 
 from .parameters import LearnableParameter, is_parameter
-from .surrogate import promoting_link_loss
+from .surrogate import cotangent_surrogate_loss
 
 
 class EligibilityTraining[M: eqx.Module, X, C: PyTree, Y: PyTree](eqx.Module):
@@ -72,7 +72,7 @@ class EligibilityTraining[M: eqx.Module, X, C: PyTree, Y: PyTree](eqx.Module):
         """Return a scalar loss whose descent update follows the scaled trace."""
         trainable, _ = self._partition()
         losses = tree.map(
-            lambda parameter, cotangent: promoting_link_loss(parameter, factor * cotangent),
+            lambda parameter, cotangent: cotangent_surrogate_loss(parameter, factor * cotangent),
             trainable,
             trace,
         )

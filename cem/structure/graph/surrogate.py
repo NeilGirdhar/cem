@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from tjax import JaxArray, JaxRealArray
 
 
-def promoting_link_loss(quantity: JaxArray, cotangent: JaxArray) -> JaxRealArray:
+def cotangent_surrogate_loss(quantity: JaxArray, cotangent: JaxArray) -> JaxRealArray:
     """Return a scalar whose descent moves `quantity` along the supplied ascent cotangent.
 
     A link that receives a cotangent, rather than a scalar objective to differentiate, trains its

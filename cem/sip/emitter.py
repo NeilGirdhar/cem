@@ -14,12 +14,8 @@ from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit, CreditOutputs
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import (
-    InstrumentedMessage,
-    evidence_scale,
-    promoting_link_loss,
-)
-from cem.structure.graph import EligibilityTraining
+from cem.sip.messages import InstrumentedMessage, evidence_scale
+from cem.structure.graph import EligibilityTraining, cotangent_surrogate_loss
 
 
 class _ObservationCoordinates(eqx.Module):
@@ -160,7 +156,7 @@ class Emitter(eqx.Module):
         }
         fixed_weight_loss = self.observation_projection.get_loss(
             precision_trace, credit_outputs.goal_prediction_error
-        ) + promoting_link_loss(raw_mean, credit_outputs.shrinkage_cotangent)
+        ) + cotangent_surrogate_loss(raw_mean, credit_outputs.shrinkage_cotangent)
         fixed_weight_loss += credit_outputs.goal_prediction_loss
         fixed_weight_loss += instrument_loss(inherited_instrument, raw_observation, gain)
         outputs = EmitterOutputs(
