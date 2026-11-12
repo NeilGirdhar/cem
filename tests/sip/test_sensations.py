@@ -162,7 +162,4 @@ def test_sensations_infer_feeds_costs_from_below(
         outputs[1].message.observation.mean_times_precision,
         layer1.message.observation.mean_times_precision,
     )
-    assert jnp.allclose(
-        outputs[1].balanced_losses["confounding"],
-        layer1.balanced_losses["confounding"],
-    )
+    assert jnp.allclose(outputs[1].loss, layer1.loss)

@@ -22,7 +22,7 @@ Circuit sub-modules:
   enforced by each circuit's learned witness multiplier.
 - `TDError` — Gaussian bootstrap value error with uncertainty penalty.
 - `Emitter` — forward dynamics: observation map, instrument map, noise top-up, injection.
-- `inherit_instrument`, `instrument_mismatch_loss` — the first-stage instrument map and the
+- `inherit_instrument`, `instrument_loss` — the first-stage instrument map and the
   gain-gated cross-entropy that fits it to the raw observation.
 
 Circuits train only their own maps. Prediction maps, witness maps, and instrument maps take their
@@ -93,7 +93,7 @@ is one.
     - `credit.py` — `Credit`.
     - `mismatch.py` — `Mismatch`.
     - `witness.py` — `WitnessMap`, `witness_residuals`, `witness_loss`.
-    - `instrument.py` — `inherit_instrument`, `instrument_mismatch_loss`.
+    - `instrument.py` — `inherit_instrument`, `instrument_loss`.
     - `td_error.py` — `TDError`.
     - `emitter.py` — `Emitter`.
     - `features.py` — `SIPFeature`, `SensationInputFeature`, `ProspectFeature`, `TDFeature`,
@@ -186,8 +186,7 @@ full configuration and writes chart JSON.
 ### TD-error circuit
 
 13. **Return moments.** On a Markov chain with known return mean and variance, establish
-    calibration without the uncertainty penalty first; then turn it on and measure its effect, and
-    compare gradient balancing with an unbalanced sum of the prediction losses.
+    calibration without the uncertainty penalty first; then turn it on and measure its effect.
 14. **Causal value.** A hidden variable confounds prospect and reward; the witness is active.
 15. **Penalty escapes the variance trap.** From a broad, wrong start, compare learning with and
     without the penalty, checking the mean for bias.

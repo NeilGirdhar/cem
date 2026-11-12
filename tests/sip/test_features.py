@@ -17,7 +17,7 @@ from cem.sip.features import (
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.messages import InstrumentedMessage
 from cem.sip.settings import TDSettings
-from cem.structure.graph import LossBalancedParameter
+from cem.structure.graph import SummedGradientParameter
 
 from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _message
 
@@ -123,7 +123,7 @@ def test_sip_feature_loss_sums_emitter_and_mismatch(
         observation_content=inputs["observation_content"],
         predictor_instrument=inputs["predictor"].instrument,
         gain_observation=inputs["gain"].observation,
-        goals={"reconstruction": inputs["reconstruction"], "confounding": inputs["confounding"]},
+        goal=inputs["reconstruction"] + inputs["confounding"],
     )
     mismatch_outputs = feature.mismatch.step(
         raw_observation=emitter_outputs.raw_observation,
@@ -224,7 +224,7 @@ def test_recruiter_feature_observation_equals_pre_gain(
     n = 2
     feature = _recruiter_feature(n, streams)
     observation_weight = feature.feature.emitter.observation_map.layers[0].weight
-    assert isinstance(observation_weight, LossBalancedParameter)
+    assert isinstance(observation_weight, SummedGradientParameter)
     state = eqx.nn.State(feature)
     _, outputs = feature.step(
         state,
@@ -246,7 +246,7 @@ def test_recruiter_feature_observation_equals_pre_gain(
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
         predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain_observation=None,
-        goals={"reconstruction": jnp.asarray(0.5), "confounding": jnp.asarray(-0.2)},
+        goal=jnp.asarray(0.5) - jnp.asarray(0.2),
     )
     assert jnp.allclose(
         outputs.message.observation.mean_times_precision,

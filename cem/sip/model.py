@@ -7,13 +7,9 @@ import equinox as eqx
 from efax import NormalNP
 from jax import tree
 from tjax import RngStream
-from tjax.gradient import Adam, ChainedGradientTransformation, KeepParamsNonnegative, MTAdam
+from tjax.gradient import Adam, ChainedGradientTransformation, KeepParamsNonnegative
 
-from cem.sip.parameters import (
-    MismatchPredictionParameter,
-    TDPredictionParameter,
-    WitnessMultiplierParameter,
-)
+from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.sip_agent import SIPAgent
 from cem.structure.graph import (
     DisGradientTransformation,
@@ -53,21 +49,13 @@ class SIPModel(Model):
 
     @staticmethod
     def gradient_transformations(learning_rate: float) -> DisGradientTransformation:
-        """Balance mismatch and TD predictions, and apply Adam to the other gradients.
+        """Apply Adam to every learnable parameter.
 
         Witness multipliers are projected onto the nonnegative reals after each Adam step.
         """
         return DisGradientTransformation(
             [
                 (ParameterType(FixedParameter), None),
-                (
-                    ParameterType(MismatchPredictionParameter),
-                    MTAdam[Model](learning_rate, loss_ids=MismatchPredictionParameter.loss_ids),
-                ),
-                (
-                    ParameterType(TDPredictionParameter),
-                    MTAdam[Model](learning_rate, loss_ids=TDPredictionParameter.loss_ids),
-                ),
                 (
                     ParameterType(WitnessMultiplierParameter),
                     ChainedGradientTransformation[Model](
@@ -104,6 +92,5 @@ class SIPModel(Model):
         return ModelResult(
             configurations=frozendict({"action": SIPActionConfiguration(outputs.action)}),
             state=state,
-            fixed_weight_loss=outputs.fixed_weight_loss,
-            balanced_losses=frozendict(outputs.balanced_losses),
+            fixed_weight_loss=outputs.loss,
         )

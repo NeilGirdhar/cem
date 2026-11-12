@@ -7,7 +7,6 @@ import jax.random as jr
 import pytest
 from efax import NormalNP, NormalPP
 from tjax import KeyArray, RngStream
-from tjax.gradient import MTAdamState
 
 from cem.sip import (
     CreditSettings,
@@ -23,13 +22,7 @@ from cem.sip import (
     SIPObservation,
     TDSettings,
 )
-from cem.sip.parameters import MismatchPredictionParameter, TDPredictionParameter
-from cem.structure.graph import (
-    FixedParameter,
-    LossBalancedParameter,
-    ParameterType,
-    SummedGradientParameter,
-)
+from cem.structure.graph import FixedParameter, SummedGradientParameter
 from cem.structure.problem import DataSource, Problem, ProblemState
 from cem.structure.solution.training_solution import TrainingSolution
 
@@ -78,7 +71,7 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
         )
     for feature in (*sensations, *prospects):
         observation_weight = feature.emitter.observation_map.layers[0].weight
-        assert isinstance(observation_weight, LossBalancedParameter)
+        assert isinstance(observation_weight, SummedGradientParameter)
 
     mismatches = (
         agent.sensations.input_feature.mismatch,
@@ -89,7 +82,7 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
         assert mismatch.prediction_map.layers[0].bias.value.shape == (5,)
         assert mismatch.witness_map.perceptron.layers[0].bias.value.shape == (7,)
         prediction_weight = mismatch.prediction_map.layers[0].weight
-        assert isinstance(prediction_weight, MismatchPredictionParameter)
+        assert isinstance(prediction_weight, SummedGradientParameter)
         assert isinstance(mismatch.witness_map.perceptron.layers[0].weight, SummedGradientParameter)
 
     td_error = agent.reward_critic.td_feature.td_error
@@ -99,7 +92,7 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
     assert td_error.prediction_map.layers[-1].bias.value.shape == (6,)
     assert td_error.prediction_map.input_pool.dummy_mean.value.shape == (12,)
     td_prediction_weight = td_error.prediction_map.layers[0].weight
-    assert isinstance(td_prediction_weight, TDPredictionParameter)
+    assert isinstance(td_prediction_weight, SummedGradientParameter)
     assert isinstance(td_error.witness_map.perceptron.layers[0].weight, SummedGradientParameter)
 
 
@@ -235,7 +228,7 @@ class _Problem(Problem):
         return state.observation
 
 
-def test_shared_training_balances_sip_predictions(
+def test_shared_training_updates_sip_predictions(
     streams: Mapping[str, RngStream],
 ) -> None:
     model = SIPModel.create(_agent(streams))
@@ -266,39 +259,6 @@ def test_shared_training_balances_sip_predictions(
     action = result.inference_result.model_configuration["action"]
     assert isinstance(action, SIPActionConfiguration)
     assert jnp.all(jnp.isfinite(action.action.mean_times_precision))
-
-    mismatch_state = dict(result.solution_state.gradient_states)[
-        ParameterType(MismatchPredictionParameter)
-    ]
-    assert isinstance(mismatch_state, MTAdamState)
-    assert mismatch_state.count == 1
-    norms = mismatch_state.gradient_norms
-    assert set(norms) == {"reconstruction", "confounding"}
-    for name in norms:
-        norm = (
-            norms[name]
-            .agent.sensations.input_feature.mismatch.prediction_map.layers[0]
-            .weight.value
-        )
-        assert jnp.isfinite(norm)
-        assert norm > 0
-    assert (
-        norms["reconstruction"]
-        .agent.intentions.features[0]
-        .emitter.observation_map.layers[0]
-        .weight
-        is None
-    )
-
-    td_state = dict(result.solution_state.gradient_states)[ParameterType(TDPredictionParameter)]
-    assert isinstance(td_state, MTAdamState)
-    assert td_state.count == 1
-    td_norms = td_state.gradient_norms
-    assert set(td_norms) == {"reconstruction", "confounding", "uncertainty"}
-    for name in td_norms:
-        norm = td_norms[name].agent.reward_critic.td_feature.td_error.prediction_map.layers[0]
-        assert jnp.isfinite(norm.weight.value)
-        assert norm.weight.value > 0
 
     updated = solution.inference.assemble_model(
         result.solution_state.dis_learnable_parameters.assembled()

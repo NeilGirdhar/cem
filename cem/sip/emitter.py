@@ -1,6 +1,5 @@
 """SIP emitter circuit: observation map, instrument map, noise top-up, gain."""
 
-from collections.abc import Mapping
 from typing import Self
 
 import equinox as eqx
@@ -80,7 +79,7 @@ class Emitter(eqx.Module):
         observation_content: NormalNP,
         predictor_instrument: NormalNP,
         gain_observation: NormalNP | None,
-        goals: Mapping[str, JaxRealArray],
+        goal: JaxRealArray,
     ) -> tuple[eqx.nn.State, EmitterOutputs]:
         """Emit an instrumented observation and compute credit for the raw observation.
 
@@ -91,9 +90,9 @@ class Emitter(eqx.Module):
         Apply gain to the precision of both outgoing messages. With no gain observation, emit
         both at their original precision and use unit gain for credit.
 
-        Each named goal scales the mean trace. The fixed-weight loss uses the full goal prediction
-        error for precision credit and baseline learning, applies shrinkage credit through the
-        current pullback, and includes the instrument loss.
+        The goal scales the mean trace, and the goal prediction error scales the precision trace.
+        The loss also applies shrinkage credit through the current pullback and includes the goal
+        prediction and instrument losses.
         """
         raw_observation, pullback = self.observation_projection.infer(observation_content)
         inherited_instrument = inherit_instrument(self.instrument_map, predictor_instrument)
@@ -123,7 +122,7 @@ class Emitter(eqx.Module):
             noised_instrument=noised_instrument,
             observation_content=observation_content,
             raw_observation=raw_observation,
-            goal=sum(goals.values(), jnp.asarray(0.0)),
+            goal=goal,
         )
 
         traces = new_state.get(self.trace_index)
@@ -155,23 +154,22 @@ class Emitter(eqx.Module):
                 precision=jnp.zeros_like(precision_contribution),
             )
         )
-        balanced_losses = {
-            name: self.observation_projection.get_loss(mean_trace, goal)
-            for name, goal in goals.items()
-        }
-        fixed_weight_loss = self.observation_projection.get_loss(
-            precision_trace, credit_outputs.goal_prediction_error
-        ) + self.observation_projection.get_loss(shrinkage_credit, jnp.asarray(1.0))
-        fixed_weight_loss += credit_outputs.goal_prediction_loss
-        fixed_weight_loss += instrument_loss(inherited_instrument, raw_observation, gain)
+        loss = (
+            self.observation_projection.get_loss(mean_trace, goal)
+            + self.observation_projection.get_loss(
+                precision_trace, credit_outputs.goal_prediction_error
+            )
+            + self.observation_projection.get_loss(shrinkage_credit, jnp.asarray(1.0))
+            + credit_outputs.goal_prediction_loss
+            + instrument_loss(inherited_instrument, raw_observation, gain)
+        )
         outputs = EmitterOutputs(
             message=InstrumentedMessage(observation, instrument),
             raw_observation=raw_observation,
             noised_instrument=noised_instrument,
             local_variance=local_variance,
             credit_outputs=credit_outputs,
-            balanced_losses=balanced_losses,
-            fixed_weight_loss=fixed_weight_loss,
+            loss=loss,
         )
         return new_state, outputs
 

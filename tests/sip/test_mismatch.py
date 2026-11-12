@@ -10,7 +10,6 @@ from tjax import JaxRealArray, RngStream
 
 from cem.sip import InstrumentedMessage
 from cem.sip.mismatch import Mismatch
-from cem.structure.graph.losses import differentiate_losses
 
 from .tools import MISMATCH_SETTINGS, _i_message, _message
 
@@ -54,43 +53,19 @@ def test_mismatch_message_has_unit_presence(streams: Mapping[str, RngStream]) ->
     assert jnp.allclose(outputs.mismatch.negative_half_precision, -0.5 * jnp.ones(2 * n))
 
 
-def test_mismatch_reports_named_prediction_losses(
+def test_mismatch_loss_sums_prediction_and_witness_losses(
     streams: Mapping[str, RngStream],
 ) -> None:
     n = 2
     mismatch = _mismatch(n, streams)
     outputs = mismatch.step(**_inputs(n), streams=streams, inference=True)
-    assert jnp.allclose(outputs.balanced_losses["reconstruction"], outputs.reconstruction_cost)
-    assert jnp.allclose(outputs.balanced_losses["confounding"], outputs.confounding_cost)
     assert jnp.allclose(
-        outputs.fixed_weight_loss, outputs.witness_loss + outputs.witness_norm_penalty
+        outputs.loss,
+        outputs.reconstruction_cost
+        + outputs.confounding_cost
+        + outputs.witness_loss
+        + outputs.witness_norm_penalty,
     )
-
-
-def test_separate_mismatch_gradients_sum_to_scalar_loss_gradient(
-    streams: Mapping[str, RngStream],
-) -> None:
-    n = 2
-    mismatch = _mismatch(n, streams)
-    inputs = _inputs(n)
-
-    def forward(
-        model: Mismatch,
-    ) -> tuple[tuple[dict[str, JaxRealArray], JaxRealArray], None]:
-        outputs = model.step(**inputs, streams=streams, inference=True)
-        return (outputs.balanced_losses, outputs.fixed_weight_loss), None
-
-    def scalar_loss(model: Mismatch) -> JaxRealArray:
-        return model.step(**inputs, streams=streams, inference=True).loss
-
-    gradients, _ = differentiate_losses(forward, mismatch)
-    total = tree.map(
-        lambda reconstruction, confounding, fixed: reconstruction + confounding + fixed,
-        gradients.balanced_gradients["reconstruction"],
-        gradients.balanced_gradients["confounding"],
-        gradients.fixed_weight_gradient,
-    )
-    assert eqx.tree_equal(total, eqx.filter_grad(scalar_loss)(mismatch), rtol=1e-7, atol=1e-9)
 
 
 def test_mismatch_holds_target_observation_fixed(streams: Mapping[str, RngStream]) -> None:

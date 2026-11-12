@@ -123,9 +123,7 @@ def test_sip_routing_projects_the_multiplier_onto_nonnegative_values(
         return DisModel.create(model, parameter_types)
 
     model = partition(0.0)
-    gradients = LossGradients(
-        {name: partition(0.0) for name in transform.requested_loss_ids()}, partition(gradient)
-    )
+    gradients = LossGradients({}, partition(gradient))
     checked = checkify.checkify(transform.update, errors=checkify.user_checks)
     error, (delta, _) = checked(gradients, transform.init(model), model)
     error.throw()

@@ -8,7 +8,7 @@ from tjax import RngStream
 
 from cem.sip.intentions import Intentions
 from cem.sip.messages import InstrumentedMessage, concat_messages
-from cem.structure.graph import LossBalancedParameter, SummedGradientParameter
+from cem.structure.graph import SummedGradientParameter
 
 from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _i_message, _message
 
@@ -31,7 +31,7 @@ def test_intentions_create_sizes_readouts_demands_and_predictors(
         observation_weight = feature.emitter.observation_map.layers[0].weight
         expected = readout_features[i] + (0 if i == top else 2 * sizes[i + 1])
         assert observation_weight.value.shape[-1] == expected
-        assert isinstance(observation_weight, LossBalancedParameter)
+        assert isinstance(observation_weight, SummedGradientParameter)
         assert isinstance(feature.emitter.instrument_map.layers[0].weight, SummedGradientParameter)
         predictor_width = feature.mismatch.prediction_map.input_pool.dummy_mean.value.size
         assert predictor_width == (sizes[i - 1] if i else 0)
@@ -124,9 +124,8 @@ def test_intentions_infer_uses_previous_lower_message_and_current_upper_mismatch
         outputs[0].message.observation.mean_times_precision,
         bottom_out.message.observation.mean_times_precision,
     )
-    for name in advantages:
-        assert jnp.allclose(outputs[0].balanced_losses[name], bottom_out.balanced_losses[name])
-        assert jnp.allclose(outputs[1].balanced_losses[name], top_out.balanced_losses[name])
+    assert jnp.allclose(outputs[0].loss, bottom_out.loss)
+    assert jnp.allclose(outputs[1].loss, top_out.loss)
     assert jnp.allclose(
         outputs[1].message.observation.mean_times_precision,
         top_out.message.observation.mean_times_precision,

@@ -15,16 +15,11 @@ from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 from cem.sip.instrument import inherit_instrument, instrument_loss
-from cem.sip.losses import SIPLossOutputs, combine_losses
+from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, evidence_scale
 from cem.sip.mismatch import Mismatch
 from cem.sip.settings import CreditSettings, MismatchSettings, TDSettings
 from cem.sip.td_error import TDError
-from cem.structure.graph import (
-    LearnableParameterFactory,
-    LossBalancedParameter,
-    SummedGradientParameter,
-)
 
 
 class SIPFeatureSizes(eqx.Module):
@@ -64,9 +59,6 @@ class SIPFeature(eqx.Module):
         credit_settings: CreditSettings,
         mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
-        observation_parameter_factory: LearnableParameterFactory[JaxRealArray] = (
-            SummedGradientParameter
-        ),
     ) -> Self:
         """Build an identification feature with separate widths for its three parent inputs.
 
@@ -75,10 +67,7 @@ class SIPFeature(eqx.Module):
         whether the witness also receives a gain instrument.
         """
         observation_map = GaussianNeuralProjection.create(
-            in_features=sizes.observation_content,
-            out_features=n,
-            streams=streams,
-            parameter_factory=observation_parameter_factory,
+            in_features=sizes.observation_content, out_features=n, streams=streams
         )
         instrument_map = GaussianNeuralProjection.create(
             in_features=sizes.predictor, out_features=n, streams=streams
@@ -113,7 +102,7 @@ class SIPFeature(eqx.Module):
         observation_content: NormalNP,
         predictor: InstrumentedMessage,
         gain: InstrumentedMessage | None,
-        goals: Mapping[str, JaxRealArray],
+        goal: JaxRealArray,
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
@@ -130,7 +119,7 @@ class SIPFeature(eqx.Module):
             observation_content=observation_content,
             predictor_instrument=predictor.instrument,
             gain_observation=gain_observation,
-            goals=goals,
+            goal=goal,
         )
         mismatch_outputs = self.mismatch.step(
             raw_observation=emitter_outputs.raw_observation,
@@ -146,11 +135,7 @@ class SIPFeature(eqx.Module):
             observation_mismatch=mismatch_outputs.mismatch,
             reconstruction_cost=mismatch_outputs.reconstruction_cost,
             confounding_cost=mismatch_outputs.confounding_cost,
-            balanced_losses=combine_losses(
-                emitter_outputs.balanced_losses, mismatch_outputs.balanced_losses
-            ),
-            fixed_weight_loss=emitter_outputs.fixed_weight_loss
-            + mismatch_outputs.fixed_weight_loss,
+            loss=emitter_outputs.loss + mismatch_outputs.loss,
         )
 
 
@@ -176,7 +161,7 @@ class SensationFeature(SIPFeature):
             observation_content=observation_content,
             predictor=predictor,
             gain=gain,
-            goals={"reconstruction": reconstruction, "confounding": confounding},
+            goal=reconstruction + confounding,
             streams=streams,
             inference=inference,
         )
@@ -205,7 +190,7 @@ class IntentionFeature(SIPFeature):
             observation_content=observation_content,
             predictor=predictor,
             gain=gain,
-            goals={"reward": reward, "curiosity": curiosity, "tracking": tracking},
+            goal=reward + curiosity + tracking,
             streams=streams,
             inference=inference,
         )
@@ -284,8 +269,7 @@ class SensationInputFeature(eqx.Module):
             observation_mismatch=mismatch_outputs.mismatch,
             reconstruction_cost=mismatch_outputs.reconstruction_cost,
             confounding_cost=mismatch_outputs.confounding_cost,
-            balanced_losses=mismatch_outputs.balanced_losses,
-            fixed_weight_loss=mismatch_outputs.fixed_weight_loss
+            loss=mismatch_outputs.loss
             + instrument_loss(inherited_instrument, observation, gain_mean),
         )
 
@@ -319,7 +303,6 @@ class RecruiterFeature(eqx.Module):
                 credit_settings=credit_settings,
                 mismatch_settings=mismatch_settings,
                 streams=streams,
-                observation_parameter_factory=LossBalancedParameter,
             )
         )
 
@@ -372,10 +355,7 @@ class ProspectFeature(eqx.Module):
         streams: Mapping[str, RngStream],
     ) -> Self:
         observation_map = GaussianNeuralProjection.create(
-            in_features=observation_content_features,
-            out_features=n,
-            streams=streams,
-            parameter_factory=LossBalancedParameter,
+            in_features=observation_content_features, out_features=n, streams=streams
         )
         instrument_map = GaussianNeuralProjection.create(
             in_features=predictor_features, out_features=n, streams=streams
@@ -418,13 +398,12 @@ class ProspectFeature(eqx.Module):
             observation_content=observation_content,
             predictor_instrument=predictor_instrument,
             gain_observation=gain_observation,
-            goals={"reconstruction": reconstruction, "confounding": confounding},
+            goal=reconstruction + confounding,
         )
         new_state = new_state.set(self.last_message_index, emitter_outputs.message)
         return new_state, ProspectFeatureOutputs(
             message=emitter_outputs.message,
-            balanced_losses=emitter_outputs.balanced_losses,
-            fixed_weight_loss=emitter_outputs.fixed_weight_loss,
+            loss=emitter_outputs.loss,
         )
 
 
@@ -510,6 +489,5 @@ class TDFeature(eqx.Module):
             reconstruction_cost=td_outputs.reconstruction_cost,
             confounding_cost=td_outputs.confounding_cost,
             uncertainty_loss=td_outputs.uncertainty_loss,
-            balanced_losses=td_outputs.balanced_losses,
-            fixed_weight_loss=td_outputs.fixed_weight_loss,
+            loss=td_outputs.loss,
         )

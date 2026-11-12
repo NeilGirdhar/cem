@@ -12,7 +12,7 @@ from tjax import JaxRealArray, RngStream
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, variance_from_precision
-from cem.sip.parameters import TDPredictionParameter, WitnessMultiplierParameter
+from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.settings import TDSettings
 from cem.sip.witness import WitnessMap, witness_loss, witness_norm_penalty, witness_residuals
 from cem.structure.graph import FixedParameter
@@ -73,7 +73,6 @@ class TDError(eqx.Module):
                 out_features=n,
                 hidden_features=td_settings.prediction_hidden_features,
                 streams=streams,
-                parameter_factory=TDPredictionParameter,
             ),
             witness_map=WitnessMap.create(
                 n,
@@ -129,12 +128,7 @@ class TDError(eqx.Module):
             uncertainty_loss=uncertainty_loss,
             witness_loss=loss,
             witness_norm_penalty=norm_penalty,
-            balanced_losses={
-                "reconstruction": reconstruction_cost,
-                "confounding": confounding_cost,
-                "uncertainty": uncertainty_loss,
-            },
-            fixed_weight_loss=loss + norm_penalty,
+            loss=reconstruction_cost + confounding_cost + uncertainty_loss + loss + norm_penalty,
         )
 
     def _predict(self, predictor_observations: NormalNP) -> NormalNP:

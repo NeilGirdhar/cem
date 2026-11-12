@@ -12,7 +12,7 @@ from tjax import JaxRealArray, RngStream
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, concat_messages
-from cem.sip.parameters import MismatchPredictionParameter, WitnessMultiplierParameter
+from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
 from cem.sip.witness import WitnessMap, witness_loss, witness_norm_penalty, witness_residuals
 
@@ -68,7 +68,6 @@ class Mismatch(eqx.Module):
                 out_features=n,
                 hidden_features=mismatch_settings.prediction_hidden_features,
                 streams=streams,
-                parameter_factory=MismatchPredictionParameter,
             ),
             witness_map=WitnessMap.create(
                 n,
@@ -124,11 +123,7 @@ class Mismatch(eqx.Module):
             confounding_cost=confounding_cost,
             witness_loss=loss,
             witness_norm_penalty=norm_penalty,
-            balanced_losses={
-                "reconstruction": reconstruction.cost,
-                "confounding": confounding_cost,
-            },
-            fixed_weight_loss=loss + norm_penalty,
+            loss=reconstruction.cost + confounding_cost + loss + norm_penalty,
         )
 
     def _moments(

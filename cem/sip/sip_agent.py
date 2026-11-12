@@ -14,7 +14,7 @@ from tjax import KeyArray, RngStream
 
 from cem.sip.features import SIPFeatureOutputs
 from cem.sip.intentions import Intentions
-from cem.sip.losses import SIPLossOutputs, combine_losses
+from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import concat_messages
 from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.sensations import Sensations
@@ -197,13 +197,8 @@ class SIPAgent(eqx.Module):
         )
 
         return state, SIPAgentOutputs(
-            balanced_losses=combine_losses(
-                *(out.balanced_losses for out in (*sensation_outputs, *intention_outputs)),
-                critic_outputs.balanced_losses,
-            ),
-            fixed_weight_loss=sum(
-                (out.fixed_weight_loss for out in (*sensation_outputs, *intention_outputs)),
-                critic_outputs.fixed_weight_loss,
+            loss=sum(
+                (out.loss for out in (*sensation_outputs, *intention_outputs)), critic_outputs.loss
             ),
             sensations=sensation_outputs,
             intentions=intention_outputs,

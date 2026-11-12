@@ -14,7 +14,7 @@ from cem.sip.features import (
     TDFeature,
     TDFeatureOutputs,
 )
-from cem.sip.losses import SIPLossOutputs, combine_losses
+from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 from cem.sip.settings import CreditSettings, TDSettings
 
@@ -148,10 +148,5 @@ class RewardCritic(eqx.Module):
         return state, RewardCriticOutputs(
             prospects=tuple(prospect_outputs),
             td=td_out,
-            balanced_losses=combine_losses(
-                td_out.balanced_losses, *(out.balanced_losses for out in prospect_outputs)
-            ),
-            fixed_weight_loss=sum(
-                (out.fixed_weight_loss for out in prospect_outputs), td_out.fixed_weight_loss
-            ),
+            loss=sum((out.loss for out in prospect_outputs), td_out.loss),
         )

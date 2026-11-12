@@ -12,7 +12,6 @@ from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import IntentionFeature, SIPFeatureOutputs, SIPFeatureSizes
 from cem.sip.messages import InstrumentedMessage, concat_messages
 from cem.sip.settings import CreditSettings, MismatchSettings
-from cem.structure.graph import LossBalancedParameter
 
 
 class Intentions(ExplanatoryCoupling):
@@ -64,7 +63,6 @@ class Intentions(ExplanatoryCoupling):
                     credit_settings=credit_settings,
                     mismatch_settings=mismatch_settings,
                     streams=streams,
-                    observation_parameter_factory=LossBalancedParameter,
                 )
             )
         return cls(features=tuple(features))

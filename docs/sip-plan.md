@@ -3,13 +3,6 @@
 Tracks remaining work for `cem/sip/`. The stable design — classes, module layout, plug points,
 tested claims — lives in [`sip.md`](sip.md).
 
-## Gradient balancing
-
-- [x] Balance reconstruction and confounding in mismatch prediction maps.
-- [x] Balance reconstruction, confounding, and uncertainty in TD prediction maps.
-- [ ] Balance reconstruction and confounding in sensation, prospect, and recruiter observation maps.
-- [ ] Balance reward, curiosity, and tracking in intention observation maps.
-
 ## Recruiter wiring
 
 `SIPFeature` and `ProspectFeature` accept a `gain: InstrumentedMessage | None` but no coupling
