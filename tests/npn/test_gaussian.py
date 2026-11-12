@@ -6,7 +6,6 @@ from collections.abc import Mapping
 import equinox as eqx
 import jax.numpy as jnp
 from efax import NormalPP, NormalVP
-from jax import tree
 from tjax import RngStream
 
 from cem.npn.gaussian import (
@@ -16,18 +15,16 @@ from cem.npn.gaussian import (
     gaussian_relu,
 )
 from cem.structure.graph import (
-    LossBalancedParameter,
-    SummedGradientParameter,
+    LearnableParameter,
     count_real_learnable_parameters,
-    is_parameter,
 )
 
 
 def test_gaussian_neural_projection_layer_propagates_marginal_moments() -> None:
     layer = GaussianNeuralProjectionLayer(
-        weight=SummedGradientParameter(jnp.asarray([[2.0, -1.0], [0.5, 3.0]])),
-        bias=SummedGradientParameter(jnp.asarray([0.25, -0.5])),
-        bias_raw_variance=SummedGradientParameter(jnp.full(2, math.log(math.expm1(0.5)))),
+        weight=LearnableParameter(jnp.asarray([[2.0, -1.0], [0.5, 3.0]])),
+        bias=LearnableParameter(jnp.asarray([0.25, -0.5])),
+        bias_raw_variance=LearnableParameter(jnp.full(2, math.log(math.expm1(0.5)))),
     )
     inputs = NormalVP(mean=jnp.asarray([1.0, -2.0]), variance=jnp.asarray([0.5, 4.0]))
 
@@ -40,8 +37,8 @@ def test_gaussian_neural_projection_layer_propagates_marginal_moments() -> None:
 def test_gaussian_neural_projection_input_pool_adds_dummy_evidence() -> None:
     """Check that background evidence makes an absent input usable for moment conversion."""
     pool = GaussianNeuralProjectionInputPool(
-        dummy_mean=SummedGradientParameter(jnp.zeros(2)),
-        dummy_raw_presence=SummedGradientParameter(jnp.full(2, jnp.log(jnp.expm1(1.0)))),
+        dummy_mean=LearnableParameter(jnp.zeros(2)),
+        dummy_raw_presence=LearnableParameter(jnp.full(2, jnp.log(jnp.expm1(1.0)))),
     )
     inputs = NormalPP(mean=jnp.asarray([99.0, 2.0]), precision=jnp.asarray([0.0, 4.0])).to_nat()
 
@@ -56,22 +53,6 @@ def test_gaussian_relu_matches_standard_normal_moments() -> None:
 
     assert jnp.allclose(rectified.mean, 1 / jnp.sqrt(2 * jnp.pi))
     assert jnp.allclose(rectified.variance, 0.5 - 1 / (2 * jnp.pi))
-
-
-def test_gaussian_neural_projection_factory_wraps_input_pool_and_all_layers(
-    streams: Mapping[str, RngStream],
-) -> None:
-    model = GaussianNeuralProjection.create(
-        2,
-        1,
-        hidden_features=(3,),
-        streams=streams,
-        parameter_factory=LossBalancedParameter,
-    )
-    parameters = tree.leaves(model, is_leaf=is_parameter)
-    assert len(parameters) == 2 + 3 * len(model.layers)
-    for parameter in parameters:
-        assert isinstance(parameter, LossBalancedParameter)
 
 
 def test_gaussian_neural_projection_parameter_count(streams: Mapping[str, RngStream]) -> None:

@@ -6,14 +6,12 @@ import jax
 import jax.numpy as jnp
 import pytest
 from efax import NormalPP, NormalVP
-from jax.experimental import checkify
 from tjax import JaxRealArray, RngStream
 
 from cem.sip import SIPModel, WitnessMap
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.witness import witness_loss, witness_norm_penalty, witness_residuals
 from cem.structure.graph import DisModel, Model
-from cem.structure.graph.losses import LossGradients
 
 _N = 3
 _FEATURES = 4
@@ -123,10 +121,7 @@ def test_sip_routing_projects_the_multiplier_onto_nonnegative_values(
         return DisModel.create(model, parameter_types)
 
     model = partition(0.0)
-    gradients = LossGradients({}, partition(gradient))
-    checked = checkify.checkify(transform.update, errors=checkify.user_checks)
-    error, (delta, _) = checked(gradients, transform.init(model), model)
-    error.throw()
+    delta, _ = transform.update(partition(gradient), transform.init(model), model)
     update = delta.assembled()
     assert isinstance(update, _MultiplierModel)
     multiplier = update.multiplier.value

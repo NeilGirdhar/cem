@@ -19,20 +19,6 @@ class LearnableParameter[A](Parameter[A]):
     """A model parameter updated during training."""
 
 
-type LearnableParameterFactory[A] = Callable[[A], LearnableParameter[A]]
-
-
-class SummedGradientParameter[A](LearnableParameter[A]):
-    """A parameter trained on the sum of the gradient contributions that reach it."""
-
-
-class LossBalancedParameter[A](LearnableParameter[A]):
-    """A parameter whose loss gradients are to be balanced before the update.
-
-    Each balancing group uses its own subclass, and the group's routing entry names its losses.
-    """
-
-
 class FixedParameter[A](Parameter[A]):
     """A model parameter held fixed during training, such as a dropout rate."""
 

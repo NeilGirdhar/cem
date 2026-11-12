@@ -10,11 +10,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import JaxRealArray, RngStream
 
-from cem.structure.graph import (
-    FixedParameter,
-    LearnableParameterFactory,
-    SummedGradientParameter,
-)
+from cem.structure.graph import FixedParameter
 from cem.transforms import Affine
 
 
@@ -33,25 +29,17 @@ class MLP(eqx.Module):
         hidden_features: int | tuple[int, ...] = (),
         dropout_rate: float = 0.0,
         streams: Mapping[str, RngStream],
-        parameter_factory: LearnableParameterFactory[JaxRealArray] = SummedGradientParameter,
     ) -> Self:
         """Build an MLP from the input, hidden, and output widths.
 
         An empty tuple omits hidden layers. A single integer specifies one hidden layer.
-        The parameter factory wraps each layer's weights and biases.
         """
         if isinstance(hidden_features, int):
             hidden_features = (hidden_features,)
         feature_sizes = (in_features, *hidden_features, out_features)
         return cls(
             layers=tuple(
-                Affine.create(
-                    n_in,
-                    n_out,
-                    complex_matrix=False,
-                    streams=streams,
-                    parameter_factory=parameter_factory,
-                )
+                Affine.create(n_in, n_out, complex_matrix=False, streams=streams)
                 for n_in, n_out in it.pairwise(feature_sizes)
             ),
             dropout_rate=FixedParameter(jnp.asarray(dropout_rate)),

@@ -92,5 +92,5 @@ class SIPModel(Model):
         return ModelResult(
             configurations=frozendict({"action": SIPActionConfiguration(outputs.action)}),
             state=state,
-            fixed_weight_loss=outputs.loss,
+            loss=outputs.loss,
         )

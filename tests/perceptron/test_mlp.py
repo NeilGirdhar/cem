@@ -6,22 +6,6 @@ import jax.numpy as jnp
 from tjax import RngStream
 
 from cem.perceptron import MLP
-from cem.structure.graph import LossBalancedParameter
-
-
-def test_mlp_parameter_factory_wraps_each_affine_layer(
-    streams: Mapping[str, RngStream],
-) -> None:
-    mlp = MLP.create(
-        2,
-        1,
-        hidden_features=(3,),
-        streams=streams,
-        parameter_factory=LossBalancedParameter,
-    )
-    for layer in mlp.layers:
-        for parameter in (layer.weight, layer.bias):
-            assert isinstance(parameter, LossBalancedParameter)
 
 
 def test_mlp_output_shape(streams: Mapping[str, RngStream]) -> None:

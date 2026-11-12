@@ -22,7 +22,7 @@ from cem.sip import (
     SIPObservation,
     TDSettings,
 )
-from cem.structure.graph import FixedParameter, SummedGradientParameter
+from cem.structure.graph import FixedParameter, LearnableParameter
 from cem.structure.problem import DataSource, Problem, ProblemState
 from cem.structure.solution.training_solution import TrainingSolution
 
@@ -71,7 +71,7 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
         )
     for feature in (*sensations, *prospects):
         observation_weight = feature.emitter.observation_map.layers[0].weight
-        assert isinstance(observation_weight, SummedGradientParameter)
+        assert isinstance(observation_weight, LearnableParameter)
 
     mismatches = (
         agent.sensations.input_feature.mismatch,
@@ -82,8 +82,8 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
         assert mismatch.prediction_map.layers[0].bias.value.shape == (5,)
         assert mismatch.witness_map.perceptron.layers[0].bias.value.shape == (7,)
         prediction_weight = mismatch.prediction_map.layers[0].weight
-        assert isinstance(prediction_weight, SummedGradientParameter)
-        assert isinstance(mismatch.witness_map.perceptron.layers[0].weight, SummedGradientParameter)
+        assert isinstance(prediction_weight, LearnableParameter)
+        assert isinstance(mismatch.witness_map.perceptron.layers[0].weight, LearnableParameter)
 
     td_error = agent.reward_critic.td_feature.td_error
     assert jnp.isclose(td_error.discount.value, settings.td_settings.discount)
@@ -92,8 +92,8 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
     assert td_error.prediction_map.layers[-1].bias.value.shape == (6,)
     assert td_error.prediction_map.input_pool.dummy_mean.value.shape == (12,)
     td_prediction_weight = td_error.prediction_map.layers[0].weight
-    assert isinstance(td_prediction_weight, SummedGradientParameter)
-    assert isinstance(td_error.witness_map.perceptron.layers[0].weight, SummedGradientParameter)
+    assert isinstance(td_prediction_weight, LearnableParameter)
+    assert isinstance(td_error.witness_map.perceptron.layers[0].weight, LearnableParameter)
 
 
 def test_sip_agent_create_matches_coupling_shapes(

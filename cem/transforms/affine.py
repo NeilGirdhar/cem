@@ -9,11 +9,7 @@ from jax.nn.initializers import variance_scaling
 from jax.typing import DTypeLike
 from tjax import JaxArray, RngStream
 
-from cem.structure.graph import (
-    LearnableParameter,
-    LearnableParameterFactory,
-    SummedGradientParameter,
-)
+from cem.structure.graph import LearnableParameter
 
 _real_lecun = variance_scaling(1.0, "fan_in", "truncated_normal")
 
@@ -52,7 +48,6 @@ class Affine(eqx.Module):
         *,
         complex_matrix: bool = False,
         streams: Mapping[str, RngStream],
-        parameter_factory: LearnableParameterFactory[JaxArray] = SummedGradientParameter,
     ) -> Self:
         """Initialize an affine map with LeCun weights and zero bias.
 
@@ -61,10 +56,10 @@ class Affine(eqx.Module):
         stream = streams["parameters"]
         shape = (out_features, in_features)
         return cls(
-            weight=parameter_factory(
+            weight=LearnableParameter(
                 _init_weight(shape, complex_matrix=complex_matrix, stream=stream)
             ),
-            bias=parameter_factory(
+            bias=LearnableParameter(
                 jnp.zeros(out_features, dtype=_bias_dtype(complex_matrix=complex_matrix))
             ),
         )

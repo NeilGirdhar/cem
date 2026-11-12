@@ -8,11 +8,10 @@ from typing import Any, Self
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from jax import tree, vmap
+from jax import grad, tree, vmap
 from tjax import JaxAbstractClass, JaxArray, KeyArray, create_streams
 
 from cem.structure.graph.disassembled import DisGradientState, DisGradientTransformation, DisModel
-from cem.structure.graph.losses import LossGradients, differentiate_losses
 from cem.structure.graph.model import Model
 from cem.structure.graph.node import NodeConfiguration
 from cem.structure.graph.parameters import is_parameter
@@ -175,21 +174,11 @@ class Inference(eqx.Module, JaxAbstractClass):
         state: object,
         learnable_parameters: Model,
         inference: bool,  # ruff:ignore[boolean-type-hint-positional-argument]
-        loss_ids: tuple[str, ...],
-    ) -> tuple[tuple[dict[str, JaxArray], JaxArray], Any, frozendict[str, NodeConfiguration]]:
+    ) -> tuple[JaxArray, Any, frozendict[str, NodeConfiguration]]:
         streams = create_streams({"inference": inference_key})
         model = self.assemble_model(learnable_parameters)
         result = model.infer(observation, state, streams=streams, inference=inference)
-        missing = set(loss_ids) - result.balanced_losses.keys()
-        if missing:
-            msg = f"The model did not return the requested losses: {sorted(missing)}"
-            raise ValueError(msg)
-        named = {name: result.balanced_losses[name] for name in loss_ids}
-        remaining = sum(
-            (loss for name, loss in result.balanced_losses.items() if name not in named),
-            result.fixed_weight_loss,
-        )
-        return (named, remaining), result.state, result.configurations
+        return result.loss, result.state, result.configurations
 
     def _v_infer(
         self,
@@ -200,15 +189,14 @@ class Inference(eqx.Module, JaxAbstractClass):
         learnable_parameters: Model,
         *,
         inference: bool,
-        loss_ids: tuple[str, ...] = (),
-    ) -> tuple[tuple[dict[str, JaxArray], JaxArray], Any, frozendict[str, NodeConfiguration]]:
-        """Evaluate each example with its own key and average each requested objective."""
+    ) -> tuple[JaxArray, Any, frozendict[str, NodeConfiguration]]:
+        """Use a separate random key for each example and average the resulting losses."""
         inference_keys = jr.split(inference_key, batch_size)
-        f = vmap(self._infer, in_axes=(0, 0, 0, None, None, None), out_axes=(0, 0, 0))
+        f = vmap(self._infer, in_axes=(0, 0, 0, None, None), out_axes=(0, 0, 0))
         losses, new_states, configurations = f(
-            inference_keys, observation, state, learnable_parameters, inference, loss_ids
+            inference_keys, observation, state, learnable_parameters, inference
         )
-        return tree.map(jnp.mean, losses), new_states, configurations
+        return jnp.mean(losses), new_states, configurations
 
     def _v_infer_gradient(
         self,
@@ -217,28 +205,21 @@ class Inference(eqx.Module, JaxAbstractClass):
         observation: object,
         state: object,
         learnable_parameters: Model,
-        *,
-        loss_ids: tuple[str, ...] = (),
-    ) -> tuple[LossGradients[Model], tuple[Any, frozendict[str, NodeConfiguration]]]:
-        """Differentiate the batch objectives and retain the forward pass's outputs."""
+    ) -> tuple[Model, tuple[Any, frozendict[str, NodeConfiguration]]]:
+        """Differentiate the batch mean loss with respect to learnable parameters.
 
-        def forward(
+        Return the forward pass's states and node outputs as auxiliary data.
+        """
+
+        def loss_fn(
             params: Model,
-        ) -> tuple[
-            tuple[dict[str, JaxArray], JaxArray], tuple[Any, frozendict[str, NodeConfiguration]]
-        ]:
-            losses, new_state, configurations = self._v_infer(
-                batch_size,
-                inference_key,
-                observation,
-                state,
-                params,
-                inference=False,
-                loss_ids=loss_ids,
+        ) -> tuple[JaxArray, tuple[Any, frozendict[str, NodeConfiguration]]]:
+            loss, new_state, configurations = self._v_infer(
+                batch_size, inference_key, observation, state, params, inference=False
             )
-            return losses, (new_state, configurations)
+            return loss, (new_state, configurations)
 
-        return differentiate_losses(forward, learnable_parameters)
+        return grad(loss_fn, has_aux=True)(learnable_parameters)
 
     def _inference_body_fun(
         self,
@@ -272,20 +253,12 @@ class Inference(eqx.Module, JaxAbstractClass):
             inference_state.observation,
             inference_state.state,
             solution_state.dis_learnable_parameters.assembled(),
-            loss_ids=gradient_transformations.requested_loss_ids(),
         )
-        parameter_types = tuple(gradient_transformations.learnable_parameter_types())
+        # Conjugate JAX's complex gradients so the optimizer follows steepest descent.
+        learnable_parameters_bar = tree.map(jnp.conj, learnable_parameters_bar)
 
-        def partition(gradient: Model) -> DisModel:
-            # Conjugate JAX's complex gradients so the optimizer follows steepest descent.
-            return DisModel.create(tree.map(jnp.conj, gradient), parameter_types)
-
-        dis_learnable_parameters_bar = LossGradients(
-            {
-                name: partition(gradient)
-                for name, gradient in learnable_parameters_bar.balanced_gradients.items()
-            },
-            partition(learnable_parameters_bar.fixed_weight_gradient),
+        dis_learnable_parameters_bar = DisModel.create(
+            learnable_parameters_bar, tuple(gradient_transformations.learnable_parameter_types())
         )
         new_dis_learnable_parameters_bar, new_gradient_states = gradient_transformations.update(
             dis_learnable_parameters_bar,

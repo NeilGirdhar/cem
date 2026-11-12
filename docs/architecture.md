@@ -41,9 +41,8 @@ def infer(
 - `state` is the recurrent carry (`frozendict()` for feed-forward models).
 - `streams` provides named RNG streams (`"inference"` for dropout, etc.).
 - `inference=True` disables stochastic operations at eval time.
-- Returns a `ModelResult` with a `frozendict` of named `NodeConfiguration` objects (telemetry), an
-  updated `state`, a fixed-weight loss, and optional named balanced losses. Its `loss` is their
-  sum.
+- Returns a `ModelResult` with a scalar `loss`, a `frozendict` of named `NodeConfiguration` objects
+  (telemetry), and an updated `state`.
 
 `NodeConfiguration` (`cem/structure/graph/node.py`)\
 Base class for per-node telemetry. Subclasses carry whatever arrays are useful for plotting.
@@ -73,9 +72,7 @@ Every JAX array leaf inside a `Model` pytree must be wrapped in one of two param
 `cem/structure/graph/parameters.py`:
 
 `LearnableParameter[A]`\
-Carries a JAX array updated by the optimizer. A `SummedGradientParameter` uses the sum of the
-gradients that reach it. A `LossBalancedParameter` marks a parameter for gradient balancing;
-each balancing group uses its own subclass.
+Carries a JAX array updated by the optimizer.
 
 `FixedParameter[A]`\
 Carries a JAX array that is part of the model pytree but is *never* differentiated or updated
@@ -113,11 +110,6 @@ The disassembled model splits the full model pytree into one sub-tree per `Param
 drives `init`/`update` independently. This enables per-parameter-type optimizer routing without
 special-casing anything in the model.
 
-A multi-loss transform from tjax, such as `MTAdam`, balances the losses named by its `loss_ids` and
-receives their gradients separately. Its group must receive gradient from those losses alone: a
-`checkify` check rejects any finite nonzero gradient from other losses, and the trainer
-functionalizes the check around each training chunk.
-
 The default routing in `Solver.gradient_transformations` is:
 
 ```python
@@ -141,10 +133,9 @@ During training, fixed parameters stay in `Inference` and never move; only the l
 is differentiated and updated.
 
 `Inference` (`cem/structure/solution/inference.py`)\
-Recombines the fixed and learnable parameter trees before each batched forward pass. The losses
-that the multi-loss transforms balance come from the `ModelResult`, and the remaining objective is
-the fixed-weight loss and every other balanced loss. Inference pulls back each requested batch mean
-and the remaining objective from the same forward pass.
+Holds the fixed parameters and runs batched forward and gradient passes via `vmap` and `grad`.
+`Inference.assemble_model` recombines fixed and learnable sub-trees via `eqx.combine` before each
+forward pass, so the model always sees a complete pytree.
 
 ## Solver
 
