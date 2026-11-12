@@ -59,12 +59,12 @@
   })
 }
 
-#let bar-chart-plots(plot-data, colors) = {
+#let bar-chart-plots(plot-data, colors, group-width) = {
   let xs = plot-data.at("iteration")
   let bar-plots = plot-data.at("bar plots")
   let bar-errors = plot-data.at("bar errors", default: (:))
   let series = bar-plots.keys()
-  let bar-width = 0.8 / series.len()
+  let bar-width = group-width / series.len()
   range(series.len())
     .map(i => {
       let key = series.at(i)
@@ -106,6 +106,8 @@
   legend-position: top + right,
   show-legend: true,
   palette: none,
+  // Fraction of each category's slot that its bars fill.
+  bar-width: 0.8,
 ) = {
   let theme = if palette == none { default-palette } else { palette }
   let colors = chart-colors(theme)
@@ -138,6 +140,10 @@
         width: chart-width,
         height: chart-width / aspect-ratio,
         margin: 0%,
+        // Leave half a category slot beside the outer bars.
+        ..if is-bar-chart {
+          (xlim: (-0.5, plot-data.at("iteration").len() - 0.5),)
+        },
         yscale: if not is-bar-chart and plot-title.ends-with("-loss") { "log" } else { "linear" },
         xaxis: xaxis,
         yaxis: (subticks: none, tick-args: (density: 60%)),
@@ -145,7 +151,7 @@
         grid: (:),
         fill: theme.base,
         ..if is-bar-chart {
-          bar-chart-plots(plot-data, colors)
+          bar-chart-plots(plot-data, colors, bar-width)
         } else {
           line-chart-plots(plot-data, colors, theme)
         },

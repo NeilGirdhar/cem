@@ -24,7 +24,7 @@ Each of the 17 numbered claims in [`sip.md`](sip.md#tested-claims) needs:
 Order of unblocked work: 1–12 (need `Emitter`, `Mismatch`, and `Credit`) then 13–15 (add
 `TDError`) then 16–17 (full `SIPAgent`).
 
-- [ ] Experiment 1
+- [x] Experiment 1
 - [ ] Experiment 2
 - [ ] Experiment 3
 - [ ] Experiment 4
