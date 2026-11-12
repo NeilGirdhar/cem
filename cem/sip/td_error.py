@@ -9,13 +9,13 @@ import jax.numpy as jnp
 from efax import NormalNP, NormalVP
 from tjax import JaxRealArray, RngStream
 
+from cem.framework.graph import FixedParameter
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, variance_from_precision
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.settings import TDSettings
 from cem.sip.witness import WitnessMap, witness_loss, witness_norm_penalty, witness_residuals
-from cem.structure.graph import FixedParameter
 
 
 class TDTraces(eqx.Module):

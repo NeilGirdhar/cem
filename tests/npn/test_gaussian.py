@@ -8,15 +8,15 @@ import jax.numpy as jnp
 from efax import NormalPP, NormalVP
 from tjax import RngStream
 
+from cem.framework.graph import (
+    LearnableParameter,
+    count_real_learnable_parameters,
+)
 from cem.npn.gaussian import (
     GaussianNeuralProjection,
     GaussianNeuralProjectionInputPool,
     GaussianNeuralProjectionLayer,
     gaussian_relu,
-)
-from cem.structure.graph import (
-    LearnableParameter,
-    count_real_learnable_parameters,
 )
 
 

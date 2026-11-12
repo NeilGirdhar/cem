@@ -12,7 +12,7 @@ from jax.nn import initializers, softplus
 from jax.scipy.special import ndtr
 from tjax import JaxRealArray, RngStream
 
-from cem.structure.graph import LearnableParameter
+from cem.framework.graph import LearnableParameter
 
 _MINIMUM_VARIANCE = 1e-8
 _STANDARD_NORMAL_DENSITY_SCALE = 1 / jnp.sqrt(2 * jnp.pi)

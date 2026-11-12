@@ -8,6 +8,9 @@ import pytest
 from efax import NormalNP, NormalPP
 from tjax import KeyArray, RngStream
 
+from cem.framework.graph import FixedParameter, LearnableParameter
+from cem.framework.problem import DataSource, Problem, ProblemState
+from cem.framework.solution.training_solution import TrainingSolution
 from cem.sip import (
     CreditSettings,
     EnvironmentFeatures,
@@ -22,9 +25,6 @@ from cem.sip import (
     SIPObservation,
     TDSettings,
 )
-from cem.structure.graph import FixedParameter, LearnableParameter
-from cem.structure.problem import DataSource, Problem, ProblemState
-from cem.structure.solution.training_solution import TrainingSolution
 
 from .tools import CREDIT_SETTINGS, _i_message, _message
 

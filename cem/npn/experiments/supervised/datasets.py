@@ -13,8 +13,8 @@ from efax import UnitVarianceNormalNP
 from jax import vmap
 from tjax import JaxRealArray, KeyArray
 
-from cem.structure.problem import Problem
-from cem.structure.problem.data_source import DataSource, ProblemState
+from cem.framework.problem import Problem
+from cem.framework.problem.data_source import DataSource, ProblemState
 from cem.transforms import encode_flat
 
 _INFERENCE_FRACTION = 0.2

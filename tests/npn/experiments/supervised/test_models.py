@@ -7,6 +7,7 @@ import jax.random as jr
 import pytest
 from tjax import RngStream
 
+from cem.framework.solution import ExecutionPacket, LossTelemetry, Telemetries
 from cem.npn.experiments.supervised.datasets import SupervisedDataSource, SupervisedProblem
 from cem.npn.experiments.supervised.models import (
     DatasetKind,
@@ -17,7 +18,6 @@ from cem.npn.experiments.supervised.models import (
     SupervisedSolver,
 )
 from cem.perceptron.target_node import PerceptronTargetConfiguration
-from cem.structure.solution import ExecutionPacket, LossTelemetry, Telemetries
 
 from ._problems import small_multi_target_problem, small_supervised_problem
 

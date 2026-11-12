@@ -9,12 +9,12 @@ from efax import NormalNP, NormalPP
 from jax.lax import stop_gradient
 from tjax import JaxRealArray, KeyArray
 
+from cem.framework.graph import EligibilityTraining
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit, CreditOutputs
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, evidence_scale
-from cem.structure.graph import EligibilityTraining
 
 
 class _ObservationCoordinates(eqx.Module):

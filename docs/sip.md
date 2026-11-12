@@ -123,7 +123,7 @@ The framework (`Problem` / `Model` / `Solver` / `Plotter` / `Experiment`) is doc
 [`architecture.md`](architecture.md). What's specific to SIP:
 
 - Identification tests (1–12) use a feed-forward `Problem` over a structural causal model;
-  value-learning and control tests (13–17) use the RL `Problem` in `cem/structure/rl/`.
+  value-learning and control tests (13–17) use the RL `Problem` in `cem/framework/rl/`.
 - The circuit needs the precision-κ transform on `DisGradientTransformation`.
 - Reuses `cem/npn/gaussian.py` (`GaussianNeuralProjection`),
   `cem/perceptron/mlp.py` (`MLP` inside the witness map, and for the witness-gain and

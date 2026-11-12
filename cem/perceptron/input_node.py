@@ -2,7 +2,7 @@
 
 from tjax import JaxRealArray
 
-from cem.structure.graph.node import NodeConfiguration
+from cem.framework.graph.node import NodeConfiguration
 
 
 class PerceptronInputConfiguration(NodeConfiguration):

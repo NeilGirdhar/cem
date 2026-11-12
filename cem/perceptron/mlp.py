@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from tjax import JaxRealArray, RngStream
 
-from cem.structure.graph import FixedParameter
+from cem.framework.graph import FixedParameter
 from cem.transforms import Affine
 
 

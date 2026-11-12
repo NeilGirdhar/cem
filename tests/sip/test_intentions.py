@@ -6,9 +6,9 @@ import jax.random as jr
 from efax import NormalPP
 from tjax import RngStream
 
+from cem.framework.graph import LearnableParameter
 from cem.sip.intentions import Intentions
 from cem.sip.messages import InstrumentedMessage, concat_messages
-from cem.structure.graph import LearnableParameter
 
 from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _i_message, _message
 

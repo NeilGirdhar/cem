@@ -2,7 +2,7 @@
 
 from tjax import JaxRealArray
 
-from cem.structure.graph import LearnableParameter
+from cem.framework.graph import LearnableParameter
 
 
 class WitnessMultiplierParameter(LearnableParameter[JaxRealArray]):

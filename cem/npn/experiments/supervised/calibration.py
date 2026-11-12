@@ -8,10 +8,10 @@ from typing import Any, override
 import numpy as np
 from tjax.dataclasses import field
 
-from cem.structure.plotter import Experiment, Run, Variant
-from cem.structure.plotter.plotter import PlottedSeries, Plotter
-from cem.structure.solution import PredictionTelemetry, Telemetries
-from cem.structure.solver import Solver
+from cem.framework.plotter import Experiment, Run, Variant
+from cem.framework.plotter.plotter import PlottedSeries, Plotter
+from cem.framework.solution import PredictionTelemetry, Telemetries
+from cem.framework.solver import Solver
 
 from .models import DatasetKind, LinkKind, SupervisedSolver
 

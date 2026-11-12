@@ -6,8 +6,8 @@ from typing import Any, Self
 from efax import ExpectationParametrization, HasEntropyEP, NaturalParametrization
 from tjax import JaxArray, JaxRealArray
 
+from cem.framework.graph.node import TargetConfiguration, TargetNode
 from cem.perceptron.input_node import PerceptronInputConfiguration
-from cem.structure.graph.node import TargetConfiguration, TargetNode
 
 
 class PerceptronTargetConfiguration(PerceptronInputConfiguration, TargetConfiguration):

@@ -4,15 +4,15 @@ from typing import cast
 
 import jax.numpy as jnp
 
-from cem.npn.experiments.supervised.missingness import MissingnessBarPlotter
-from cem.npn.experiments.supervised.models import DatasetKind
-from cem.structure.plotter import Run
-from cem.structure.solution import (
+from cem.framework.plotter import Run
+from cem.framework.solution import (
     InferenceResults,
     LossTelemetry,
     SolutionState,
     TrainingResults,
 )
+from cem.npn.experiments.supervised.missingness import MissingnessBarPlotter
+from cem.npn.experiments.supervised.models import DatasetKind
 
 _INFERENCE_BATCH_SIZE = 128
 

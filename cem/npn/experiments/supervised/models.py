@@ -14,10 +14,7 @@ from optuna.distributions import CategoricalDistribution, FloatDistribution, Int
 from tjax import JaxRealArray, RngStream
 from tjax.gradient import Adam
 
-from cem.npn.gaussian import GaussianNeuralProjection
-from cem.perceptron.mlp import MLP
-from cem.perceptron.target_node import PerceptronTargetNode
-from cem.structure.graph import (
+from cem.framework.graph import (
     DisGradientTransformation,
     FixedParameter,
     LearnableParameter,
@@ -26,9 +23,12 @@ from cem.structure.graph import (
     ParameterType,
     count_real_learnable_parameters,
 )
-from cem.structure.graph.node import TargetConfiguration
-from cem.structure.problem import DataSource, Problem
-from cem.structure.solver import Solver, bool_field, float_field, hardware_friendly_ints, int_field
+from cem.framework.graph.node import TargetConfiguration
+from cem.framework.problem import DataSource, Problem
+from cem.framework.solver import Solver, bool_field, float_field, hardware_friendly_ints, int_field
+from cem.npn.gaussian import GaussianNeuralProjection
+from cem.perceptron.mlp import MLP
+from cem.perceptron.target_node import PerceptronTargetNode
 
 from .datasets import (
     SupervisedProblem,

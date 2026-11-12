@@ -5,7 +5,7 @@ from pathlib import Path
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend
 
-from cem.structure.solution.wandb_tools import WAndBInitSettings
+from cem.framework.solution.wandb_tools import WAndBInitSettings
 
 jax_cache_dir = "./.jax_cache"
 optuna_cache = Path("./.optuna_cache/journal.log").resolve()

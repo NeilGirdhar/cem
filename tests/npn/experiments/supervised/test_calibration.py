@@ -6,19 +6,19 @@ import jax.numpy as jnp
 import numpy as np
 
 from cem.commands.registry import experiments
+from cem.framework.plotter import Run
+from cem.framework.solution import (
+    InferenceResults,
+    PredictionTelemetry,
+    SolutionState,
+    TrainingResults,
+)
 from cem.npn.experiments.supervised.calibration import (
     CalibrationScatterPlotter,
     SupervisedCalibrationExperiment,
     supervised_calibration_experiment,
 )
 from cem.npn.experiments.supervised.models import DatasetKind
-from cem.structure.plotter import Run
-from cem.structure.solution import (
-    InferenceResults,
-    PredictionTelemetry,
-    SolutionState,
-    TrainingResults,
-)
 
 
 def _run(dataset: DatasetKind, seed: int, snapshot: jnp.ndarray) -> Run:

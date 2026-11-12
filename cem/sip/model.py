@@ -9,9 +9,7 @@ from jax import tree
 from tjax import RngStream
 from tjax.gradient import Adam, ChainedGradientTransformation, KeepParamsNonnegative
 
-from cem.sip.parameters import WitnessMultiplierParameter
-from cem.sip.sip_agent import SIPAgent
-from cem.structure.graph import (
+from cem.framework.graph import (
     DisGradientTransformation,
     FixedParameter,
     LearnableParameter,
@@ -20,7 +18,9 @@ from cem.structure.graph import (
     NodeConfiguration,
     ParameterType,
 )
-from cem.structure.problem.data_source import ProblemObservation
+from cem.framework.problem.data_source import ProblemObservation
+from cem.sip.parameters import WitnessMultiplierParameter
+from cem.sip.sip_agent import SIPAgent
 
 
 class SIPObservation(ProblemObservation):

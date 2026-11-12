@@ -8,11 +8,11 @@ from typing import Any, override
 import jax.numpy as jnp
 from tjax.dataclasses import field
 
-from cem.structure.plotter import Experiment, Run, Variant
-from cem.structure.plotter.plotter import PlottedSeries, Plotter
-from cem.structure.solution import Telemetries
-from cem.structure.solution.loss_telemetry import LossTelemetry
-from cem.structure.solver import Solver
+from cem.framework.plotter import Experiment, Run, Variant
+from cem.framework.plotter.plotter import PlottedSeries, Plotter
+from cem.framework.solution import Telemetries
+from cem.framework.solution.loss_telemetry import LossTelemetry
+from cem.framework.solver import Solver
 
 from .models import DatasetKind, LinkKind, SupervisedSolver
 

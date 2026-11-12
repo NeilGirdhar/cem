@@ -9,7 +9,7 @@ from jax.nn.initializers import variance_scaling
 from jax.typing import DTypeLike
 from tjax import JaxArray, RngStream
 
-from cem.structure.graph import LearnableParameter
+from cem.framework.graph import LearnableParameter
 
 _real_lecun = variance_scaling(1.0, "fan_in", "truncated_normal")
 

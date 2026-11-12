@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 from typer import Argument, Option
 
-from cem.structure import Experiment, OptimizableExperiment, set_up_logging, solver_context_manager
+from cem.framework import Experiment, OptimizableExperiment, set_up_logging, solver_context_manager
 
 from ._optimize import OptimizationMode, run_optimize
 from ._render import compile_pdf, open_pdf

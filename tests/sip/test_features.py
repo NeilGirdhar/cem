@@ -7,6 +7,7 @@ import jax.random as jr
 from efax import NormalNP
 from tjax import JaxRealArray, KeyArray, RngStream
 
+from cem.framework.graph import LearnableParameter
 from cem.sip.features import (
     RecruiterFeature,
     SensationFeature,
@@ -17,7 +18,6 @@ from cem.sip.features import (
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.messages import InstrumentedMessage
 from cem.sip.settings import TDSettings
-from cem.structure.graph import LearnableParameter
 
 from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _message
 

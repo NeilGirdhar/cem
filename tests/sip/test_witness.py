@@ -8,10 +8,10 @@ import pytest
 from efax import NormalPP, NormalVP
 from tjax import JaxRealArray, RngStream
 
+from cem.framework.graph import DisModel, Model
 from cem.sip import SIPModel, WitnessMap
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.witness import witness_loss, witness_norm_penalty, witness_residuals
-from cem.structure.graph import DisModel, Model
 
 _N = 3
 _FEATURES = 4

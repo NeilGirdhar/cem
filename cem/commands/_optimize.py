@@ -19,12 +19,12 @@ from optuna.study import Study, create_study, delete_study, load_study
 from optuna.trial import FrozenTrial, Trial, TrialState
 from tjax import GenericString
 
-from cem.structure import (
+from cem.framework import (
     console_progress_bar,
     jax_is_initialized,
     solver_context_manager,
 )
-from cem.structure.plotter import OptimizableExperiment
+from cem.framework.plotter import OptimizableExperiment
 from cem.tuned_defaults import update_tuned_defaults
 
 from .settings import get_optuna_storage, jax_cache_dir, optuna_sampler, wandb_settings

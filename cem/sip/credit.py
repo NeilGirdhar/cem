@@ -8,9 +8,9 @@ from efax import NormalNP
 from jax.lax import stop_gradient
 from tjax import JaxRealArray
 
+from cem.framework.graph import FixedParameter
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.settings import CreditSettings
-from cem.structure.graph import FixedParameter
 
 
 class CreditTraces(eqx.Module):

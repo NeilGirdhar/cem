@@ -1,18 +1,18 @@
 # Architecture
 
-All reusable training infrastructure lives in `cem/structure/`. The framework follows a strict
+All reusable training infrastructure lives in `cem/framework/`. The framework follows a strict
 layered design: a *problem* produces data, a *model* consumes it, a *solver* wires them together,
 and a *plotter* turns telemetry into chart series. Experiments register in
 `cem/commands/registry.py` and are then available under every CLI verb.
 
 ## Problem layer
 
-`Problem` (`cem/structure/problem/problem.py`)\
+`Problem` (`cem/framework/problem/problem.py`)\
 An Equinox module that owns a `DataSource` and optionally narrows a full `ProblemState` down to a
 `ProblemObservation` via `extract_observation`. The distinction matters for RL-style problems where
 the agent sees less than the ground truth; feed-forward problems simply return the state unchanged.
 
-`DataSource` (`cem/structure/problem/data_source.py`)\
+`DataSource` (`cem/framework/problem/data_source.py`)\
 Generates `ProblemState` instances one at a time from a JAX key via `initial_problem_state`. The
 framework vmaps this call across a batch.
 
@@ -23,7 +23,7 @@ sees.
 
 ## Model layer
 
-`Model` (`cem/structure/graph/model.py`)\
+`Model` (`cem/framework/graph/model.py`)\
 Abstract base class for every neural network. Subclasses implement:
 
 ```python
@@ -44,7 +44,7 @@ def infer(
 - Returns a `ModelResult` with a scalar `loss`, a `frozendict` of named `NodeConfiguration` objects
   (telemetry), and an updated `state`.
 
-`NodeConfiguration` (`cem/structure/graph/node.py`)\
+`NodeConfiguration` (`cem/framework/graph/node.py`)\
 Base class for per-node telemetry. Subclasses carry whatever arrays are useful for plotting.
 `TargetConfiguration` adds a `loss` dict and implements `total_loss()` by summing over fields.
 
@@ -69,7 +69,7 @@ visual normalization rather than the training objective.
 ## Parameter system
 
 Every JAX array leaf inside a `Model` pytree must be wrapped in one of two parameter categories in
-`cem/structure/graph/parameters.py`:
+`cem/framework/graph/parameters.py`:
 
 `LearnableParameter[A]`\
 Carries a JAX array updated by the optimizer.
@@ -104,7 +104,7 @@ The SIP witness multiplier (`WitnessMultiplierParameter`) uses this pattern.
 
 ## Training infrastructure
 
-`DisModel` and `DisGradientTransformation` (`cem/structure/graph/disassembled.py`)\
+`DisModel` and `DisGradientTransformation` (`cem/framework/graph/disassembled.py`)\
 The disassembled model splits the full model pytree into one sub-tree per `ParameterType`.
 `DisGradientTransformation` maps each type to an optimizer (or `None` for fixed parameters) and
 drives `init`/`update` independently. This enables per-parameter-type optimizer routing without
@@ -121,7 +121,7 @@ DisGradientTransformation(
 )
 ```
 
-`TrainingSolution` (`cem/structure/solution/training_solution.py`)\
+`TrainingSolution` (`cem/framework/solution/training_solution.py`)\
 The central training object. At creation it:
 
 1. Calls `verify_model_has_no_free_parameters` to catch bare leaves.
@@ -132,14 +132,14 @@ The central training object. At creation it:
 During training, fixed parameters stay in `Inference` and never move; only the learnable sub-tree
 is differentiated and updated.
 
-`Inference` (`cem/structure/solution/inference.py`)\
+`Inference` (`cem/framework/solution/inference.py`)\
 Holds the fixed parameters and runs batched forward and gradient passes via `vmap` and `grad`.
 `Inference.assemble_model` recombines fixed and learnable sub-trees via `eqx.combine` before each
 forward pass, so the model always sees a complete pytree.
 
 ## Solver
 
-`Solver[P]` (`cem/structure/solver/solver.py`)\
+`Solver[P]` (`cem/framework/solver/solver.py`)\
 Constructs the model and the problem for one experiment configuration. Subclasses override:
 
 - `problem() -> P` — return the problem instance.
@@ -152,19 +152,19 @@ Constructs the model and the problem for one experiment configuration. Subclasse
 
 ## Telemetry and plotting
 
-`Telemetry` (`cem/structure/solution/telemetry.py`)\
+`Telemetry` (`cem/framework/solution/telemetry.py`)\
 Extracts a snapshot of data from each training or inference episode. Snapshots are accumulated
 across episodes and handed to plotters. Return `None` to skip an episode (e.g. before any training
 has run).
 
-`Plotter` (`cem/structure/plotter/plotter.py`)\
+`Plotter` (`cem/framework/plotter/plotter.py`)\
 Declares which `Telemetry` objects it needs via `telemetries()`, then pivots the accumulated
 `Run`s into chart series in `plotted_series()`. The `name` field becomes the plot key in the
 output JSON; the `title` field becomes the chart title.
 
 ## Experiment harness
 
-`Experiment` (`cem/structure/plotter/experiment.py`)\
+`Experiment` (`cem/framework/plotter/experiment.py`)\
 A named bundle of **variants × sweep × plotters**. One `Experiment` represents everything the CLI
 needs to train, infer, and render for one entry in `cem/commands/registry.py`.
 

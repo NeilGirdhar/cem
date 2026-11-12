@@ -1,0 +1,199 @@
+"""Configure a model and problem for reproducible training and inference."""
+
+from collections.abc import Mapping
+from dataclasses import KW_ONLY, fields, is_dataclass, replace
+from typing import Any, Self, cast
+
+import equinox as eqx
+import jax.random as jr
+from optuna.distributions import BaseDistribution, FloatDistribution, IntDistribution
+from tjax import RngStream, create_streams
+from tjax.gradient import Adam
+
+from cem.framework.graph import (
+    DisGradientTransformation,
+    FixedParameter,
+    LearnableParameter,
+    Model,
+    ParameterType,
+)
+from cem.framework.problem import DataSource, Problem
+from cem.framework.solution import (
+    ExecutionPacket,
+    InferenceResults,
+    TrainingResults,
+    TrainingSolution,
+    infer_episodes,
+    train_episodes,
+)
+from cem.framework.solution.inference import SolutionState
+
+from .hp_field import float_field, int_field
+
+__all__ = ["Solver"]
+
+
+class Solver[P: Problem](eqx.Module):
+    """A configuration for training and evaluating one model on a problem.
+
+    Separate random streams for data and model operations let solvers with matching
+    data seeds and batch schedules receive the same examples from a deterministic source.
+    """
+
+    _: KW_ONLY
+    title: str = ""
+    name: str | None = None
+    inference_examples: int = int_field(default=0, domain=IntDistribution(0, 0))
+    inference_batch_size: int = int_field(
+        default=256, domain=IntDistribution(1, (1 << 32) - 1, log=True)
+    )
+    inference_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
+
+    training_examples: int = int_field(
+        default=0, domain=IntDistribution(1, (1 << 64) - 1, log=True)
+    )
+    training_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
+    training_batch_size: int = int_field(
+        default=256, domain=IntDistribution(1, (1 << 32) - 1, log=True)
+    )
+    parameters_seed: int = int_field(default=0, domain=IntDistribution(1, (1 << 32) - 1))
+    learning_rate: float = float_field(
+        default=0.002, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
+    )
+
+    def training_results(self, *, packet: ExecutionPacket) -> TrainingResults:
+        """Train from the solver's initial parameters and return telemetry and the final state."""
+        solution = self.solution()
+        return train_episodes(
+            packet.run_label or self.name,
+            self.training_batch_size,
+            solution,
+            packet,
+            jr.key(self.training_seed),
+            self.training_examples,
+        )
+
+    def problem(self) -> P:
+        """Construct the problem and its data for this solver configuration."""
+        raise NotImplementedError
+
+    def create_model(
+        self,
+        data_source: DataSource,
+        problem: Problem,
+        *,
+        streams: Mapping[str, RngStream],
+    ) -> Model:
+        """Build a model compatible with the problem and its data source."""
+        raise NotImplementedError
+
+    def solution(self) -> TrainingSolution:
+        """Build the initial solution from the configured parameter seed.
+
+        The model must have a stable pytree structure so learned parameter partitions
+        can be recombined with the same fixed parameters for evaluation. Avoid creating
+        new closures as static fields because they change the pytree metadata.
+        """
+        problem = self.problem()
+        parameters_key = jr.key(self.parameters_seed)
+        data_source = problem.create_data_source(inference=False)
+        keys = {"parameters": parameters_key, "example": jr.key(0)}
+        streams = create_streams(keys)
+        model = self.create_model(data_source, problem, streams=streams)
+        return TrainingSolution.create(problem, model, self.gradient_transformations())
+
+    def gradient_transformations(self) -> DisGradientTransformation:
+        """Keep fixed parameters unchanged and use Adam for learnable parameters by default."""
+        return DisGradientTransformation(
+            [
+                (ParameterType(FixedParameter), None),
+                (ParameterType(LearnableParameter), Adam[Model](self.learning_rate)),
+            ]
+        )
+
+    def inference_results(
+        self, solution_state: SolutionState, *, packet: ExecutionPacket
+    ) -> InferenceResults:
+        """Evaluate a trained state on the configured inference split."""
+        solution = self.solution()
+        inference_key = jr.key(self.inference_seed)
+        return infer_episodes(
+            packet.run_label or self.name,
+            self.inference_batch_size,
+            self.inference_examples,
+            inference_key,
+            solution.inference,
+            solution.problem,
+            packet,
+            solution_state,
+        )
+
+    def training_and_inference_result(
+        self, *, packet: ExecutionPacket
+    ) -> tuple[TrainingResults, InferenceResults]:
+        training_results = self.training_results(packet=packet)
+        inference_results = self.inference_results(training_results.final_state, packet=packet)
+        return training_results, inference_results
+
+    def create_hyperparameters(self) -> dict[str, BaseDistribution]:
+        """Collect search distributions for enabled fields, using dotted paths for nested fields."""
+        return _create_hyperparameters(self, prefix="")
+
+    def default_hyperparameters(self) -> dict[str, Any]:
+        """Return the configured values for fields included in the hyperparameter search."""
+        return _default_hyperparameters(self, prefix="")
+
+    def populate_from_hyperparameters(self, hyper: dict[str, Any]) -> Self:
+        """Copy the solver with the supplied values and keep defaults for omitted fields."""
+        return _populate_from_hyperparameters(self, hyper, prefix="")
+
+
+def _create_hyperparameters(x: object, *, prefix: str) -> dict[str, BaseDistribution]:
+    assert is_dataclass(x)
+    assert not isinstance(x, type)
+    hyper = {}
+    for f in fields(x):
+        y = getattr(x, f.name)
+        if not f.metadata.get("optimize", True):
+            continue
+        condition = f.metadata.get("condition", None)
+        if condition is not None and not condition(x):
+            continue
+        if (domain := f.metadata.get("domain", None)) is not None:
+            hyper[f"{prefix}{f.name}"] = domain
+        elif is_dataclass(y):
+            hyper |= _create_hyperparameters(y, prefix=f"{prefix}{f.name}.")
+    return hyper
+
+
+def _default_hyperparameters(x: object, *, prefix: str) -> dict[str, Any]:
+    assert is_dataclass(x)
+    assert not isinstance(x, type)
+    result: dict[str, Any] = {}
+    for f in fields(x):
+        y = getattr(x, f.name)
+        if not f.metadata.get("optimize", True):
+            continue
+        condition = f.metadata.get("condition", None)
+        if condition is not None and not condition(x):
+            continue
+        if f.metadata.get("domain", None) is not None:
+            result[f"{prefix}{f.name}"] = y
+        elif is_dataclass(y):
+            result |= _default_hyperparameters(y, prefix=f"{prefix}{f.name}.")
+    return result
+
+
+def _populate_from_hyperparameters[T](x: T, hyper: dict[str, Any], *, prefix: str) -> T:
+    assert is_dataclass(x)
+    assert not isinstance(x, type)
+    kwargs = {}
+    for f in fields(x):
+        y = getattr(x, f.name)
+        if not f.metadata.get("optimize", True):
+            continue
+        if f.metadata.get("domain", None) is not None:
+            kwargs[f.name] = hyper.get(f"{prefix}{f.name}", y)
+        elif is_dataclass(y):
+            kwargs[f.name] = _populate_from_hyperparameters(y, hyper, prefix=f"{prefix}{f.name}.")
+    return cast("T", replace(x, **kwargs))
