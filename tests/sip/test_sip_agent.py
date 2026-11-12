@@ -23,10 +23,14 @@ from cem.sip import (
     SIPObservation,
     TDSettings,
 )
-from cem.sip.parameters import MismatchPredictionParameter, TDPredictionParameter
+from cem.sip.parameters import (
+    DissonanceObservationParameter,
+    MismatchPredictionParameter,
+    RewardObservationParameter,
+    TDPredictionParameter,
+)
 from cem.structure.graph import (
     FixedParameter,
-    LossBalancedParameter,
     ParameterType,
     SummedGradientParameter,
 )
@@ -78,7 +82,13 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
         )
     for feature in (*sensations, *prospects):
         observation_weight = feature.emitter.observation_map.layers[0].weight
-        assert isinstance(observation_weight, LossBalancedParameter)
+        assert isinstance(observation_weight, DissonanceObservationParameter)
+        assert isinstance(
+            feature.emitter.share_map.layers[0].weight, DissonanceObservationParameter
+        )
+    for feature in intentions:
+        observation_weight = feature.emitter.observation_map.layers[0].weight
+        assert isinstance(observation_weight, RewardObservationParameter)
 
     mismatches = (
         agent.sensations.input_feature.mismatch,
@@ -299,6 +309,13 @@ def test_shared_training_balances_sip_predictions(
         norm = td_norms[name].agent.reward_critic.td_feature.td_error.prediction_map.layers[0]
         assert jnp.isfinite(norm.weight.value)
         assert norm.weight.value > 0
+
+    gradient_states = dict(result.solution_state.gradient_states)
+    for parameter_type in (DissonanceObservationParameter, RewardObservationParameter):
+        observation_state = gradient_states[ParameterType(parameter_type)]
+        assert isinstance(observation_state, MTAdamState)
+        assert observation_state.count == 1
+        assert set(observation_state.gradient_norms) == set(parameter_type.loss_ids)
 
     updated = solution.inference.assemble_model(
         result.solution_state.dis_learnable_parameters.assembled()

@@ -10,7 +10,9 @@ from tjax import RngStream
 from tjax.gradient import Adam, ChainedGradientTransformation, KeepParamsNonnegative, MTAdam
 
 from cem.sip.parameters import (
+    DissonanceObservationParameter,
     MismatchPredictionParameter,
+    RewardObservationParameter,
     TDPredictionParameter,
     WitnessMultiplierParameter,
 )
@@ -53,7 +55,9 @@ class SIPModel(Model):
 
     @staticmethod
     def gradient_transformations(learning_rate: float) -> DisGradientTransformation:
-        """Balance mismatch and TD predictions, and apply Adam to the other gradients.
+        """Balance predictions over their losses and observation models over their goal components.
+
+        Apply Adam to the other gradients.
 
         Witness multipliers are projected onto the nonnegative reals after each Adam step.
         """
@@ -67,6 +71,14 @@ class SIPModel(Model):
                 (
                     ParameterType(TDPredictionParameter),
                     MTAdam[Model](learning_rate, loss_ids=TDPredictionParameter.loss_ids),
+                ),
+                (
+                    ParameterType(DissonanceObservationParameter),
+                    MTAdam[Model](learning_rate, loss_ids=DissonanceObservationParameter.loss_ids),
+                ),
+                (
+                    ParameterType(RewardObservationParameter),
+                    MTAdam[Model](learning_rate, loss_ids=RewardObservationParameter.loss_ids),
                 ),
                 (
                     ParameterType(WitnessMultiplierParameter),

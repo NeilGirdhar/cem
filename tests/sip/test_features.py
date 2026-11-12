@@ -16,8 +16,8 @@ from cem.sip.features import (
 )
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.messages import InstrumentedMessage
+from cem.sip.parameters import DissonanceObservationParameter
 from cem.sip.settings import TDSettings
-from cem.structure.graph import LossBalancedParameter
 
 from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _message
 
@@ -145,7 +145,7 @@ def test_sip_feature_state_carries_credit_traces(
     state = eqx.nn.State(feature)
     new_state, _ = feature.step(state, **_sip_inputs(n), streams=streams, inference=True)
     traces = new_state.get(feature.emitter.credit.trace_index)
-    assert jnp.any(traces.obs_precision > 0)
+    assert jnp.any(traces.curvature > 0)
 
 
 def test_td_feature_observation_is_reward_passthrough(
@@ -224,7 +224,7 @@ def test_recruiter_feature_observation_equals_pre_gain(
     n = 2
     feature = _recruiter_feature(n, streams)
     observation_weight = feature.feature.emitter.observation_map.layers[0].weight
-    assert isinstance(observation_weight, LossBalancedParameter)
+    assert isinstance(observation_weight, DissonanceObservationParameter)
     state = eqx.nn.State(feature)
     _, outputs = feature.step(
         state,

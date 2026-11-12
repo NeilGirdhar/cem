@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Self
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 from efax import NormalNP, NormalPP
@@ -18,32 +19,51 @@ from cem.sip.messages import InstrumentedMessage, evidence_scale
 from cem.structure.graph import EligibilityTraining
 
 
-class _ObservationCoordinates(eqx.Module):
-    """Represent raw Gaussian means and precisions, with one entry per channel.
+class ObservationModel(eqx.Module):
+    """Map observation content to the raw observation and each goal component's curvature.
 
-    The observation pullback accepts cotangents in the same coordinates. To assign
-    credit to one coordinate, supply zeros for the other.
+    The observation map produces the raw observation. The share map divides its precision among
+    the goal components, so each component can fit its own curvature while the curvatures sum to
+    the precision. See `sip-curvature-shares` in the thesis.
     """
 
-    mean: JaxRealArray
-    precision: JaxRealArray
+    observation_map: GaussianNeuralProjection
+    share_map: GaussianNeuralProjection
+
+
+class _ObservationCoordinates(eqx.Module):
+    """Represent the raw mean, with one entry per channel, and each goal component's curvature.
+
+    The observation pullback accepts cotangents in the same coordinates. To assign credit to one
+    coordinate, supply zeros for the others.
+    """
+
+    mean: JaxRealArray  # (n,)
+    curvature: JaxRealArray  # (m, n)
+
+
+class _ProjectedObservation(eqx.Module):
+    """The raw observation and the curvature of each goal component."""
+
+    raw_observation: NormalNP
+    curvature: JaxRealArray  # (m, n)
 
 
 type _ObservationProjection = EligibilityTraining[
-    GaussianNeuralProjection, NormalNP, _ObservationCoordinates, NormalNP
+    ObservationModel, NormalNP, _ObservationCoordinates, _ProjectedObservation
 ]
 
 
 class _ObservationTraces(eqx.Module):
-    """Retain parameter cotangents from the mean and precision pullbacks.
+    """Retain parameter cotangents from the mean pullback and each curvature pullback.
 
-    Both traces follow the observation map's PyTree structure. At each trainable leaf,
-    they store the accumulated cotangent from credit applied to the corresponding
-    output coordinate.
+    Every trace follows the observation model's PyTree structure. At each trainable leaf, it
+    stores the accumulated cotangent from credit applied to the corresponding output coordinate.
+    The precision traces hold one trace for each goal component.
     """
 
-    mean: GaussianNeuralProjection
-    precision: GaussianNeuralProjection
+    mean: ObservationModel
+    precision: tuple[ObservationModel, ...]
 
 
 class EmitterOutputs(SIPLossOutputs):
@@ -66,11 +86,16 @@ class Emitter(eqx.Module):
     trace_index: eqx.nn.StateIndex[_ObservationTraces]
     instrument_map: GaussianNeuralProjection
     credit: Credit
+    goal_names: tuple[str, ...] = eqx.field(static=True)
     controllable: bool = eqx.field(static=True)
 
     @property
     def observation_map(self) -> GaussianNeuralProjection:
-        return self.observation_projection.model
+        return self.observation_projection.model.observation_map
+
+    @property
+    def share_map(self) -> GaussianNeuralProjection:
+        return self.observation_projection.model.share_map
 
     def step(
         self,
@@ -91,11 +116,16 @@ class Emitter(eqx.Module):
         Apply gain to the precision of both outgoing messages. With no gain observation, emit
         both at their original precision and use unit gain for credit.
 
-        Each named goal scales the mean trace. The fixed-weight loss uses the full goal prediction
-        error for precision credit and baseline learning, applies shrinkage credit through the
-        current pullback, and includes the instrument loss.
+        `goals` supplies a value for each of the emitter's goal components. Each component's
+        balanced loss combines its mean, precision, and shrinkage credit, so a gradient transform
+        can balance the components without separating a component's credit from its shrinkage.
+        The fixed-weight loss trains the baseline and instrument maps.
         """
-        raw_observation, pullback = self.observation_projection.infer(observation_content)
+        if set(goals) != set(self.goal_names):
+            msg = f"Expected goals {sorted(self.goal_names)}, got {sorted(goals)}"
+            raise ValueError(msg)
+        projected, pullback = self.observation_projection.infer(observation_content)
+        raw_observation = projected.raw_observation
         inherited_instrument = inherit_instrument(self.instrument_map, predictor_instrument)
         inherited = inherited_instrument.to_variance_parametrization()
 
@@ -123,47 +153,52 @@ class Emitter(eqx.Module):
             noised_instrument=noised_instrument,
             observation_content=observation_content,
             raw_observation=raw_observation,
-            goal=sum(goals.values(), jnp.asarray(0.0)),
+            curvature=projected.curvature,
+            goals=jnp.stack([goals[name] for name in self.goal_names]),
         )
 
         traces = new_state.get(self.trace_index)
-        mean_contribution = credit_outputs.mean_contribution
-        precision_contribution = credit_outputs.precision_contribution
         decay = self.credit.trace_decay()
+        no_mean = jnp.zeros_like(credit_outputs.mean_contribution)
+        no_curvature = jnp.zeros_like(projected.curvature)
         mean_trace = self.observation_projection.accumulate(
             traces.mean,
             pullback,
-            _ObservationCoordinates(
-                mean=mean_contribution, precision=jnp.zeros_like(precision_contribution)
-            ),
+            _ObservationCoordinates(mean=credit_outputs.mean_contribution, curvature=no_curvature),
             decay=decay,
         )
-        precision_trace = self.observation_projection.accumulate(
-            traces.precision,
-            pullback,
-            _ObservationCoordinates(
-                mean=jnp.zeros_like(mean_contribution), precision=precision_contribution
-            ),
-            decay=decay,
+        precision_traces = tuple(
+            self.observation_projection.accumulate(
+                trace,
+                pullback,
+                _ObservationCoordinates(
+                    mean=no_mean,
+                    curvature=no_curvature.at[j].set(credit_outputs.curvature_contribution),
+                ),
+                decay=decay,
+            )
+            for j, trace in enumerate(traces.precision)
         )
         new_state = new_state.set(
-            self.trace_index, _ObservationTraces(mean=mean_trace, precision=precision_trace)
+            self.trace_index, _ObservationTraces(mean=mean_trace, precision=precision_traces)
         )
-        (shrinkage_credit,) = pullback(
-            _ObservationCoordinates(
-                mean=credit_outputs.shrinkage_cotangent,
-                precision=jnp.zeros_like(precision_contribution),
+        balanced_losses: dict[str, JaxRealArray] = {}
+        for j, name in enumerate(self.goal_names):
+            (shrinkage_credit,) = pullback(
+                _ObservationCoordinates(
+                    mean=credit_outputs.shrinkage_cotangent[j], curvature=no_curvature
+                )
             )
+            balanced_losses[name] = (
+                self.observation_projection.get_loss(mean_trace, goals[name])
+                + self.observation_projection.get_loss(
+                    precision_traces[j], credit_outputs.goal_prediction_error[j]
+                )
+                + self.observation_projection.get_loss(shrinkage_credit, jnp.asarray(1.0))
+            )
+        fixed_weight_loss = credit_outputs.goal_prediction_loss + instrument_loss(
+            inherited_instrument, raw_observation, gain
         )
-        balanced_losses = {
-            name: self.observation_projection.get_loss(mean_trace, goal)
-            for name, goal in goals.items()
-        }
-        fixed_weight_loss = self.observation_projection.get_loss(
-            precision_trace, credit_outputs.goal_prediction_error
-        ) + self.observation_projection.get_loss(shrinkage_credit, jnp.asarray(1.0))
-        fixed_weight_loss += credit_outputs.goal_prediction_loss
-        fixed_weight_loss += instrument_loss(inherited_instrument, raw_observation, gain)
         outputs = EmitterOutputs(
             message=InstrumentedMessage(observation, instrument),
             raw_observation=raw_observation,
@@ -178,34 +213,51 @@ class Emitter(eqx.Module):
     @classmethod
     def create(
         cls,
-        observation_map: GaussianNeuralProjection,
+        observation_model: ObservationModel,
         instrument_map: GaussianNeuralProjection,
         credit: Credit,
         *,
+        goal_names: tuple[str, ...],
         controllable: bool,
     ) -> Self:
+        """Build an emitter whose goal has the named components.
+
+        The share map must emit one component for each pair of goal component and channel.
+        """
         observation_projection: _ObservationProjection = EligibilityTraining(
-            observation_map, _project_observation
+            observation_model, _project_observation
         )
         zero_trace = observation_projection.zero_trace()
         return cls(
             observation_projection=observation_projection,
             trace_index=eqx.nn.StateIndex(
-                _ObservationTraces(mean=zero_trace, precision=zero_trace)
+                _ObservationTraces(mean=zero_trace, precision=tuple(zero_trace for _ in goal_names))
             ),
             instrument_map=instrument_map,
             credit=credit,
+            goal_names=goal_names,
             controllable=controllable,
         )
 
 
 def _project_observation(
-    model: GaussianNeuralProjection, content: NormalNP
-) -> tuple[_ObservationCoordinates, NormalNP]:
-    """Project the content while confining observation credit to the map parameters."""
-    observation = model.infer(stop_gradient(content))
+    model: ObservationModel, content: NormalNP
+) -> tuple[_ObservationCoordinates, _ProjectedObservation]:
+    """Project the content while confining observation credit to the map parameters.
+
+    A softmax over goal components, channel by channel, turns the share map's means into the
+    shares of the raw precision.
+    """
+    fixed_content = stop_gradient(content)
+    observation = model.observation_map.infer(fixed_content)
     moments = observation.to_precision_parametrization()
-    return _ObservationCoordinates(mean=moments.mean, precision=moments.precision), observation
+    n = moments.mean.shape[0]
+    share_logits = model.share_map.infer(fixed_content).mean().reshape(-1, n)
+    curvature = jax.nn.softmax(share_logits, axis=0) * moments.precision[jnp.newaxis, :]
+    return (
+        _ObservationCoordinates(mean=moments.mean, curvature=curvature),
+        _ProjectedObservation(raw_observation=observation, curvature=curvature),
+    )
 
 
 def _shift_mean(message: NormalNP, displacement: JaxRealArray) -> NormalNP:

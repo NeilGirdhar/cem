@@ -7,8 +7,9 @@ tested claims — lives in [`sip.md`](sip.md).
 
 - [x] Balance reconstruction and confounding in mismatch prediction maps.
 - [x] Balance reconstruction, confounding, and uncertainty in TD prediction maps.
-- [ ] Balance reconstruction and confounding in sensation, prospect, and recruiter observation maps.
-- [ ] Balance reward, curiosity, and tracking in intention observation maps.
+- [x] Balance reconstruction and confounding in sensation, prospect, and recruiter observation maps.
+- [x] Balance reward, curiosity, and tracking in intention observation maps.
+- [ ] Compare balanced goal components with summed credit in an experiment.
 
 ## Recruiter wiring
 

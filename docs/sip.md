@@ -13,7 +13,8 @@ and take no prefix.
 
 Circuit sub-modules:
 
-- `Credit` — eligibility-based parameter-update rule.
+- `Credit` — eligibility-based parameter-update rule, with a goal baseline, goal penalty trace,
+  and curvature trace for each goal component.
 - `Mismatch` — witness over predictor and gain instruments producing reconstruction and confounding
   costs.
 - `WitnessMap` — the confounding witness shared by `Mismatch` and `TDError`. It encodes each
@@ -21,8 +22,10 @@ Circuit sub-modules:
   all-certain-zero context. `witness_loss` trains it under the participation-weighted norm bound,
   enforced by each circuit's learned witness multiplier.
 - `TDError` — Gaussian bootstrap value error with uncertainty penalty.
-- `Emitter` — forward dynamics: observation map, instrument map, noise top-up, injection.
-- `inherit_instrument`, `instrument_mismatch_loss` — the first-stage instrument map and the
+- `Emitter` — forward dynamics: observation and share maps, instrument map, noise top-up,
+  injection. Each goal component supplies one balanced loss that bundles its mean, precision, and
+  shrinkage credit.
+- `inherit_instrument`, `instrument_loss` — the first-stage instrument map and the
   gain-gated cross-entropy that fits it to the raw observation.
 
 Circuits train only their own maps. Prediction maps, witness maps, and instrument maps take their
@@ -172,7 +175,8 @@ full configuration and writes chart JSON.
 10. **Precision.** In a controlled Gaussian case, check presence against known pointwise curvature
     and against smoothed curvature at finite σ. More generally, compare presence with the circuit's
     constrained-regression optimum. Include contextual baselines, and a condition where the
-    eligibility traces contain insufficient variation to distinguish coefficients.
+    eligibility traces contain insufficient variation to distinguish coefficients. With several
+    goal components, check each component's curvature and check presence as their sum.
 11. **Temporal credit through shared parameters.** One parameter is reused across time steps; the
     credit must sum its contributions correctly. Include the shared-parameter counterexample from
     the thesis todo as a condition the test must either pass or reveal.

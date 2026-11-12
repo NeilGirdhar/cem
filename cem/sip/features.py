@@ -4,7 +4,7 @@ See `features` and `sip-td-error-circuit` in the thesis.
 """
 
 from collections.abc import Mapping
-from typing import Self
+from typing import ClassVar, Self
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -13,18 +13,18 @@ from tjax import JaxRealArray, KeyArray, RngStream
 
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit
-from cem.sip.emitter import Emitter
+from cem.sip.emitter import Emitter, ObservationModel
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs, combine_losses
 from cem.sip.messages import InstrumentedMessage, evidence_scale
 from cem.sip.mismatch import Mismatch
+from cem.sip.parameters import (
+    DissonanceObservationParameter,
+    GoalObservationParameter,
+    RewardObservationParameter,
+)
 from cem.sip.settings import CreditSettings, MismatchSettings, TDSettings
 from cem.sip.td_error import TDError
-from cem.structure.graph import (
-    LearnableParameterFactory,
-    LossBalancedParameter,
-    SummedGradientParameter,
-)
 
 
 class SIPFeatureSizes(eqx.Module):
@@ -44,11 +44,60 @@ class SIPFeatureOutputs(SIPLossOutputs):
     confounding_cost: JaxRealArray  # scalar
 
 
+def _create_emitter(
+    n: int,
+    *,
+    content_features: int,
+    predictor_features: int,
+    parameter_type: type[GoalObservationParameter],
+    controllable: bool,
+    credit_settings: CreditSettings,
+    streams: Mapping[str, RngStream],
+) -> Emitter:
+    """Build an emitter whose goal components are the losses that balance `parameter_type`.
+
+    The observation and share maps use `parameter_type`, so their parameters are balanced over
+    the goal components.
+    """
+    goal_names = parameter_type.loss_ids
+    m = len(goal_names)
+    observation_model = ObservationModel(
+        observation_map=GaussianNeuralProjection.create(
+            in_features=content_features,
+            out_features=n,
+            streams=streams,
+            parameter_factory=parameter_type,
+        ),
+        share_map=GaussianNeuralProjection.create(
+            in_features=content_features,
+            out_features=m * n,
+            streams=streams,
+            parameter_factory=parameter_type,
+        ),
+    )
+    instrument_map = GaussianNeuralProjection.create(
+        in_features=predictor_features, out_features=n, streams=streams
+    )
+    baseline_map = GaussianNeuralProjection.create(
+        in_features=content_features, out_features=m, streams=streams
+    )
+    return Emitter.create(
+        observation_model,
+        instrument_map,
+        Credit.create(n, m, baseline_map, credit_settings=credit_settings),
+        goal_names=goal_names,
+        controllable=controllable,
+    )
+
+
 class SIPFeature(eqx.Module):
     """Emit an instrumented observation and learn to predict it from parent features.
 
+    Each subclass names its goal components through the parameter type of its observation model.
     See `features` in the thesis.
     """
+
+    observation_parameter_type: ClassVar[type[GoalObservationParameter]]
 
     emitter: Emitter
     mismatch: Mismatch
@@ -64,9 +113,6 @@ class SIPFeature(eqx.Module):
         credit_settings: CreditSettings,
         mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
-        observation_parameter_factory: LearnableParameterFactory[JaxRealArray] = (
-            SummedGradientParameter
-        ),
     ) -> Self:
         """Build an identification feature with separate widths for its three parent inputs.
 
@@ -74,23 +120,14 @@ class SIPFeature(eqx.Module):
         predictor supplies the causal prediction and its instrument. The gain width controls
         whether the witness also receives a gain instrument.
         """
-        observation_map = GaussianNeuralProjection.create(
-            in_features=sizes.observation_content,
-            out_features=n,
-            streams=streams,
-            parameter_factory=observation_parameter_factory,
-        )
-        instrument_map = GaussianNeuralProjection.create(
-            in_features=sizes.predictor, out_features=n, streams=streams
-        )
-        baseline_map = GaussianNeuralProjection.create(
-            in_features=sizes.observation_content, out_features=1, streams=streams
-        )
-        emitter = Emitter.create(
-            observation_map=observation_map,
-            instrument_map=instrument_map,
-            credit=Credit.create(n, baseline_map, credit_settings=credit_settings),
+        emitter = _create_emitter(
+            n,
+            content_features=sizes.observation_content,
+            predictor_features=sizes.predictor,
+            parameter_type=cls.observation_parameter_type,
             controllable=controllable,
+            credit_settings=credit_settings,
+            streams=streams,
         )
         mismatch_circuit = Mismatch.create(
             n,
@@ -157,6 +194,8 @@ class SIPFeature(eqx.Module):
 class SensationFeature(SIPFeature):
     """Learn a sensation from the reconstruction and confounding costs below it."""
 
+    observation_parameter_type = DissonanceObservationParameter
+
     def step(  # ruff: ignore[too-many-arguments]
         self,
         state: eqx.nn.State,
@@ -184,6 +223,8 @@ class SensationFeature(SIPFeature):
 
 class IntentionFeature(SIPFeature):
     """Learn an intention from reward, curiosity, and tracking advantages."""
+
+    observation_parameter_type = RewardObservationParameter
 
     def step(  # ruff: ignore[too-many-arguments]
         self,
@@ -319,7 +360,6 @@ class RecruiterFeature(eqx.Module):
                 credit_settings=credit_settings,
                 mismatch_settings=mismatch_settings,
                 streams=streams,
-                observation_parameter_factory=LossBalancedParameter,
             )
         )
 
@@ -371,23 +411,14 @@ class ProspectFeature(eqx.Module):
         credit_settings: CreditSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
-        observation_map = GaussianNeuralProjection.create(
-            in_features=observation_content_features,
-            out_features=n,
-            streams=streams,
-            parameter_factory=LossBalancedParameter,
-        )
-        instrument_map = GaussianNeuralProjection.create(
-            in_features=predictor_features, out_features=n, streams=streams
-        )
-        baseline_map = GaussianNeuralProjection.create(
-            in_features=observation_content_features, out_features=1, streams=streams
-        )
-        emitter = Emitter.create(
-            observation_map=observation_map,
-            instrument_map=instrument_map,
-            credit=Credit.create(n, baseline_map, credit_settings=credit_settings),
+        emitter = _create_emitter(
+            n,
+            content_features=observation_content_features,
+            predictor_features=predictor_features,
+            parameter_type=DissonanceObservationParameter,
             controllable=False,
+            credit_settings=credit_settings,
+            streams=streams,
         )
         return cls(
             emitter=emitter,

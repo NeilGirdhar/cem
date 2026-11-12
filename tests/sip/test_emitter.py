@@ -9,9 +9,11 @@ from tjax import RngStream
 
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit
-from cem.sip.emitter import Emitter
+from cem.sip.emitter import Emitter, ObservationModel
 
 from .tools import CREDIT_SETTINGS, _message
+
+GOAL_NAMES = ("reconstruction", "confounding")
 
 
 def _emitter(
@@ -22,20 +24,21 @@ def _emitter(
     controllable: bool,
     streams: Mapping[str, RngStream],
 ) -> Emitter:
-    observation_map = GaussianNeuralProjection.create(
-        in_features=content_dim, out_features=n, hidden_features=(), streams=streams
+    def projection(in_features: int, out_features: int) -> GaussianNeuralProjection:
+        return GaussianNeuralProjection.create(
+            in_features=in_features, out_features=out_features, hidden_features=(), streams=streams
+        )
+
+    m = len(GOAL_NAMES)
+    observation_model = ObservationModel(
+        observation_map=projection(content_dim, n), share_map=projection(content_dim, m * n)
     )
-    instrument_map = GaussianNeuralProjection.create(
-        in_features=instrument_dim, out_features=n, hidden_features=(), streams=streams
-    )
-    baseline_map = GaussianNeuralProjection.create(
-        in_features=content_dim, out_features=1, hidden_features=(), streams=streams
-    )
-    credit = Credit.create(n, baseline_map, credit_settings=CREDIT_SETTINGS)
+    credit = Credit.create(n, m, projection(content_dim, m), credit_settings=CREDIT_SETTINGS)
     return Emitter.create(
-        observation_map=observation_map,
-        instrument_map=instrument_map,
-        credit=credit,
+        observation_model,
+        projection(instrument_dim, n),
+        credit,
+        goal_names=GOAL_NAMES,
         controllable=controllable,
     )
 
@@ -122,37 +125,51 @@ def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> No
     )
 
 
-def test_credit_cotangent_reaches_observation_map(
-    streams: Mapping[str, RngStream],
-) -> None:
-    """Named credit applies the mean trace to the observation map's parameters."""
+def test_component_loss_bundles_its_credit(streams: Mapping[str, RngStream]) -> None:
+    """Each component's loss combines its mean, precision, and shrinkage credit."""
     n = 2
     emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=False, streams=streams)
     state = eqx.nn.State(emitter)
+    content = _message(jnp.asarray([0.5]), jnp.ones(1))
+    goals = {"reconstruction": jnp.asarray(1.0), "confounding": jnp.asarray(-0.5)}
 
-    def loss_fn(em: Emitter) -> tuple[jnp.ndarray, tuple[dict[str, jnp.ndarray], jnp.ndarray]]:
+    def loss_fn(em: Emitter) -> tuple[jnp.ndarray, tuple[eqx.nn.State, jnp.ndarray]]:
         new_state, outputs = em.step(
             state,
             jr.key(0),
-            observation_content=_message(jnp.asarray([0.5]), jnp.ones(1)),
+            observation_content=content,
             predictor_instrument=_message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 1.0])),
             gain_observation=_message(jnp.ones(n), jnp.ones(n)),
-            goals={"reconstruction": jnp.asarray(1.0), "confounding": jnp.asarray(0.0)},
+            goals=goals,
         )
-        mean_trace = new_state.get(em.trace_index).mean
-        return outputs.balanced_losses["reconstruction"], (
-            outputs.balanced_losses,
-            mean_trace.layers[0].weight.value,
+        assert set(outputs.balanced_losses) == set(GOAL_NAMES)
+        return outputs.balanced_losses["confounding"], (
+            new_state,
+            outputs.credit_outputs.goal_prediction_error[1],
         )
 
-    (_, (losses, mean_weight_trace)), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(
-        emitter
+    (_, (new_state, error)), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(emitter)
+    traces = new_state.get(emitter.trace_index)
+    curvature_trace = new_state.get(emitter.credit.trace_index).curvature[1]
+
+    def shrinkage_loss(model: ObservationModel) -> jnp.ndarray:
+        projection = eqx.tree_at(lambda e: e.observation_projection.model, emitter, model)
+        projected, _ = projection.observation_projection.infer(content)
+        mean = projected.raw_observation.mean()
+        return 0.5 * jnp.sum(curvature_trace * jnp.square(mean))
+
+    shrinkage_gradient = eqx.filter_grad(shrinkage_loss)(emitter.observation_projection.model)
+    expected = tree.map(
+        lambda mean, precision, shrinkage: (
+            -goals["confounding"] * mean - error * precision + shrinkage
+        ),
+        traces.mean,
+        traces.precision[1],
+        shrinkage_gradient,
     )
-    assert set(losses) == {"reconstruction", "confounding"}
-    assert jnp.allclose(losses["confounding"], 0.0)
-    first_layer_weight_grad = grads.observation_map.layers[0].weight.value
-    assert jnp.any(jnp.abs(first_layer_weight_grad) > 0)
-    assert jnp.allclose(first_layer_weight_grad, -mean_weight_trace)
+    gradient = grads.observation_projection.model
+    assert any(jnp.any(jnp.abs(leaf) > 0) for leaf in tree.leaves(gradient))
+    assert tree.all(tree.map(jnp.allclose, gradient, expected))
 
 
 def test_observation_projection_stops_gradients_at_its_input(
@@ -163,8 +180,8 @@ def test_observation_projection_stops_gradients_at_its_input(
 
     def raw_mean(inputs: tuple[Emitter, NormalNP]) -> jnp.ndarray:
         model, observation_content = inputs
-        observation, _ = model.observation_projection.infer(observation_content)
-        mean = observation.mean()
+        projected, _ = model.observation_projection.infer(observation_content)
+        mean = projected.raw_observation.mean()
         return jnp.sum(mean)
 
     emitter_gradient, content_gradient = eqx.filter_grad(raw_mean)((emitter, content))
@@ -190,7 +207,7 @@ def test_instrument_loss_trains_only_the_instrument_map(
             observation_content=_message(jnp.asarray([0.5]), jnp.ones(1)),
             predictor_instrument=predictor_instrument,
             gain_observation=gain_observation,
-            goals={"reward": jnp.asarray(0.0)},
+            goals={"reconstruction": jnp.asarray(0.0), "confounding": jnp.asarray(0.0)},
         )
         return outputs.loss
 
