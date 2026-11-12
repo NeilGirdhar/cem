@@ -24,6 +24,10 @@ class InstrumentChainScenario(eqx.Module):
     normal confounder for each hop drives both of its features, so regressing the successor on the
     feature is biased. The noise reaches each feature's successor only through that feature, so it
     identifies every hop's effect. A zero first-stage coefficient makes a parent irrelevant.
+
+    A nonzero bypass coefficient lets a parent's noise also reach the first feature's successor
+    directly, which violates the exclusion restriction for the first hop. That parent must then be
+    a second regressor to identify both paths.
     """
 
     first_stage: tuple[float, ...] = eqx.field(static=True, default=(1.0, 0.5, 0.0))
@@ -32,6 +36,12 @@ class InstrumentChainScenario(eqx.Module):
     feature_confounding: float = eqx.field(static=True, default=1.0)
     successor_confounding: float = eqx.field(static=True, default=-2.0)
     noise: float = eqx.field(static=True, default=0.5)
+    bypass: tuple[float, ...] | None = eqx.field(static=True, default=None)
+
+    def __check_init__(self) -> None:  # ruff:ignore[bad-dunder-method-name]
+        if self.bypass is not None and len(self.bypass) != self.n_parents:
+            msg = f"Expected one bypass coefficient for each of {self.n_parents} parents"
+            raise ValueError(msg)
 
     @property
     def n_parents(self) -> int:
@@ -51,6 +61,8 @@ class InstrumentChainScenario(eqx.Module):
                 + self.successor_confounding * confounders[hop]
                 + disturbances[hop + 1]
             )
+            if hop == 0 and self.bypass is not None:
+                successor += jnp.vecdot(jnp.asarray(self.bypass), injected_noise)
             if hop + 1 < self.depth:
                 successor += self.feature_confounding * confounders[hop + 1]
                 oracle_first_stages.append(self.effect * oracle_first_stages[-1])

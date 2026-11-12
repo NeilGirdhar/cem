@@ -25,7 +25,12 @@ from cem.framework.solver import Solver, float_field, int_field
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.instrument import inherit_instrument, instrument_loss
 
-from .baselines import ordinary_least_squares, two_stage_least_squares
+from .baselines import (
+    ordinary_least_squares,
+    ordinary_least_squares_coefficients,
+    two_stage_least_squares,
+    two_stage_least_squares_coefficients,
+)
 from .datasets import InstrumentChainObservation, InstrumentChainProblem, InstrumentChainState
 from .scenarios import InstrumentChainScenario
 
@@ -345,6 +350,154 @@ class DepthEffectPlotter(Plotter):
         ) | {"true effect": self.effect}
 
 
+@dataclass(frozen=True)
+class ExclusionEstimates:
+    """Effect estimates for the first hop when parents' noise also bypasses the first feature.
+
+    Each repaired estimate regresses the successor on the first feature and the bypass parents,
+    and lists the first feature's effect followed by each bypass effect. The omitted estimate
+    regresses the successor on the first feature alone, instrumented by its inherited instrument.
+    """
+
+    ordinary_least_squares: tuple[float, ...]
+    injected_noise: tuple[float, ...]
+    inherited_instrument: tuple[float, ...]
+    bypass_omitted: float
+
+
+def bypass_parents(scenario: InstrumentChainScenario) -> tuple[int, ...]:
+    """Return the parents whose noise reaches the first feature's successor directly."""
+    if scenario.bypass is None:
+        return ()
+    return tuple(parent for parent, coefficient in enumerate(scenario.bypass) if coefficient)
+
+
+def bypass_drift(scenario: InstrumentChainScenario) -> float:
+    """Return the limit of the omitted estimate under the oracle first stage.
+
+    The oracle first stage puts weight on each bypass parent in proportion to its first-stage
+    coefficient, so omitting the bypass parents adds their direct effects, weighted that way, to
+    the first feature's effect.
+    """
+    first_stage = np.asarray(scenario.first_stage)
+    bypass = np.zeros_like(first_stage) if scenario.bypass is None else np.asarray(scenario.bypass)
+    return scenario.effect + float(
+        np.vecdot(bypass, first_stage) / np.vecdot(first_stage, first_stage)
+    )
+
+
+def estimate_exclusion(
+    samples: InstrumentChainSamples, parents: Sequence[int]
+) -> ExclusionEstimates:
+    """Estimate the first hop's effect with and without the bypass parents as regressors.
+
+    Each bypass parent's noise is its own instrument. Two-stage least squares on all the parents'
+    noise is the reference estimate.
+    """
+    inherited = np.asarray(samples.inherited_instruments)
+    inherited = inherited.reshape(-1, inherited.shape[-1])[:, 0]
+    features = np.asarray(samples.features)
+    features = features.reshape(-1, features.shape[-1])
+    noise = np.asarray(samples.injected_noise)
+    noise = noise.reshape(-1, noise.shape[-1])
+    feature, successor = features[:, 0], features[:, 1]
+    bypass_noise = noise[:, list(parents)]
+    regressors = np.column_stack([feature, bypass_noise])
+
+    def coefficients(values: np.ndarray) -> tuple[float, ...]:
+        return tuple(float(value) for value in values)
+
+    return ExclusionEstimates(
+        ordinary_least_squares=coefficients(
+            ordinary_least_squares_coefficients(regressors, successor)
+        ),
+        injected_noise=coefficients(
+            two_stage_least_squares_coefficients(noise, regressors, successor)
+        ),
+        inherited_instrument=coefficients(
+            two_stage_least_squares_coefficients(
+                np.column_stack([inherited, bypass_noise]), regressors, successor
+            )
+        ),
+        bypass_omitted=two_stage_least_squares(inherited, feature, successor),
+    )
+
+
+def _run_exclusion(run: Run, scenario: InstrumentChainScenario) -> ExclusionEstimates:
+    samples = run.inference_results.telemetries[InstrumentChainTelemetry()]
+    assert isinstance(samples, InstrumentChainSamples)
+    return estimate_exclusion(samples, bypass_parents(scenario))
+
+
+class ExclusionCoefficientsPlotter(Plotter):
+    """Compare each estimator's errors in the first feature's effect and the bypass effect."""
+
+    _: KW_ONLY
+    name: str = field(static=True, default="exclusion-repair-coefficients")
+    title: str = field(static=True, default="Repaired effect errors on held-out samples")
+    scenario: InstrumentChainScenario = field(static=True)
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((InstrumentChainTelemetry(),))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        estimates = [_run_exclusion(run, self.scenario) for run in runs]
+        assert self.scenario.bypass is not None
+        (parent,) = bypass_parents(self.scenario)
+        truth = (self.scenario.effect, self.scenario.bypass[parent])
+        by_estimator = {
+            "OLS": [e.ordinary_least_squares for e in estimates],
+            "2SLS, noise": [e.injected_noise for e in estimates],
+            "2SLS, inherited": [e.inherited_instrument for e in estimates],
+        }
+
+        def errors(coefficient: int) -> list[list[float]]:
+            return [
+                [abs(values[coefficient] - truth[coefficient]) for values in seed_values]
+                for seed_values in by_estimator.values()
+            ]
+
+        return _bar_chart(
+            list(by_estimator),
+            {"feature": ("Through the feature", errors(0)), "bypass": ("Bypass", errors(1))},
+        ) | {"true effects": list(truth)}
+
+
+class ExclusionDriftPlotter(Plotter):
+    """Compare the first feature's effect estimate with and without the bypass regressors."""
+
+    _: KW_ONLY
+    name: str = field(static=True, default="exclusion-repair-drift")
+    title: str = field(static=True, default="Effect estimate with and without the bypass")
+    scenario: InstrumentChainScenario = field(static=True)
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((InstrumentChainTelemetry(),))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        estimates = [_run_exclusion(run, self.scenario) for run in runs]
+        effect = self.scenario.effect
+        drift = bypass_drift(self.scenario)
+        return _bar_chart(
+            ["True", "Repaired", "Omitted", "Predicted drift"],
+            {
+                "estimate": (
+                    "Effect of the feature",
+                    [
+                        [effect for _ in estimates],
+                        [e.inherited_instrument[0] for e in estimates],
+                        [e.bypass_omitted for e in estimates],
+                        [drift for _ in estimates],
+                    ],
+                )
+            },
+        ) | {"true effect": effect, "predicted drift": drift}
+
+
 class InstrumentChainSolver(Solver[InstrumentChainProblem]):
     """Train a chain's instrument maps on fresh samples and evaluate them on held-out ones."""
 
@@ -443,5 +596,32 @@ class InstrumentDepthExperiment(_SeededExperiment):
         )
 
 
+_EXCLUSION_SCENARIO = InstrumentChainScenario(first_stage=(1.0, 1.0), bypass=(1.0, 0.0))
+
+
+class ExclusionRepairExperiment(_SeededExperiment):
+    """Test 3: a bypass regressor repairs an exclusion violation.
+
+    The first parent's noise reaches the successor both through the feature and directly. The
+    second parent's noise moves the feature independently of the first parent, so the feature's
+    inherited instrument and the first parent's noise identify both paths.
+    """
+
+    def __init__(
+        self, solver: InstrumentChainSolver | None = None, *, seeds: int = _SEED_COUNT
+    ) -> None:
+        solver = InstrumentChainSolver(scenario=_EXCLUSION_SCENARIO) if solver is None else solver
+        super().__init__(
+            name="sip-exclusion-repair",
+            variants=[Variant(label="", solver=solver)],
+            plotters=[
+                ExclusionCoefficientsPlotter(scenario=solver.scenario),
+                ExclusionDriftPlotter(scenario=solver.scenario),
+            ],
+            sweep=[{"seed": seed} for seed in range(seeds)],
+        )
+
+
 sip_inherited_instrument_experiment = InheritedInstrumentExperiment()
 sip_instrument_depth_experiment = InstrumentDepthExperiment()
+sip_exclusion_repair_experiment = ExclusionRepairExperiment()

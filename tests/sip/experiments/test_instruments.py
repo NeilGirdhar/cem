@@ -1,4 +1,4 @@
-"""Check tests 1 and 2: inherited instruments identify effects despite confounding and depth."""
+"""Check tests 1–3: inherited instruments identify effects despite confounding and bypasses."""
 
 from collections.abc import Sequence
 
@@ -10,6 +10,8 @@ from cem.sip.experiments.instruments import (
     DepthEffectPlotter,
     DepthFirstStagePlotter,
     DownstreamEffectPlotter,
+    ExclusionDriftPlotter,
+    ExclusionRepairExperiment,
     FirstStagePlotter,
     InheritedInstrumentExperiment,
     InstrumentChainSamples,
@@ -17,7 +19,11 @@ from cem.sip.experiments.instruments import (
     InstrumentChainSolver,
     InstrumentChainTelemetry,
     InstrumentDepthExperiment,
+    bypass_drift,
+    bypass_parents,
+    estimate_exclusion,
     estimate_hops,
+    sip_exclusion_repair_experiment,
     sip_inherited_instrument_experiment,
     sip_instrument_depth_experiment,
 )
@@ -32,6 +38,8 @@ _REFERENCE_TOLERANCE = 0.01
 _EFFECT_TOLERANCE = 0.15
 # Ordinary least squares misses the effect by at least 0.4 at every hop.
 _CONFOUNDING_BIAS = 0.3
+# Omitting the bypass shifts the estimate by 0.5.
+_DRIFT_TOLERANCE = 0.1
 
 
 def _check_hops(runs: Sequence[Run], effect: float, depth: int) -> None:
@@ -55,6 +63,7 @@ def _check_hops(runs: Sequence[Run], effect: float, depth: int) -> None:
 def test_instrument_experiments_are_registered() -> None:
     assert experiments["sip-inherited-instrument"] is sip_inherited_instrument_experiment
     assert experiments["sip-instrument-depth"] is sip_instrument_depth_experiment
+    assert experiments["sip-exclusion-repair"] is sip_exclusion_repair_experiment
 
 
 @pytest.mark.usefixtures("log")
@@ -88,3 +97,34 @@ def test_inherited_instruments_survive_depth() -> None:
             effect_series["OLS"], effect_series["2SLS, inherited"], strict=True
         )
     )
+
+
+@pytest.mark.usefixtures("log")
+def test_bypass_regressor_repairs_the_exclusion_violation() -> None:
+    """Both paths are recovered with the bypass regressor and drift as predicted without it."""
+    scenario = InstrumentChainScenario(first_stage=(1.0, 1.0), bypass=(1.0, 0.0))
+    solver = InstrumentChainSolver(scenario=scenario, training_examples=1000, learning_rate=0.02)
+    runs = ExclusionRepairExperiment(solver, seeds=_SEEDS).runs({})
+    truth = (scenario.effect, 1.0)
+    drift = bypass_drift(scenario)
+
+    for run in runs:
+        samples = run.inference_results.telemetries[InstrumentChainTelemetry()]
+        assert isinstance(samples, InstrumentChainSamples)
+        estimates = estimate_exclusion(samples, bypass_parents(scenario))
+        for inherited, reference, ordinary, true in zip(
+            estimates.inherited_instrument,
+            estimates.injected_noise,
+            estimates.ordinary_least_squares,
+            truth,
+            strict=True,
+        ):
+            assert abs(inherited - true) < _EFFECT_TOLERANCE
+            assert abs(inherited - reference) < _REFERENCE_TOLERANCE
+            assert abs(ordinary - true) > _CONFOUNDING_BIAS
+        assert abs(estimates.bypass_omitted - drift) < _DRIFT_TOLERANCE
+        assert abs(estimates.bypass_omitted - scenario.effect) > _CONFOUNDING_BIAS
+
+    drift_series = ExclusionDriftPlotter(scenario=scenario).plotted_series(runs)
+    assert drift_series["x labels"] == ["True", "Repaired", "Omitted", "Predicted drift"]
+    assert drift_series["predicted drift"] == drift

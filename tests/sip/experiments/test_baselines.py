@@ -2,7 +2,11 @@
 
 import numpy as np
 
-from cem.sip.experiments.baselines import ordinary_least_squares, two_stage_least_squares
+from cem.sip.experiments.baselines import (
+    ordinary_least_squares,
+    two_stage_least_squares,
+    two_stage_least_squares_coefficients,
+)
 
 
 def test_ordinary_least_squares_ignores_the_intercept() -> None:
@@ -27,3 +31,17 @@ def test_two_stage_least_squares_removes_confounding(np_rng: np.random.Generator
 
     assert abs(ordinary_least_squares(endogenous, outcome) - 2.0) > 1.0
     assert np.isclose(two_stage_least_squares(instruments, endogenous, outcome), 2.0, atol=0.03)
+
+
+def test_two_stage_least_squares_separates_two_regressors(np_rng: np.random.Generator) -> None:
+    """An instrument that moves the first regressor alone separates the two effects."""
+    samples = 100_000
+    instruments = np_rng.normal(size=(samples, 2))
+    confounder = np_rng.normal(size=samples)
+    endogenous = instruments.sum(axis=1) + confounder
+    exogenous = instruments[:, 0]
+    outcome = 2.0 * endogenous + 1.0 * exogenous - 3.0 * confounder
+    regressors = np.column_stack([endogenous, exogenous])
+
+    coefficients = two_stage_least_squares_coefficients(instruments, regressors, outcome)
+    assert np.allclose(coefficients, [2.0, 1.0], atol=0.03)
