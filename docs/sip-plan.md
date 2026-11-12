@@ -25,7 +25,7 @@ Order of unblocked work: 1–12 (need `Emitter`, `Mismatch`, and `Credit`) then 
 `TDError`) then 16–17 (full `SIPAgent`).
 
 - [x] Experiment 1
-- [ ] Experiment 2
+- [x] Experiment 2
 - [ ] Experiment 3
 - [ ] Experiment 4
 - [ ] Experiment 5

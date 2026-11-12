@@ -9,6 +9,7 @@ from statistics import fmean, pstdev
 from typing import Any, Self, override
 
 import equinox as eqx
+import jax.numpy as jnp
 import numpy as np
 from efax import NormalNP
 from optuna.distributions import FloatDistribution, IntDistribution
@@ -25,36 +26,40 @@ from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.instrument import inherit_instrument, instrument_loss
 
 from .baselines import ordinary_least_squares, two_stage_least_squares
-from .datasets import (
-    InheritedInstrumentObservation,
-    InheritedInstrumentProblem,
-    InheritedInstrumentState,
-)
-from .scenarios import InheritedInstrumentScenario
+from .datasets import InstrumentChainObservation, InstrumentChainProblem, InstrumentChainState
+from .scenarios import InstrumentChainScenario
 
-_CHILD_NODE = "child"
+_CHAIN_NODE = "chain"
 _SEED_COUNT = 5
 
 
-class InheritedInstrumentConfiguration(NodeConfiguration):
-    """The child's inherited instrument."""
+class InstrumentChainConfiguration(NodeConfiguration):
+    """The mean of each feature's inherited instrument."""
 
-    inherited_instrument: NormalNP  # (1,)
+    inherited_instruments: JaxRealArray  # (depth,)
 
 
-class InheritedInstrumentModel(Model):
-    """A non-controllable child's instrument map, trained by the instrument loss alone.
+class InstrumentChainModel(Model):
+    """The instrument maps of a chain of non-controllable features.
 
-    The map has the same construction as a SIP feature's instrument map. Isolating it tests the
-    first stage without the circuits that learn the child's observation or prediction.
+    The first map receives the parents' instruments, and each later map receives its predecessor's
+    inherited instrument, which a non-controllable feature emits unchanged. Each map has the same
+    construction as a SIP feature's instrument map, and only its own instrument loss trains it.
+    Isolating the maps tests the first stages without the circuits that learn each feature's
+    observation or prediction.
     """
 
-    instrument_map: GaussianNeuralProjection
+    instrument_maps: tuple[GaussianNeuralProjection, ...]
 
     @classmethod
-    def create(cls, n_parents: int, *, streams: Mapping[str, RngStream]) -> Self:
+    def create(cls, n_parents: int, depth: int, *, streams: Mapping[str, RngStream]) -> Self:
         return cls(
-            GaussianNeuralProjection.create(in_features=n_parents, out_features=1, streams=streams)
+            tuple(
+                GaussianNeuralProjection.create(
+                    in_features=n_parents if hop == 0 else 1, out_features=1, streams=streams
+                )
+                for hop in range(depth)
+            )
         )
 
     @override
@@ -66,28 +71,38 @@ class InheritedInstrumentModel(Model):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> ModelResult:
-        assert isinstance(observation, InheritedInstrumentObservation)
-        inherited = inherit_instrument(self.instrument_map, observation.parent_instrument)
+        assert isinstance(observation, InstrumentChainObservation)
+        observations = observation.feature_observations
+        instrument = observation.parent_instrument
+        loss = jnp.zeros(())
+        means = []
+        for hop, instrument_map in enumerate(self.instrument_maps):
+            instrument = inherit_instrument(instrument_map, instrument)
+            feature_observation = NormalNP(
+                observations.mean_times_precision[hop : hop + 1],
+                observations.negative_half_precision[hop : hop + 1],
+            )
+            loss += instrument_loss(instrument, feature_observation, None)
+            means.append(instrument.mean()[0])
         return ModelResult(
-            loss=instrument_loss(inherited, observation.child_observation, None),
+            loss=loss,
             configurations=frozendict(
-                {_CHILD_NODE: InheritedInstrumentConfiguration(inherited_instrument=inherited)}
+                {_CHAIN_NODE: InstrumentChainConfiguration(inherited_instruments=jnp.stack(means))}
             ),
             state=state,
         )
 
 
-class InheritedInstrumentSamples(eqx.Module):
-    """Held-out examples: the inherited instrument's mean and the structural variables."""
+class InstrumentChainSamples(eqx.Module):
+    """Held-out examples: the inherited instruments' means and the structural variables."""
 
-    inherited_instrument: JaxRealArray  # (..., batch)
-    oracle_first_stage: JaxRealArray  # (..., batch)
+    inherited_instruments: JaxRealArray  # (..., batch, depth)
+    oracle_first_stages: JaxRealArray  # (..., batch, depth)
     injected_noise: JaxRealArray  # (..., batch, k)
-    child: JaxRealArray  # (..., batch)
-    downstream: JaxRealArray  # (..., batch)
+    features: JaxRealArray  # (..., batch, depth + 1)
 
 
-class InheritedInstrumentTelemetry(Telemetry):
+class InstrumentChainTelemetry(Telemetry):
     """Record every held-out example so the estimators can run on the pooled samples."""
 
     @override
@@ -96,28 +111,27 @@ class InheritedInstrumentTelemetry(Telemetry):
         inference: Inference,
         inference_result: InferenceResult,
         snapshots: Mapping[Telemetry, Any],
-    ) -> InheritedInstrumentSamples:
-        configuration = inference_result.model_configuration[_CHILD_NODE]
-        assert isinstance(configuration, InheritedInstrumentConfiguration)
+    ) -> InstrumentChainSamples:
+        configuration = inference_result.model_configuration[_CHAIN_NODE]
+        assert isinstance(configuration, InstrumentChainConfiguration)
         state = inference_result.initial_problem_state
-        assert isinstance(state, InheritedInstrumentState)
+        assert isinstance(state, InstrumentChainState)
         sample = state.sample
-        return InheritedInstrumentSamples(
-            inherited_instrument=configuration.inherited_instrument.mean()[..., 0],
-            oracle_first_stage=sample.oracle_first_stage,
+        return InstrumentChainSamples(
+            inherited_instruments=configuration.inherited_instruments,
+            oracle_first_stages=sample.oracle_first_stages,
             injected_noise=sample.injected_noise,
-            child=sample.child,
-            downstream=sample.downstream,
+            features=sample.features,
         )
 
 
 @dataclass(frozen=True)
-class InheritedInstrumentEstimates:
-    """First-stage quality and downstream effect estimates from one run's held-out samples.
+class HopEstimates:
+    """First-stage quality and effect estimates for one hop from one run's held-out samples.
 
-    Strength is the fraction of the child's variance that an instrument explains. The
+    Strength is the fraction of the feature's variance that an instrument explains. The
     approximation error is the root-mean-square difference between the inherited instrument's
-    mean and the oracle first stage.
+    mean and the oracle first stage. The estimates are of the feature's effect on its successor.
     """
 
     approximation_error: float
@@ -128,57 +142,97 @@ class InheritedInstrumentEstimates:
     inherited_instrument: float
 
 
-def _strength(instrument: np.ndarray, child: np.ndarray) -> float:
-    return float(np.square(np.corrcoef(instrument, child)[0, 1]))
+def _strength(instrument: np.ndarray, feature: np.ndarray) -> float:
+    return float(np.square(np.corrcoef(instrument, feature)[0, 1]))
 
 
-def estimate_inherited_instrument(
-    samples: InheritedInstrumentSamples,
-) -> InheritedInstrumentEstimates:
-    """Compare the inherited instrument with the oracle and estimate the downstream effect.
+def estimate_hops(samples: InstrumentChainSamples) -> tuple[HopEstimates, ...]:
+    """Compare each inherited instrument with the oracle and estimate each hop's effect.
 
     Two-stage least squares on the parents' injected noise is the reference estimate. Ordinary
     least squares shows the confounded estimate that the instruments must avoid.
     """
-    inherited = np.asarray(samples.inherited_instrument).ravel()
-    oracle = np.asarray(samples.oracle_first_stage).ravel()
-    child = np.asarray(samples.child).ravel()
-    downstream = np.asarray(samples.downstream).ravel()
+    inherited = np.asarray(samples.inherited_instruments)
+    inherited = inherited.reshape(-1, inherited.shape[-1])
+    oracle = np.asarray(samples.oracle_first_stages).reshape(inherited.shape)
+    features = np.asarray(samples.features)
+    features = features.reshape(-1, features.shape[-1])
     noise = np.asarray(samples.injected_noise)
     noise = noise.reshape(-1, noise.shape[-1])
-    return InheritedInstrumentEstimates(
-        approximation_error=float(np.sqrt(np.mean(np.square(inherited - oracle)))),
-        oracle_strength=_strength(oracle, child),
-        inherited_strength=_strength(inherited, child),
-        ordinary_least_squares=ordinary_least_squares(child, downstream),
-        injected_noise=two_stage_least_squares(noise, child, downstream),
-        inherited_instrument=two_stage_least_squares(inherited, child, downstream),
+    return tuple(
+        HopEstimates(
+            approximation_error=float(
+                np.sqrt(np.mean(np.square(inherited[:, hop] - oracle[:, hop])))
+            ),
+            oracle_strength=_strength(oracle[:, hop], features[:, hop]),
+            inherited_strength=_strength(inherited[:, hop], features[:, hop]),
+            ordinary_least_squares=ordinary_least_squares(features[:, hop], features[:, hop + 1]),
+            injected_noise=two_stage_least_squares(noise, features[:, hop], features[:, hop + 1]),
+            inherited_instrument=two_stage_least_squares(
+                inherited[:, hop], features[:, hop], features[:, hop + 1]
+            ),
+        )
+        for hop in range(inherited.shape[-1])
     )
 
 
-def _run_estimates(run: Run) -> InheritedInstrumentEstimates:
-    samples = run.inference_results.telemetries[InheritedInstrumentTelemetry()]
-    assert isinstance(samples, InheritedInstrumentSamples)
-    return estimate_inherited_instrument(samples)
+def _run_hops(run: Run) -> tuple[HopEstimates, ...]:
+    samples = run.inference_results.telemetries[InstrumentChainTelemetry()]
+    assert isinstance(samples, InstrumentChainSamples)
+    return estimate_hops(samples)
 
 
-def _bar_series(
-    key: str, label: str, x_labels: Sequence[str], seed_values: Sequence[Sequence[float]]
+def _bar_chart(
+    x_labels: Sequence[str], series: Mapping[str, tuple[str, Sequence[Sequence[float]]]]
 ) -> PlottedSeries:
-    """Plot each group's mean with one population standard deviation across seeds."""
+    """Plot the mean of each series at each x position with one standard deviation across seeds.
+
+    Each series maps its key to its legend label and to its seed values at each x position.
+    """
     return {
         "iteration": list(range(len(x_labels))),
         "x labels": list(x_labels),
-        "bar plots": {key: label},
-        "bar errors": {key: [pstdev(values) for values in seed_values]},
-        key: [fmean(values) for values in seed_values],
-        "seed values": [list(values) for values in seed_values],
+        "bar plots": {key: label for key, (label, _) in series.items()},
+        "bar errors": {
+            key: [pstdev(values) for values in seed_values]
+            for key, (_, seed_values) in series.items()
+        },
+        **{
+            key: [fmean(values) for values in seed_values]
+            for key, (_, seed_values) in series.items()
+        },
+        "seed values": {
+            key: [list(values) for values in seed_values]
+            for key, (_, seed_values) in series.items()
+        },
         "error bars": "one population standard deviation across seeds",
     }
 
 
+def _approximation_errors(hops_by_run: Sequence[tuple[HopEstimates, ...]]) -> PlottedSeries:
+    """Report each hop's approximation error across seeds."""
+    by_hop = [
+        [hops[hop].approximation_error for hops in hops_by_run]
+        for hop in range(len(hops_by_run[0]))
+    ]
+    return {
+        "approximation error": [fmean(errors) for errors in by_hop],
+        "approximation error deviation": [pstdev(errors) for errors in by_hop],
+        "seed approximation errors": by_hop,
+    }
+
+
+def _estimator_errors(hops: Sequence[HopEstimates], effect: float) -> dict[str, list[float]]:
+    """Return each estimator's absolute error across seeds for one hop."""
+    return {
+        "OLS": [abs(h.ordinary_least_squares - effect) for h in hops],
+        "2SLS, noise": [abs(h.injected_noise - effect) for h in hops],
+        "2SLS, inherited": [abs(h.inherited_instrument - effect) for h in hops],
+    }
+
+
 class FirstStagePlotter(Plotter):
-    """Compare the inherited instrument's strength with the oracle first stage's."""
+    """Compare the first feature's inherited instrument strength with the oracle first stage's."""
 
     _: KW_ONLY
     name: str = field(static=True, default="inherited-instrument-first-stage")
@@ -186,26 +240,30 @@ class FirstStagePlotter(Plotter):
 
     @override
     def telemetries(self) -> Telemetries:
-        return Telemetries((InheritedInstrumentTelemetry(),))
+        return Telemetries((InstrumentChainTelemetry(),))
 
     @override
     def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
-        estimates = [_run_estimates(run) for run in runs]
-        approximation_errors = [e.approximation_error for e in estimates]
-        return _bar_series(
-            "strength",
-            "Variance explained",
+        hops_by_run = [_run_hops(run) for run in runs]
+        first = [hops[0] for hops in hops_by_run]
+        approximation = _approximation_errors(hops_by_run)
+        return _bar_chart(
             ["Oracle", "Inherited"],
-            [[e.oracle_strength for e in estimates], [e.inherited_strength for e in estimates]],
+            {
+                "strength": (
+                    "Variance explained",
+                    [[h.oracle_strength for h in first], [h.inherited_strength for h in first]],
+                )
+            },
         ) | {
-            "approximation error": fmean(approximation_errors),
-            "approximation error deviation": pstdev(approximation_errors),
-            "seed approximation errors": approximation_errors,
+            "approximation error": approximation["approximation error"][0],
+            "approximation error deviation": approximation["approximation error deviation"][0],
+            "seed approximation errors": approximation["seed approximation errors"][0],
         }
 
 
 class DownstreamEffectPlotter(Plotter):
-    """Compare each estimator's error in the child's effect on the downstream feature."""
+    """Compare each estimator's error in the first feature's effect on its successor."""
 
     _: KW_ONLY
     name: str = field(static=True, default="inherited-instrument-effect")
@@ -214,29 +272,84 @@ class DownstreamEffectPlotter(Plotter):
 
     @override
     def telemetries(self) -> Telemetries:
-        return Telemetries((InheritedInstrumentTelemetry(),))
+        return Telemetries((InstrumentChainTelemetry(),))
 
     @override
     def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
-        estimates = [_run_estimates(run) for run in runs]
-        by_estimator = {
-            "OLS": [e.ordinary_least_squares for e in estimates],
-            "2SLS, noise": [e.injected_noise for e in estimates],
-            "2SLS, inherited": [e.inherited_instrument for e in estimates],
+        first = [_run_hops(run)[0] for run in runs]
+        errors = _estimator_errors(first, self.effect)
+        return _bar_chart(list(errors), {"error": ("Absolute error", list(errors.values()))}) | {
+            "true effect": self.effect
         }
-        return _bar_series(
-            "error",
-            "Absolute error",
-            list(by_estimator),
-            [[abs(value - self.effect) for value in values] for values in by_estimator.values()],
-        ) | {"true effect": self.effect, "seed estimates": by_estimator}
 
 
-class InheritedInstrumentSolver(Solver[InheritedInstrumentProblem]):
-    """Train a child's instrument map on fresh scenario samples and evaluate it on held-out ones."""
+class DepthFirstStagePlotter(Plotter):
+    """Compare each feature's inherited instrument strength with its oracle first stage's."""
 
     _: KW_ONLY
-    scenario: InheritedInstrumentScenario = eqx.field(default_factory=InheritedInstrumentScenario)
+    name: str = field(static=True, default="instrument-depth-first-stage")
+    title: str = field(static=True, default="First-stage strength by depth")
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((InstrumentChainTelemetry(),))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        hops_by_run = [_run_hops(run) for run in runs]
+        depth = len(hops_by_run[0])
+        return _bar_chart(
+            [f"Feature {hop + 1}" for hop in range(depth)],
+            {
+                "oracle": (
+                    "Oracle",
+                    [[hops[hop].oracle_strength for hops in hops_by_run] for hop in range(depth)],
+                ),
+                "inherited": (
+                    "Inherited",
+                    [
+                        [hops[hop].inherited_strength for hops in hops_by_run]
+                        for hop in range(depth)
+                    ],
+                ),
+            },
+        ) | _approximation_errors(hops_by_run)
+
+
+class DepthEffectPlotter(Plotter):
+    """Compare each estimator's error in every hop's effect."""
+
+    _: KW_ONLY
+    name: str = field(static=True, default="instrument-depth-effect")
+    title: str = field(static=True, default="Effect error by depth")
+    effect: float = field(static=True)
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((InstrumentChainTelemetry(),))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        hops_by_run = [_run_hops(run) for run in runs]
+        depth = len(hops_by_run[0])
+        by_hop = [
+            _estimator_errors([hops[hop] for hops in hops_by_run], self.effect)
+            for hop in range(depth)
+        ]
+        return _bar_chart(
+            [f"Hop {hop + 1}" for hop in range(depth)],
+            {
+                key: (key, [errors[key] for errors in by_hop])
+                for key in ("OLS", "2SLS, noise", "2SLS, inherited")
+            },
+        ) | {"true effect": self.effect}
+
+
+class InstrumentChainSolver(Solver[InstrumentChainProblem]):
+    """Train a chain's instrument maps on fresh samples and evaluate them on held-out ones."""
+
+    _: KW_ONLY
+    scenario: InstrumentChainScenario = eqx.field(default_factory=InstrumentChainScenario)
     training_examples: int = int_field(default=10_000, domain=IntDistribution(1, 1 << 20, log=True))
     training_batch_size: int = int_field(default=64, domain=IntDistribution(1, 1 << 12, log=True))
     inference_examples: int = int_field(default=16, domain=IntDistribution(1, 1 << 12, log=True))
@@ -246,8 +359,8 @@ class InheritedInstrumentSolver(Solver[InheritedInstrumentProblem]):
     )
 
     @override
-    def problem(self) -> InheritedInstrumentProblem:
-        return InheritedInstrumentProblem(self.scenario)
+    def problem(self) -> InstrumentChainProblem:
+        return InstrumentChainProblem(self.scenario)
 
     @override
     def create_model(
@@ -257,26 +370,17 @@ class InheritedInstrumentSolver(Solver[InheritedInstrumentProblem]):
         *,
         streams: Mapping[str, RngStream],
     ) -> Model:
-        return InheritedInstrumentModel.create(self.scenario.n_parents, streams=streams)
-
-
-class InheritedInstrumentExperiment(Experiment):
-    """Test 1: an inherited instrument identifies a downstream effect despite confounding.
-
-    Each seed trains the child's instrument map from fresh initial parameters and evaluates it on
-    held-out samples, where every estimator sees the same samples.
-    """
-
-    def __init__(
-        self, solver: InheritedInstrumentSolver | None = None, *, seeds: int = _SEED_COUNT
-    ) -> None:
-        solver = InheritedInstrumentSolver() if solver is None else solver
-        super().__init__(
-            name="sip-inherited-instrument",
-            variants=[Variant(label="", solver=solver)],
-            plotters=[FirstStagePlotter(), DownstreamEffectPlotter(effect=solver.scenario.effect)],
-            sweep=[{"seed": seed} for seed in range(seeds)],
+        return InstrumentChainModel.create(
+            self.scenario.n_parents, self.scenario.depth, streams=streams
         )
+
+
+class _SeededExperiment(Experiment):
+    """Run one solver over several seeds.
+
+    Each seed trains from fresh initial parameters and evaluates on its own held-out samples,
+    where every estimator sees the same samples.
+    """
 
     @override
     def resolve_solver(
@@ -293,4 +397,51 @@ class InheritedInstrumentExperiment(Experiment):
         )
 
 
+class InheritedInstrumentExperiment(_SeededExperiment):
+    """Test 1: an inherited instrument identifies a downstream effect despite confounding."""
+
+    def __init__(
+        self, solver: InstrumentChainSolver | None = None, *, seeds: int = _SEED_COUNT
+    ) -> None:
+        solver = InstrumentChainSolver() if solver is None else solver
+        super().__init__(
+            name="sip-inherited-instrument",
+            variants=[Variant(label="", solver=solver)],
+            plotters=[FirstStagePlotter(), DownstreamEffectPlotter(effect=solver.scenario.effect)],
+            sweep=[{"seed": seed} for seed in range(seeds)],
+        )
+
+
+_DEPTH_SCENARIO = InstrumentChainScenario(depth=4, effect=1.0)
+# Each predecessor's instrument is less precise, so the input pool shrinks it more and deeper maps
+# need larger weights. They take longer to reach the oracle first stage.
+_DEPTH_TRAINING_EXAMPLES = 40_000
+
+
+class InstrumentDepthExperiment(_SeededExperiment):
+    """Test 2: inherited instruments identify every hop's effect along a confounded chain.
+
+    With a unit effect, each hop adds confounded variation without amplifying the injected noise,
+    so the instruments explain less of each successive feature.
+    """
+
+    def __init__(
+        self, solver: InstrumentChainSolver | None = None, *, seeds: int = _SEED_COUNT
+    ) -> None:
+        solver = (
+            InstrumentChainSolver(
+                scenario=_DEPTH_SCENARIO, training_examples=_DEPTH_TRAINING_EXAMPLES
+            )
+            if solver is None
+            else solver
+        )
+        super().__init__(
+            name="sip-instrument-depth",
+            variants=[Variant(label="", solver=solver)],
+            plotters=[DepthFirstStagePlotter(), DepthEffectPlotter(effect=solver.scenario.effect)],
+            sweep=[{"seed": seed} for seed in range(seeds)],
+        )
+
+
 sip_inherited_instrument_experiment = InheritedInstrumentExperiment()
+sip_instrument_depth_experiment = InstrumentDepthExperiment()

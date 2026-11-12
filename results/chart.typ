@@ -108,6 +108,8 @@
   palette: none,
   // Fraction of each category's slot that its bars fill.
   bar-width: 0.8,
+  // The vertical range, or auto to fit the data.
+  ylim: auto,
 ) = {
   let theme = if palette == none { default-palette } else { palette }
   let colors = chart-colors(theme)
@@ -144,6 +146,7 @@
         ..if is-bar-chart {
           (xlim: (-0.5, plot-data.at("iteration").len() - 0.5),)
         },
+        ylim: ylim,
         yscale: if not is-bar-chart and plot-title.ends-with("-loss") { "log" } else { "linear" },
         xaxis: xaxis,
         yaxis: (subticks: none, tick-args: (density: 60%)),

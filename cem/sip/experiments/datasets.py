@@ -9,68 +9,68 @@ from tjax import KeyArray
 from cem.framework.problem import DataSource, Problem
 from cem.framework.problem.data_source import ProblemObservation, ProblemState
 
-from .scenarios import InheritedInstrumentSample, InheritedInstrumentScenario
+from .scenarios import InstrumentChainSample, InstrumentChainScenario
 
 _PARENT_INSTRUMENT_PRECISION = 1.0
-_CHILD_OBSERVATION_PRECISION = 100.0
+_FEATURE_OBSERVATION_PRECISION = 100.0
 
 
-class InheritedInstrumentObservation(ProblemObservation):
-    """The parents' instruments and the child's raw observation."""
+class InstrumentChainObservation(ProblemObservation):
+    """The parents' instruments and the raw observation of each feature in the chain."""
 
     parent_instrument: NormalNP  # (k,)
-    child_observation: NormalNP  # (1,)
+    feature_observations: NormalNP  # (depth,)
 
 
-class InheritedInstrumentState(InheritedInstrumentObservation, ProblemState):
+class InstrumentChainState(InstrumentChainObservation, ProblemState):
     """The observation together with the structural sample that generated it."""
 
-    sample: InheritedInstrumentSample
+    sample: InstrumentChainSample
 
 
-class InheritedInstrumentDataSource(DataSource):
+class InstrumentChainDataSource(DataSource):
     """Draw fresh samples from the scenario.
 
     Each parent is a root controllable feature whose inherited instrument is standard normal, so it
     injects unit-variance noise and emits an instrument with that noise as its mean and unit
-    precision. The child's raw observation is the child's value, observed precisely.
+    precision. Each feature's raw observation is the feature's value, observed precisely.
     """
 
-    scenario: InheritedInstrumentScenario
+    scenario: InstrumentChainScenario
 
     @override
-    def initial_problem_state(self, example_key: KeyArray) -> InheritedInstrumentState:
+    def initial_problem_state(self, example_key: KeyArray) -> InstrumentChainState:
         sample = self.scenario.sample(example_key)
         noise = sample.injected_noise
-        child = sample.child[jnp.newaxis]
-        return InheritedInstrumentState(
+        features = sample.features[: self.scenario.depth]
+        return InstrumentChainState(
             parent_instrument=NormalPP(
                 noise, jnp.full_like(noise, _PARENT_INSTRUMENT_PRECISION)
             ).to_nat(),
-            child_observation=NormalPP(
-                child, jnp.full_like(child, _CHILD_OBSERVATION_PRECISION)
+            feature_observations=NormalPP(
+                features, jnp.full_like(features, _FEATURE_OBSERVATION_PRECISION)
             ).to_nat(),
             sample=sample,
         )
 
 
-class InheritedInstrumentProblem(Problem):
-    """Fit a child's instrument map to the child's observation from its parents' instruments.
+class InstrumentChainProblem(Problem):
+    """Fit each feature's instrument map to its observation from its predecessor's instrument.
 
     Training and inference draw from the same scenario. Their samples are independent because the
     solver gives each split its own seed, so evaluation is always on held-out samples.
     """
 
-    scenario: InheritedInstrumentScenario
+    scenario: InstrumentChainScenario
 
     @override
-    def create_data_source(self, *, inference: bool = False) -> InheritedInstrumentDataSource:
-        return InheritedInstrumentDataSource(self.scenario)
+    def create_data_source(self, *, inference: bool = False) -> InstrumentChainDataSource:
+        return InstrumentChainDataSource(self.scenario)
 
     @override
-    def extract_observation(self, state: ProblemState) -> InheritedInstrumentObservation:
-        assert isinstance(state, InheritedInstrumentState)
-        return InheritedInstrumentObservation(
+    def extract_observation(self, state: ProblemState) -> InstrumentChainObservation:
+        assert isinstance(state, InstrumentChainState)
+        return InstrumentChainObservation(
             parent_instrument=state.parent_instrument,
-            child_observation=state.child_observation,
+            feature_observations=state.feature_observations,
         )
