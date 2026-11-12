@@ -123,7 +123,7 @@ def test_sip_feature_loss_sums_emitter_and_mismatch(
         observation_content=inputs["observation_content"],
         predictor_instrument=inputs["predictor"].instrument,
         gain_observation=inputs["gain"].observation,
-        goal=inputs["reconstruction"] + inputs["confounding"],
+        goal=-(inputs["reconstruction"] + inputs["confounding"]),
     )
     mismatch_outputs = feature.mismatch.step(
         raw_observation=emitter_outputs.raw_observation,
@@ -134,6 +134,41 @@ def test_sip_feature_loss_sums_emitter_and_mismatch(
         inference=True,
     )
     assert jnp.allclose(outputs.loss, emitter_outputs.loss + mismatch_outputs.loss)
+
+
+def test_sensation_credit_lowers_dissonance(streams: Mapping[str, RngStream]) -> None:
+    """A higher cost pushes the observation map against the recorded experiments.
+
+    Raising the reconstruction cost by one lowers the emitter's goal by one, so a descent step
+    moves the parameters opposite the mean and precision traces. The mismatch losses hold the
+    observation fixed, so only credit depends on the cost.
+    """
+    n = 2
+    feature = _sip_feature(n, streams, controllable=False)
+
+    def weight_gradient(reconstruction: float) -> tuple[JaxRealArray, JaxRealArray]:
+        def loss_fn(model: SensationFeature) -> tuple[JaxRealArray, JaxRealArray]:
+            inputs = _sip_inputs(n)
+            inputs["reconstruction"] = jnp.asarray(reconstruction)
+            new_state, outputs = model.step(
+                eqx.nn.State(model),
+                **inputs,
+                streams=streams,
+                inference=True,
+            )
+            traces = new_state.get(model.emitter.trace_index)
+            credit_trace = (
+                traces.mean.layers[0].weight.value + traces.precision.layers[0].weight.value
+            )
+            return outputs.loss, credit_trace
+
+        (_, credit_trace), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(feature)
+        return grads.emitter.observation_map.layers[0].weight.value, credit_trace
+
+    unit_gradient, credit_trace = weight_gradient(1.0)
+    zero_gradient, _ = weight_gradient(0.0)
+    assert jnp.any(jnp.abs(credit_trace) > 0)
+    assert jnp.allclose(unit_gradient - zero_gradient, credit_trace)
 
 
 def test_sip_feature_state_carries_credit_traces(
@@ -246,7 +281,7 @@ def test_recruiter_feature_observation_equals_pre_gain(
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
         predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain_observation=None,
-        goal=jnp.asarray(0.5) - jnp.asarray(0.2),
+        goal=jnp.asarray(0.2) - jnp.asarray(0.5),
     )
     assert jnp.allclose(
         outputs.message.observation.mean_times_precision,

@@ -155,13 +155,18 @@ class SensationFeature(SIPFeature):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
+        """Advance the sensation one time step.
+
+        Credit raises the emitter's goal, so the goal is the negated dissonance: the sum of the
+        reconstruction and confounding costs, negated.
+        """
         return self._step(
             state,
             key,
             observation_content=observation_content,
             predictor=predictor,
             gain=gain,
-            goal=reconstruction + confounding,
+            goal=-(reconstruction + confounding),
             streams=streams,
             inference=inference,
         )
@@ -318,7 +323,11 @@ class RecruiterFeature(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
-        """Advance the recruiter one time step, with no gain parent."""
+        """Advance the recruiter one time step, with no gain parent.
+
+        Negating the confounding cost turns the sensation's negated dissonance into negated
+        disutility: the confounding cost minus the reconstruction cost.
+        """
         return self.feature.step(
             state,
             key,
@@ -390,6 +399,9 @@ class ProspectFeature(eqx.Module):
         Passes `gain.observation` to the emitter for evidence scaling when a
         gain parent is wired in; the instrument half is unused because there
         is no mismatch circuit. `gain=None` skips evidence scaling.
+
+        Credit raises the emitter's goal, so the goal is the negated dissonance of the TD
+        prediction: the sum of its reconstruction and confounding costs, negated.
         """
         gain_observation = None if gain is None else gain.observation
         new_state, emitter_outputs = self.emitter.step(
@@ -398,7 +410,7 @@ class ProspectFeature(eqx.Module):
             observation_content=observation_content,
             predictor_instrument=predictor_instrument,
             gain_observation=gain_observation,
-            goal=reconstruction + confounding,
+            goal=-(reconstruction + confounding),
         )
         new_state = new_state.set(self.last_message_index, emitter_outputs.message)
         return new_state, ProspectFeatureOutputs(
