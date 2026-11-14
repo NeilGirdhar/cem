@@ -1,6 +1,7 @@
 """Structural causal models that generate data for the SIP identification experiments."""
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -89,18 +90,48 @@ class ConfoundedPredictionScenario(eqx.Module):
     """Parents with injected noise and a target that they cause, all driven by one confounder.
 
     Each parent is its own standard normal noise plus the confounder and a disturbance. The target
-    is a linear function of the parents plus the confounder and a disturbance. Regressing the target
-    on the parents is biased; each parent's noise identifies its effect.
+    is a structural function of the parents plus the confounder and a disturbance. Regressing the
+    target on the parents is biased; each parent's noise identifies its effect.
+
+    The structural function weights each parent by its effect, after applying tanh when the
+    scenario is nonlinear. The confounder and disturbance enter additively in either case.
     """
 
     effects: tuple[float, ...] = eqx.field(static=True, default=(1.5,))
     parent_confounding: float = eqx.field(static=True, default=1.0)
     target_confounding: float = eqx.field(static=True, default=-2.0)
     noise: float = eqx.field(static=True, default=0.5)
+    nonlinear: bool = eqx.field(static=True, default=False)
 
     @property
     def n_parents(self) -> int:
         return len(self.effects)
+
+    def structural_mean(self, parents: JaxRealArray) -> JaxRealArray:
+        """Return the target's mean when the parents are set by intervention, shape (...).
+
+        Args:
+            parents: The parents' values, shape (..., k).
+        """
+        transformed = jnp.tanh(parents) if self.nonlinear else parents
+        return transformed @ jnp.asarray(self.effects)
+
+    def observational_mean(self, parents: JaxRealArray) -> JaxRealArray:
+        """Return the target's mean given the observed parents, shape (...).
+
+        The parents carry information about the confounder. All the noise is Gaussian, so the
+        confounder's conditional mean is linear in the parents.
+
+        Args:
+            parents: The parents' values, shape (..., k).
+        """
+        ones = np.ones(self.n_parents)
+        confounder_weights = self.parent_confounding * np.linalg.solve(
+            self._parent_covariance(), ones
+        )
+        return self.structural_mean(parents) + self.target_confounding * (
+            parents @ jnp.asarray(confounder_weights)
+        )
 
     def interventional_variance(self) -> float:
         """Return the target's variance when the parents are set by intervention.
@@ -113,13 +144,14 @@ class ConfoundedPredictionScenario(eqx.Module):
         """Return the target's variance about its best linear prediction from the parents.
 
         The parents carry information about the confounder, so this is smaller than the
-        interventional variance.
+        interventional variance. The closed form requires a linear structural function.
         """
+        if self.nonlinear:
+            msg = "The observational variance has a closed form only for linear effects"
+            raise ValueError(msg)
         effects = np.asarray(self.effects)
         ones = np.ones_like(effects)
-        parent_covariance = (1.0 + self.noise**2) * np.eye(self.n_parents) + (
-            self.parent_confounding**2 * np.outer(ones, ones)
-        )
+        parent_covariance = self._parent_covariance()
         confounded = self.parent_confounding * self.target_confounding
         covariance = parent_covariance @ effects + confounded * ones
         target_variance = (
@@ -139,10 +171,20 @@ class ConfoundedPredictionScenario(eqx.Module):
             + self.noise * jr.normal(parent_key, (self.n_parents,))
         )
         target = (
-            jnp.vecdot(jnp.asarray(self.effects), parents)
+            self.structural_mean(parents)
             + self.target_confounding * confounder
             + self.noise * jr.normal(target_key, ())
         )
         return ConfoundedPredictionSample(
             injected_noise=injected_noise, confounder=confounder, parents=parents, target=target
+        )
+
+    def samples(self, key: KeyArray, examples: int) -> ConfoundedPredictionSample:
+        """Return independent draws, each field with a leading axis of length `examples`."""
+        return jax.vmap(self.sample)(jr.split(key, examples))
+
+    def _parent_covariance(self) -> np.ndarray:
+        ones = np.ones(self.n_parents)
+        return (1.0 + self.noise**2) * np.eye(self.n_parents) + (
+            self.parent_confounding**2 * np.outer(ones, ones)
         )

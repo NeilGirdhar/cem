@@ -9,6 +9,7 @@ from typing import Any, Self, override
 
 import equinox as eqx
 import jax.numpy as jnp
+import jax.random as jr
 import numpy as np
 from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream
@@ -33,15 +34,21 @@ from cem.sip.mismatch import Mismatch
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
 
-from .baselines import ordinary_least_squares_coefficients, two_stage_least_squares_coefficients
-from .common import SEED_COUNT, SeededExperiment, bar_chart
+from .baselines import (
+    ordinary_least_squares_coefficients,
+    polynomial_basis,
+    projected_root_mean_square,
+    sieve_two_stage_least_squares_coefficients,
+    two_stage_least_squares_coefficients,
+)
+from .common import SEED_COUNT, SeededExperiment, bar_chart, reference_seed
 from .datasets import (
     FEATURE_OBSERVATION_VARIANCE,
     ConfoundedPredictionObservation,
     ConfoundedPredictionProblem,
     ConfoundedPredictionState,
 )
-from .scenarios import ConfoundedPredictionScenario
+from .scenarios import ConfoundedPredictionSample, ConfoundedPredictionScenario
 
 _TARGET_NODE = "target"
 
@@ -65,12 +72,19 @@ class PurificationModel(Model):
     purify: bool = eqx.field(static=True)
 
     @classmethod
-    def create(cls, n_parents: int, *, purify: bool, streams: Mapping[str, RngStream]) -> Self:
+    def create(
+        cls,
+        n_parents: int,
+        *,
+        purify: bool,
+        mismatch_settings: MismatchSettings,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
         mismatch = Mismatch.create(
             1,
             predictor_features=n_parents,
             gain_features=0,
-            mismatch_settings=MismatchSettings(),
+            mismatch_settings=mismatch_settings,
             streams=streams,
         )
         return cls(mismatch, purify=purify)
@@ -176,18 +190,20 @@ def estimate_prediction(samples: PredictionSamples) -> PredictionEstimates:
     )
 
 
-def run_prediction_estimates(run: Run) -> PredictionEstimates:
-    """Return the estimates from one run's held-out telemetry."""
+def _run_samples(run: Run) -> PredictionSamples:
     samples = run.inference_results.telemetries[PredictionTelemetry()]
     assert isinstance(samples, PredictionSamples)
-    return estimate_prediction(samples)
+    return samples
+
+
+def run_prediction_estimates(run: Run) -> PredictionEstimates:
+    """Return the estimates from one run's held-out telemetry."""
+    return estimate_prediction(_run_samples(run))
 
 
 def run_predicted_variance(run: Run) -> float:
     """Return the mean predicted variance over one run's held-out samples."""
-    samples = run.inference_results.telemetries[PredictionTelemetry()]
-    assert isinstance(samples, PredictionSamples)
-    return float(np.mean(np.asarray(samples.predicted_variance)))
+    return float(np.mean(np.asarray(_run_samples(run).predicted_variance)))
 
 
 def variant_label(condition: str, *, purify: bool) -> str:
@@ -301,6 +317,210 @@ class CausalVariancePlotter(Plotter):
         ) | {"observational variance": observational, "interventional variance": interventional}
 
 
+# Polynomial degrees for the sieve reference and the projected error. The instrument basis has more
+# functions than the regressor basis so that the sieve's first stage is overidentified.
+_INSTRUMENT_DEGREE = 7
+_REGRESSOR_DEGREE = 5
+# The sieve's fit sample has as many examples as the default held-out sample.
+SIEVE_FIT_EXAMPLES = 4096
+
+
+def sieve_fit_sample(
+    scenario: ConfoundedPredictionScenario, seed: int
+) -> ConfoundedPredictionSample:
+    """Return the sample that fits sieve 2SLS for one experiment seed.
+
+    It is drawn from the scenario independently of the seed's training and held-out samples.
+    """
+    return scenario.samples(jr.key(reference_seed(seed)), SIEVE_FIT_EXAMPLES)
+
+
+def fit_sieve(sample: ConfoundedPredictionSample) -> np.ndarray:
+    """Return the sieve 2SLS coefficients of the structural function on the parent's powers.
+
+    The structural function is a polynomial in the parent, instrumented by a polynomial in the
+    parent's noise. The sample must have one parent.
+    """
+    parent = np.asarray(sample.parents)
+    assert parent.shape[-1] == 1
+    return sieve_two_stage_least_squares_coefficients(
+        polynomial_basis(np.asarray(sample.injected_noise).ravel(), _INSTRUMENT_DEGREE),
+        polynomial_basis(parent.ravel(), _REGRESSOR_DEGREE),
+        np.asarray(sample.target).ravel(),
+    )
+
+
+@dataclass(frozen=True)
+class NonlinearEstimates:
+    """Errors of fitted structural functions on one run's held-out samples.
+
+    Each error compares a function of the parent with the structural function. The root-mean-square
+    error measures the whole difference. The projected error measures only its conditional mean
+    given the injected noise, which is the part the instrument can detect.
+    """
+
+    learned: float
+    learned_projected: float
+    observational: float
+    observational_projected: float
+    sieve: float
+    sieve_projected: float
+
+
+def estimate_nonlinear(
+    samples: PredictionSamples,
+    scenario: ConfoundedPredictionScenario,
+    sieve_coefficients: np.ndarray,
+) -> NonlinearEstimates:
+    """Score the learned, observational, and sieve 2SLS functions against the structural function.
+
+    Every function is scored on the held-out samples, and the projected error uses the same
+    instrument basis for each. The observational function is the target's population mean given
+    the parent. The sieve coefficients come from `fit_sieve` on a separate sample, so the held-out
+    targets play no part in the scores. The scenario must have one parent.
+    """
+    assert scenario.n_parents == 1
+    parents = np.asarray(samples.parents).reshape(-1, 1)
+    noise = np.asarray(samples.injected_noise).ravel()
+    structural = np.asarray(scenario.structural_mean(jnp.asarray(parents)))
+    instrument_basis = polynomial_basis(noise, _INSTRUMENT_DEGREE)
+
+    def errors(fitted: np.ndarray) -> tuple[float, float]:
+        difference = fitted - structural
+        return (
+            float(np.sqrt(np.mean(np.square(difference)))),
+            projected_root_mean_square(difference, instrument_basis),
+        )
+
+    learned = errors(np.asarray(samples.predicted_mean).ravel())
+    observational = errors(np.asarray(scenario.observational_mean(jnp.asarray(parents))))
+    sieve = errors(polynomial_basis(parents[:, 0], _REGRESSOR_DEGREE) @ sieve_coefficients)
+    return NonlinearEstimates(*learned, *observational, *sieve)
+
+
+def learned_curve(samples: PredictionSamples, grid: np.ndarray) -> np.ndarray:
+    """Return the predicted mean at each grid value of the parent.
+
+    The prediction's mean is a function of the parent alone, so interpolating the held-out samples
+    sorted by the parent traces it. Grid values beyond the samples take the nearest sample's value.
+    """
+    parent = np.asarray(samples.parents).ravel()
+    predicted = np.asarray(samples.predicted_mean).ravel()
+    order = np.argsort(parent)
+    return np.interp(grid, parent[order], predicted[order])
+
+
+class NonlinearErrorsPlotter(Plotter):
+    """Compare each function's error and projected error against the structural function.
+
+    Every function is scored on the held-out samples of the purification runs, which the
+    reconstruction run with the same seed shares. Sieve 2SLS is fitted on each seed's
+    `sieve_fit_sample`.
+    """
+
+    _: KW_ONLY
+    condition: str = field(static=True)
+    scenario: ConfoundedPredictionScenario = field(static=True)
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((PredictionTelemetry(),))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        def estimates(*, purify: bool) -> list[NonlinearEstimates]:
+            return [
+                estimate_nonlinear(
+                    _run_samples(run),
+                    self.scenario,
+                    fit_sieve(sieve_fit_sample(self.scenario, run.sweep_entry["seed"])),
+                )
+                for run in _condition_runs(runs, self.condition, purify=purify)
+            ]
+
+        reconstruction = estimates(purify=False)
+        purification = estimates(purify=True)
+        (evaluation_examples,) = {
+            np.asarray(_run_samples(run).target).size
+            for run in _condition_runs(runs, self.condition, purify=True)
+        }
+        return bar_chart(
+            ["Observational", "Reconstruction", "Purification", "Sieve 2SLS"],
+            {
+                "error": (
+                    "RMSE",
+                    [
+                        [e.observational for e in purification],
+                        [e.learned for e in reconstruction],
+                        [e.learned for e in purification],
+                        [e.sieve for e in purification],
+                    ],
+                ),
+                "projected": (
+                    "Projected RMSE",
+                    [
+                        [e.observational_projected for e in purification],
+                        [e.learned_projected for e in reconstruction],
+                        [e.learned_projected for e in purification],
+                        [e.sieve_projected for e in purification],
+                    ],
+                ),
+            },
+        ) | {
+            "evaluation examples": evaluation_examples,
+            "sieve fit examples": SIEVE_FIT_EXAMPLES,
+        }
+
+
+class NonlinearCurvesPlotter(Plotter):
+    """Plot the learned predicted means against the structural and observational functions.
+
+    Each learned curve is the mean across seeds of the curves traced by the held-out samples.
+    """
+
+    _: KW_ONLY
+    condition: str = field(static=True)
+    scenario: ConfoundedPredictionScenario = field(static=True)
+    grid: tuple[float, ...] = field(
+        static=True, default=tuple(float(x) for x in np.linspace(-3.0, 3.0, 61))
+    )
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((PredictionTelemetry(),))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        grid = np.asarray(self.grid)
+        parents = grid[:, np.newaxis]
+
+        def mean_curve(*, purify: bool) -> list[float]:
+            curves = [
+                learned_curve(_run_samples(run), grid)
+                for run in _condition_runs(runs, self.condition, purify=purify)
+            ]
+            return [float(value) for value in np.mean(curves, axis=0)]
+
+        return {
+            "iteration": [float(value) for value in grid],
+            "line plots": {
+                "structural": "Structural",
+                "observational": "Observational",
+                "reconstruction": "Reconstruction",
+                "purification": "Purification",
+            },
+            "line styles": {"structural": "dashed", "observational": "dashed"},
+            "structural": [
+                float(v) for v in np.asarray(self.scenario.structural_mean(jnp.asarray(parents)))
+            ],
+            "observational": [
+                float(v) for v in np.asarray(self.scenario.observational_mean(jnp.asarray(parents)))
+            ],
+            "reconstruction": mean_curve(purify=False),
+            "purification": mean_curve(purify=True),
+        }
+
+
 def sgd_gradient_transformations(learning_rate: float) -> DisGradientTransformation:
     """Apply SGD to every learnable parameter, keeping witness multipliers nonnegative.
 
@@ -327,6 +547,7 @@ class PurificationSolver(Solver[ConfoundedPredictionProblem]):
     _: KW_ONLY
     scenario: ConfoundedPredictionScenario = eqx.field(default_factory=ConfoundedPredictionScenario)
     purify: bool = bool_field(default=True)
+    mismatch_settings: MismatchSettings = eqx.field(static=True, default_factory=MismatchSettings)
     training_examples: int = int_field(default=40_000, domain=IntDistribution(1, 1 << 20, log=True))
     training_batch_size: int = int_field(default=64, domain=IntDistribution(1, 1 << 12, log=True))
     inference_examples: int = int_field(default=16, domain=IntDistribution(1, 1 << 12, log=True))
@@ -348,7 +569,10 @@ class PurificationSolver(Solver[ConfoundedPredictionProblem]):
         streams: Mapping[str, RngStream],
     ) -> Model:
         return PurificationModel.create(
-            self.scenario.n_parents, purify=self.purify, streams=streams
+            self.scenario.n_parents,
+            purify=self.purify,
+            mismatch_settings=self.mismatch_settings,
+            streams=streams,
         )
 
     @override
@@ -442,5 +666,69 @@ class CausalVarianceExperiment(SeededExperiment):
         )
 
 
+NONLINEAR_CONDITION = "Tanh effect"
+NONLINEAR_SCENARIO = ConfoundedPredictionScenario(effects=(2.0,), nonlinear=True)
+# A nonlinear function needs hidden layers in the prediction map, and the witnesses need them to
+# detect nonlinear violations of the restriction.
+NONLINEAR_MISMATCH_SETTINGS = MismatchSettings(
+    prediction_hidden_features=8,
+    integral_witness_hidden_features=8,
+    proportional_witness_hidden_features=8,
+)
+# With larger steps, the fitted function keeps steepening in the tails, where the instrument
+# barely constrains it.
+_NONLINEAR_LEARNING_RATE = 0.001
+_NONLINEAR_TRAINING_EXAMPLES = 160_000
+
+
+class NonlinearEffectExperiment(SeededExperiment):
+    """Test 6: purification matches a nonlinear structural function that the instrument identifies.
+
+    The target is 2 tanh of its confounded parent. The instrument sees the structural function
+    only through its conditional mean given the parent's noise, which smooths it, so the errors
+    are reported both in full and projected onto the instrument.
+    """
+
+    def __init__(
+        self, solver: PurificationSolver | None = None, *, seeds: int = SEED_COUNT
+    ) -> None:
+        solver = (
+            PurificationSolver(
+                scenario=NONLINEAR_SCENARIO,
+                mismatch_settings=NONLINEAR_MISMATCH_SETTINGS,
+                training_examples=_NONLINEAR_TRAINING_EXAMPLES,
+                learning_rate=_NONLINEAR_LEARNING_RATE,
+            )
+            if solver is None
+            else solver
+        )
+        super().__init__(
+            name="sip-nonlinear-effect",
+            variants=[
+                Variant(
+                    label=variant_label(NONLINEAR_CONDITION, purify=purify),
+                    solver=replace(solver, purify=purify),
+                )
+                for purify in (False, True)
+            ],
+            plotters=[
+                NonlinearErrorsPlotter(
+                    name="nonlinear-effect-errors",
+                    title="Structural function errors on held-out samples",
+                    condition=NONLINEAR_CONDITION,
+                    scenario=solver.scenario,
+                ),
+                NonlinearCurvesPlotter(
+                    name="nonlinear-effect-curves",
+                    title="Learned and structural functions",
+                    condition=NONLINEAR_CONDITION,
+                    scenario=solver.scenario,
+                ),
+            ],
+            sweep=[{"seed": seed} for seed in range(seeds)],
+        )
+
+
 sip_causal_mean_experiment = CausalMeanExperiment()
 sip_causal_variance_experiment = CausalVarianceExperiment()
+sip_nonlinear_effect_experiment = NonlinearEffectExperiment()

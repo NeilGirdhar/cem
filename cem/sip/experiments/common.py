@@ -12,6 +12,15 @@ from cem.framework.solver import Solver
 SEED_COUNT = 5
 
 
+def reference_seed(seed: int) -> int:
+    """Return the seed of the sample that fits a reference estimator for one experiment seed.
+
+    The reference sample is independent of the seed's training samples (seed 100 + seed) and its
+    held-out samples (seed 200 + seed), so a reference fitted on it is scored out of sample.
+    """
+    return 300 + seed
+
+
 def bar_chart(
     x_labels: Sequence[str], series: Mapping[str, tuple[str, Sequence[Sequence[float]]]]
 ) -> PlottedSeries:
