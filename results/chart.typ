@@ -73,41 +73,65 @@
     })
   }
 
-  let bar-chart-plots(plot-data, colors, group-width, fills: (:)) = {
+  let bar-chart-plots(plot-data, theme, group-width, fills: (:)) = {
     let xs = plot-data.at("iteration")
     let bar-plots = plot-data.at("bar plots")
     let bar-errors = plot-data.at("bar errors", default: (:))
     let series = bar-plots.keys()
+    let colors = chart-colors(theme)
     let bar-width = group-width / series.len()
+    let whisker-color(fill) = {
+      let index = colors.position(color => color == fill)
+      if index != none {
+        theme.at(dark-chart-color-keys.at(index), default: fill.darken(20%))
+      } else if type(fill) == color {
+        fill.darken(20%)
+      } else { theme.text }
+    }
     range(series.len())
       .map(i => {
         let key = series.at(i)
         let offset = (i - (series.len() - 1) / 2) * bar-width
         let color = colors.at(calc.rem(i, colors.len()))
+        let fill = fills.at(key, default: color)
         let values = plot-data.at(key)
         let bar = lq.bar(
           xs,
           values,
           offset: offset,
           width: bar-width,
-          fill: fills.at(key, default: color),
+          fill: fill,
           label: bar-plots.at(key),
         )
-        if key in bar-errors {
-          (
-            bar,
+        let errors = bar-errors.at(key, default: none)
+        let whiskers = if errors == none {
+          ()
+        } else {
+          let centers = xs.map(x => x + offset)
+          let error-plot(xs, ys, errors, fill) = {
             lq.plot(
-              xs.map(x => x + offset),
-              values,
-              yerr: bar-errors.at(key),
+              xs,
+              ys,
+              yerr: errors,
               mark: none,
               stroke: none,
+              color: whisker-color(fill),
               label: none,
-            ),
-          )
-        } else {
-          (bar,)
+            )
+          }
+          if type(fill) == array {
+            let point-error(value, i) = if type(value) == array { value.at(i) } else { value }
+            range(values.len()).map(i => {
+              let uncertainty = if type(errors) == dictionary {
+                (p: point-error(errors.p, i), m: point-error(errors.m, i))
+              } else { point-error(errors, i) }
+              error-plot((centers.at(i),), (values.at(i),), (uncertainty,), fill.at(i))
+            })
+          } else {
+            (error-plot(centers, values, errors, fill),)
+          }
         }
+        (bar, ..whiskers)
       })
       .flatten()
   }
@@ -133,7 +157,6 @@
   ) = {
     let theme = if palette == none { default-palette } else { palette }
     let is-bar-chart = "bar plots" in plot-data
-    let colors = chart-colors(theme, dark: not is-bar-chart)
     let x-labels = plot-data.at("x labels", default: none)
     let xaxis = if x-labels != none {
       (subticks: none, ticks: plot-data.at("iteration").zip(x-labels))
@@ -153,6 +176,7 @@
         show: lq.set-spine(stroke: none)
         show: lq.set-tick(stroke: 0.45pt + theme.overlay0.transparentize(100%))
         show: lq.set-grid(stroke: 0.35pt + theme.surface1)
+        show: lq.set-errorbar(stroke: 0.8pt)
         show: lq.set-legend(
           fill: theme.base,
           stroke: 0.4pt + theme.surface1,
@@ -173,9 +197,9 @@
           grid: (:),
           fill: theme.base,
           ..if is-bar-chart {
-            bar-chart-plots(plot-data, colors, bar-width, fills: bar-fills)
+            bar-chart-plots(plot-data, theme, bar-width, fills: bar-fills)
           } else {
-            line-chart-plots(plot-data, colors, theme)
+            line-chart-plots(plot-data, chart-colors(theme, dark: true), theme)
           },
           ..annotations,
         )
