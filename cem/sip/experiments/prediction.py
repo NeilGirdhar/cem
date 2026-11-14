@@ -1,6 +1,6 @@
 """Prediction experiments: whether purification makes prediction maps learn causal effects.
 
-See `sip.md`, tests 4–7.
+See `sip.md`, tests 4–8.
 """
 
 from collections.abc import Mapping, Sequence
@@ -682,7 +682,7 @@ _NONLINEAR_TRAINING_EXAMPLES = 160_000
 
 
 class NonlinearEffectExperiment(SeededExperiment):
-    """Test 6: purification matches a nonlinear structural function that the instrument identifies.
+    """Test 7: purification matches a nonlinear structural function that the instrument identifies.
 
     The target is 2 tanh of its confounded parent. The instrument sees the structural function
     only through its conditional mean given the parent's noise, which smooths it, so the errors

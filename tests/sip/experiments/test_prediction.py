@@ -1,4 +1,4 @@
-"""Check tests 4–6: purification reaches causal means, variances, and nonlinear effects."""
+"""Check tests 4, 5, and 7: purification reaches causal means, variances, and nonlinear effects."""
 
 import equinox as eqx
 import jax.numpy as jnp

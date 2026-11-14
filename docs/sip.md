@@ -55,12 +55,13 @@ Composition modules (plain `eqx.Module`s, not `Model` subclasses):
 - `Sensations` — bottom-up stack of identification features that parse the environment.
 - `Intentions` — top-down stack of controllable identification features; the bottom level emits the
   action.
-- `RewardCritic` — prospects in parallel feeding one `TDFeature` (tests 13–15).
+- `RewardCritic` — prospects in parallel feeding one `TDFeature` (tests 14–16).
 - `SIPAgent` — a `Sensations`, an `Intentions`, and a `RewardCritic` sharing state; the
-  environment-facing module (test 17).
+  environment-facing module (test 18).
 
-Implementation gates: `Emitter` alone covers test 12; `Emitter`, `Mismatch`, and `Credit` cover
-tests 1–12; `TDError` adds 13–15; tests 16–17 wire the full stack together and need no new modules.
+Implementation gates: `Emitter` alone covers test 13; `Emitter`, `Mismatch`, and `Credit` cover
+tests 1–13. `TDError` adds tests 14–16. Tests 17–18 wire the full stack together and
+need no new modules.
 
 ### Efference copy and intention nexting
 
@@ -116,10 +117,10 @@ default, the maps have no hidden layers, and the damping weight and the discount
     - `baselines.py` — 2SLS and OLS reference implementations.
     - `evaluation.py` — paired-sample runner, multi-seed aggregation, cross-fitting splits.
     - `instruments.py` — tests 1–3.
-    - `prediction.py` — tests 4–7.
-    - `emitter_credit.py` — tests 8–12.
-    - `value_learning.py` — tests 13–15.
-    - `system.py` — tests 16–17.
+    - `prediction.py` — tests 4–8.
+    - `emitter_credit.py` — tests 9–13.
+    - `value_learning.py` — tests 14–16.
+    - `system.py` — tests 17–18.
 - `tests/sip/` — unit tests for SIP modules.
 
 ## SIP-specific plug points
@@ -127,8 +128,8 @@ default, the maps have no hidden layers, and the damping weight and the discount
 The framework (`Problem` / `Model` / `Solver` / `Plotter` / `Experiment`) is documented in
 [`architecture.md`](architecture.md). What's specific to SIP:
 
-- Identification tests (1–12) use a feed-forward `Problem` over a structural causal model;
-  value-learning and control tests (13–17) use the RL `Problem` in `cem/framework/rl/`.
+- Experiments 1–13 use a feed-forward `Problem` over a structural causal model.
+  Value-learning and control tests (14–18) use the RL `Problem` in `cem/framework/rl/`.
 - The circuit needs the precision-κ transform on `DisGradientTransformation`.
 - Reuses `cem/npn/gaussian.py` (`GaussianNeuralProjection`),
   `cem/perceptron/mlp.py` (`MLP` inside the witness map, and for the witness-gain and
@@ -162,26 +163,54 @@ full configuration and writes chart JSON.
 5. **Causal variance.** Use a data-generating model whose interventional variance satisfies the
    circuit's second-moment restriction. The predicted variance should match the interventional
    variance.
-6. **Nonlinear effects.** Match a nonlinear structural function that the instruments identify.
-7. **Endogenous gain.** Gain depends on the confounder, isolating the weighted-moment conditions.
+6. **Damping and variance purification.** Use the one-parent setup from experiments 4 and 5 to
+   test what each witness mechanism contributes. Match initialization, batches, and training
+   settings across the runs of each comparison.
+
+   - **Damping.** Train three purification arms that differ only in the prediction's update:
+     - integral only (`damping_weight = 0`);
+     - proportional only (no integral term);
+     - both (`damping_weight = 1`).
+
+     Plot each seed's signed effect estimate over training, without averaging across seeds, and
+     mark the true effect of 1.5. Over the last quarter of training, report each seed's mean
+     signed error and the standard deviation of its estimate across updates. Integral only should
+     reach 1.5 but may keep oscillating. Proportional only acts as a finite quadratic penalty, so it
+     should settle between OLS (0.61) and 1.5. Both should settle at 1.5.
+   - **Variance purification.** In test 5, once the mean is causal, the best constant variance is
+     already the interventional 4.26, so reconstruction recovers it without the variance witness.
+     Fix the predicted mean at `1.5Y` in both runs, so only the variance update differs. Compare
+     reconstruction alone with reconstruction plus variance purification.
+
+     Use the same variance model in both runs, `softplus(b + cY²)` plus the variance floor, so it
+     can learn a constant or vary with `Y²`. Reconstruction should learn the observational curve
+     `2.48 + 0.79Y²`, because `Y` carries information about the confounder. Purification should
+     learn the flat interventional observation variance of 4.26: 4.25 for `Z` plus 0.01 for its
+     observation. Plot both curves over a uniform grid of interventions `do(Y = y)` against both
+     references. Report each run's RMSE from 4.26 over the grid and its fitted `c`. Score over a
+     uniform grid, because the observational curve also averages to 4.26 over the distribution
+     of `Y`.
+
+7. **Nonlinear effects.** Match a nonlinear structural function that the instruments identify.
+8. **Endogenous gain.** Gain depends on the confounder, isolating the weighted-moment conditions.
    Run with and without the witness-gain map.
 
 ### Emitter and credit (oracle goals)
 
-8. **Mean credit — direct.** Goal whose confounded correlation has the opposite sign to its causal
+9. **Mean credit — direct.** Goal whose confounded correlation has the opposite sign to its causal
    effect. Compare the actual parameter update with the oracle causal gradient; report both their
    inner product and the angle. Separate goal contribution from shrinkage before checking
    direction. Include a unit-gain baseline and an endogenous-gain condition.
-9. **Mean credit — inherited.** Same comparison at a non-controllable feature whose variation comes
-   only from inherited instruments.
-10. **Precision.** In a controlled Gaussian case, check presence against known pointwise curvature
+10. **Mean credit — inherited.** Same comparison at a non-controllable feature whose variation comes
+    only from inherited instruments.
+11. **Precision.** In a controlled Gaussian case, check presence against known pointwise curvature
     and against smoothed curvature at finite σ. More generally, compare presence with the circuit's
     constrained-regression optimum. Include contextual baselines, and a condition where the
     eligibility traces contain insufficient variation to distinguish coefficients.
-11. **Temporal credit through shared parameters.** One parameter is reused across time steps; the
+12. **Temporal credit through shared parameters.** One parameter is reused across time steps; the
     credit must sum its contributions correctly. Include the shared-parameter counterexample from
     the thesis todo as a condition the test must either pass or reveal.
-12. **Noise generation (emitter test).** The rule is instantaneous:
+13. **Noise generation (emitter test).** The rule is instantaneous:
     `V_local = max(0, σ̃²_inh − μ̃²_inh)`. Check (i) the conditional local variance against this
     rule, (ii) that the same perturbation enters observation and instrument, and (iii) the squared
     instrument displacement before gain: `E[μ̃²_ins | inherited message] = max(σ̃²_inh, μ̃²_inh)`.
@@ -190,18 +219,18 @@ full configuration and writes chart JSON.
 
 ### TD-error circuit
 
-13. **Return moments.** On a Markov chain with known return mean and variance, establish
+14. **Return moments.** On a Markov chain with known return mean and variance, establish
     calibration without the uncertainty penalty first; then turn it on and measure its effect.
-14. **Causal value.** A hidden variable confounds prospect and reward; the witness is active.
-15. **Penalty escapes the variance trap.** From a broad, wrong start, compare learning with and
+15. **Causal value.** A hidden variable confounds prospect and reward; the witness is active.
+16. **Penalty escapes the variance trap.** From a broad, wrong start, compare learning with and
     without the penalty, checking the mean for bias.
 
 ### Whole system
 
-16. **Joint learning.** In a multi-layer graph, emitters, instruments and predictions all learn at
+17. **Joint learning.** In a multi-layer graph, emitters, instruments and predictions all learn at
     once. For learned observations, measure recovery through intervention responses, or align the
     learned coordinates with the generative ones before comparing coefficients.
-17. **Causal control.** In an environment whose confounded correlation has the wrong sign, the
+18. **Causal control.** In an environment whose confounded correlation has the wrong sign, the
     agent learns intentions that increase reward.
 
 ## Methodology
