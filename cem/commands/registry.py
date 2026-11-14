@@ -12,6 +12,7 @@ from cem.sip.experiments.prediction import (
     sip_causal_mean_experiment,
     sip_causal_variance_experiment,
     sip_nonlinear_effect_experiment,
+    sip_witness_diagnostics_experiment,
 )
 
 experiments: dict[str, Experiment] = {
@@ -24,6 +25,7 @@ experiments: dict[str, Experiment] = {
         sip_exclusion_repair_experiment,
         sip_causal_mean_experiment,
         sip_causal_variance_experiment,
+        sip_witness_diagnostics_experiment,
         sip_nonlinear_effect_experiment,
     ]
 }

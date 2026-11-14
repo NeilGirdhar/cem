@@ -14,10 +14,10 @@ from tjax import JaxRealArray, RngStream
 
 from cem.framework.graph import LearnableParameter
 
-_MINIMUM_VARIANCE = 1e-8
+MINIMUM_VARIANCE = 1e-8
 _STANDARD_NORMAL_DENSITY_SCALE = 1 / jnp.sqrt(2 * jnp.pi)
 _LECUN_NORMAL = initializers.variance_scaling(1.0, "fan_in", "truncated_normal")
-_UNIT_SOFTPLUS_RAW = math.log(math.expm1(1.0))  # softplus of this is one
+UNIT_SOFTPLUS_RAW = math.log(math.expm1(1.0))  # softplus of this is one
 
 
 def gaussian_relu(distribution: NormalVP) -> NormalVP:
@@ -34,7 +34,7 @@ def gaussian_relu(distribution: NormalVP) -> NormalVP:
     output_second_moment = (mean**2 + variance) * cdf + mean * deviation * density
     output_variance = jnp.maximum(
         output_second_moment - output_mean**2,
-        _MINIMUM_VARIANCE,
+        MINIMUM_VARIANCE,
     )
     return NormalVP(output_mean, output_variance)
 
@@ -69,7 +69,7 @@ class GaussianNeuralProjectionLayer(eqx.Module):
             weight=LearnableParameter(weight),
             bias=LearnableParameter(jnp.zeros(out_features, dtype=jnp.float64)),
             bias_raw_variance=LearnableParameter(
-                jnp.full(out_features, _UNIT_SOFTPLUS_RAW, dtype=jnp.float64)
+                jnp.full(out_features, UNIT_SOFTPLUS_RAW, dtype=jnp.float64)
             ),
         )
 
@@ -83,7 +83,7 @@ class GaussianNeuralProjectionLayer(eqx.Module):
         output_variance = inputs.variance @ jnp.square(self.weight.value).T + softplus(
             self.bias_raw_variance.value
         )
-        return NormalVP(output_mean, jnp.maximum(output_variance, _MINIMUM_VARIANCE))
+        return NormalVP(output_mean, jnp.maximum(output_variance, MINIMUM_VARIANCE))
 
 
 class GaussianNeuralProjectionInputPool(eqx.Module):
@@ -98,7 +98,7 @@ class GaussianNeuralProjectionInputPool(eqx.Module):
         return cls(
             dummy_mean=LearnableParameter(jnp.zeros(n_features, dtype=jnp.float64)),
             dummy_raw_presence=LearnableParameter(
-                jnp.full(n_features, _UNIT_SOFTPLUS_RAW, dtype=jnp.float64)
+                jnp.full(n_features, UNIT_SOFTPLUS_RAW, dtype=jnp.float64)
             ),
         )
 

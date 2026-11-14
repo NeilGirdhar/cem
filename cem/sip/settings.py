@@ -16,15 +16,13 @@ class CreditSettings:
             raise ValueError(msg)
 
 
-def _check_damping_weight(damping_weight: float) -> None:
-    if not math.isfinite(damping_weight) or damping_weight <= 0:
-        msg = "damping_weight must be finite and positive"
-        raise ValueError(msg)
-
-
 @dataclass(frozen=True)
 class MismatchSettings:
-    """Hidden-layer widths for a mismatch circuit's maps and the weight of its proportional loss."""
+    """Hidden-layer widths for a mismatch circuit's maps and the weight of its proportional loss.
+
+    A damping weight of zero removes the proportional loss from the prediction's update, which
+    leaves integral-only purification. The proportional witness still trains on its own loss.
+    """
 
     prediction_hidden_features: int | tuple[int, ...] = ()
     integral_witness_hidden_features: int | tuple[int, ...] = ()
@@ -32,7 +30,9 @@ class MismatchSettings:
     damping_weight: float = 1.0
 
     def __post_init__(self) -> None:
-        _check_damping_weight(self.damping_weight)
+        if not math.isfinite(self.damping_weight) or self.damping_weight < 0:
+            msg = "damping_weight must be finite and nonnegative"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -46,7 +46,9 @@ class TDSettings:
     damping_weight: float = 1.0
 
     def __post_init__(self) -> None:
-        _check_damping_weight(self.damping_weight)
+        if not math.isfinite(self.damping_weight) or self.damping_weight <= 0:
+            msg = "damping_weight must be finite and positive"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True, kw_only=True)

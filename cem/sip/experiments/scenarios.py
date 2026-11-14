@@ -125,12 +125,27 @@ class ConfoundedPredictionScenario(eqx.Module):
         Args:
             parents: The parents' values, shape (..., k).
         """
-        ones = np.ones(self.n_parents)
-        confounder_weights = self.parent_confounding * np.linalg.solve(
-            self._parent_covariance(), ones
-        )
         return self.structural_mean(parents) + self.target_confounding * (
-            parents @ jnp.asarray(confounder_weights)
+            parents @ jnp.asarray(self._confounder_weights())
+        )
+
+    def causal_residual_second_moment(self, parents: JaxRealArray) -> JaxRealArray:
+        """Return the target's mean squared deviation from its causal mean given the parents.
+
+        The deviation is the confounder's and the disturbance's contribution to the target. The
+        parents carry information about the confounder, so its conditional mean adds a term that
+        grows with the parents. Under intervention, the mean squared deviation is instead the
+        interventional variance.
+
+        Args:
+            parents: The parents' values, shape (..., k).
+        """
+        weights = self._confounder_weights()
+        confounder_variance = 1.0 - self.parent_confounding * float(np.sum(weights))
+        confounder_mean = parents @ jnp.asarray(weights)
+        return (
+            self.target_confounding**2 * (confounder_variance + jnp.square(confounder_mean))
+            + self.noise**2
         )
 
     def interventional_variance(self) -> float:
@@ -182,6 +197,11 @@ class ConfoundedPredictionScenario(eqx.Module):
     def samples(self, key: KeyArray, examples: int) -> ConfoundedPredictionSample:
         """Return independent draws, each field with a leading axis of length `examples`."""
         return jax.vmap(self.sample)(jr.split(key, examples))
+
+    def _confounder_weights(self) -> np.ndarray:
+        """Return the coefficients of the confounder's conditional mean on the parents."""
+        ones = np.ones(self.n_parents)
+        return self.parent_confounding * np.linalg.solve(self._parent_covariance(), ones)
 
     def _parent_covariance(self) -> np.ndarray:
         ones = np.ones(self.n_parents)

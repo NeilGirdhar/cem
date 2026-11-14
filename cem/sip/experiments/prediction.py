@@ -8,9 +8,12 @@ from dataclasses import KW_ONLY, dataclass, replace
 from typing import Any, Self, override
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
+from efax import NormalNP, NormalPP, NormalVP
+from jax.nn import softplus
 from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream
 from tjax.dataclasses import field
@@ -28,11 +31,26 @@ from cem.framework.graph import (
 from cem.framework.plotter import Run, Variant
 from cem.framework.plotter.plotter import PlottedSeries, Plotter
 from cem.framework.problem import DataSource, Problem
-from cem.framework.solution import Inference, InferenceResult, Telemetries, Telemetry
+from cem.framework.solution import (
+    Inference,
+    InferenceResult,
+    Telemetries,
+    Telemetry,
+    TrainingResult,
+    TrainingSolution,
+)
 from cem.framework.solver import Solver, bool_field, float_field, int_field
+from cem.npn.gaussian import MINIMUM_VARIANCE, UNIT_SOFTPLUS_RAW
 from cem.sip.mismatch import Mismatch
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
+from cem.sip.witness import (
+    IntegralWitnessMap,
+    ProportionalWitnessMap,
+    integral_witness_loss,
+    witness_losses,
+    witness_residuals,
+)
 
 from .baselines import (
     ordinary_least_squares_coefficients,
@@ -66,10 +84,15 @@ class PurificationModel(Model):
     With purification, the circuit's full loss trains the prediction map, including the
     confounding cost from the witnesses over the parents' instruments. Without it, only the
     reconstruction cost trains the prediction map.
+
+    Turning off the integral term removes the integral witness's correction from the prediction's
+    update, which leaves proportional-only purification. The integral witness and its multiplier
+    still train on their own losses, so every variant builds and updates the same modules.
     """
 
     mismatch: Mismatch
     purify: bool = eqx.field(static=True)
+    integral: bool = eqx.field(static=True, default=True)
 
     @classmethod
     def create(
@@ -79,6 +102,7 @@ class PurificationModel(Model):
         purify: bool,
         mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
+        integral: bool = True,
     ) -> Self:
         mismatch = Mismatch.create(
             1,
@@ -87,7 +111,7 @@ class PurificationModel(Model):
             mismatch_settings=mismatch_settings,
             streams=streams,
         )
-        return cls(mismatch, purify=purify)
+        return cls(mismatch, purify=purify, integral=integral)
 
     @override
     def infer(
@@ -108,10 +132,15 @@ class PurificationModel(Model):
             inference=inference,
         )
         prediction = self.mismatch.prediction_map.infer(
-            observation.predictor.observation
+            jax.lax.stop_gradient(observation.predictor.observation)
         ).to_variance_parametrization()
+        loss = outputs.loss if self.purify else outputs.reconstruction_cost
+        if self.purify and not self.integral:
+            loss -= self._integral_correction(
+                observation, prediction, streams=streams, inference=inference
+            )
         return ModelResult(
-            loss=outputs.loss if self.purify else outputs.reconstruction_cost,
+            loss=loss,
             configurations=frozendict(
                 {
                     _TARGET_NODE: PredictionConfiguration(
@@ -120,6 +149,26 @@ class PurificationModel(Model):
                 }
             ),
             state=state,
+        )
+
+    def _integral_correction(
+        self,
+        observation: ConfoundedPredictionObservation,
+        prediction: NormalVP,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> JaxRealArray:
+        """Return the integral term of the confounding cost, through which the prediction learns.
+
+        The witness is held fixed, so subtracting this term changes only the prediction's update.
+        """
+        target = jax.lax.stop_gradient(observation.target_observation.to_variance_parametrization())
+        witness = self.mismatch.integral_witness_map.infer(
+            observation.predictor.instrument, streams=streams, inference=inference
+        )
+        return integral_witness_loss(
+            witness_residuals(target, prediction), jax.lax.stop_gradient(witness), None
         )
 
 
@@ -547,6 +596,7 @@ class PurificationSolver(Solver[ConfoundedPredictionProblem]):
     _: KW_ONLY
     scenario: ConfoundedPredictionScenario = eqx.field(default_factory=ConfoundedPredictionScenario)
     purify: bool = bool_field(default=True)
+    integral: bool = bool_field(default=True)
     mismatch_settings: MismatchSettings = eqx.field(static=True, default_factory=MismatchSettings)
     training_examples: int = int_field(default=40_000, domain=IntDistribution(1, 1 << 20, log=True))
     training_batch_size: int = int_field(default=64, domain=IntDistribution(1, 1 << 12, log=True))
@@ -573,6 +623,7 @@ class PurificationSolver(Solver[ConfoundedPredictionProblem]):
             purify=self.purify,
             mismatch_settings=self.mismatch_settings,
             streams=streams,
+            integral=self.integral,
         )
 
     @override
@@ -666,6 +717,424 @@ class CausalVarianceExperiment(SeededExperiment):
         )
 
 
+def _probe(parent: float) -> NormalNP:
+    """Return a one-parent observation at `parent`, as precise as the training observations."""
+    value = jnp.asarray([parent])
+    return NormalPP(value, jnp.full_like(value, 1.0 / FEATURE_OBSERVATION_VARIANCE)).to_nat()
+
+
+class EffectTelemetry(Telemetry):
+    """Record a one-parent purification model's effect after every training update.
+
+    The effect is the difference between the predicted means at the parent values one and zero.
+    For an affine prediction map, it is the slope. Other models record nothing.
+    """
+
+    @override
+    def training_snapshot(
+        self,
+        training_solution: TrainingSolution,
+        training_result: TrainingResult,
+        snapshots: Mapping[Telemetry, Any],
+    ) -> JaxRealArray | None:
+        model = training_solution.inference.assemble_model(
+            training_result.solution_state.dis_learnable_parameters.assembled()
+        )
+        if not isinstance(model, PurificationModel):
+            return None
+        one, zero = (
+            model.mismatch.prediction_map.infer(_probe(parent))
+            .to_variance_parametrization()
+            .mean[0]
+            for parent in (1.0, 0.0)
+        )
+        return one - zero
+
+
+def fixed_mean_variance(
+    offset: JaxRealArray, slope: JaxRealArray, squared_parent: JaxRealArray
+) -> JaxRealArray:
+    """Return the variance softplus(b + c y²), floored like every predicted variance.
+
+    Args:
+        offset: The offset b.
+        slope: The coefficient c of the parent's square.
+        squared_parent: The parent's square y².
+    """
+    return jnp.maximum(softplus(offset + slope * squared_parent), MINIMUM_VARIANCE)
+
+
+# Selects the variance coordinate of the one channel's (mean, variance) witness pair.
+_VARIANCE_ONLY = jnp.asarray([[0.0, 1.0]])
+
+
+class FixedMeanVarianceModel(Model):
+    """Predict a one-parent target with its mean fixed at the causal mean and a learned variance.
+
+    With the mean fixed, the variance update is the only difference between reconstruction alone
+    and purification. The variance, softplus(b + c y²), can be constant or grow with the parent's
+    square. Reconstruction should learn the target's observational squared deviation from the
+    causal mean, which grows with y² because the parent carries information about the confounder.
+    Purification should learn the constant interventional variance.
+
+    The witnesses see only the variance residual, so the mean residual cannot use the integral
+    witness's norm budget. Each witness needs a hidden layer to detect the residual's even
+    dependence on the instrument.
+    """
+
+    variance_offset: LearnableParameter[JaxRealArray]  # scalar b
+    variance_slope: LearnableParameter[JaxRealArray]  # scalar c
+    integral_witness_map: IntegralWitnessMap
+    proportional_witness_map: ProportionalWitnessMap
+    witness_multiplier: WitnessMultiplierParameter  # scalar
+    damping_weight: FixedParameter[JaxRealArray]  # scalar
+    effect: float = eqx.field(static=True)
+    purify: bool = eqx.field(static=True)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        effect: float,
+        purify: bool,
+        mismatch_settings: MismatchSettings,
+        streams: Mapping[str, RngStream],
+    ) -> Self:
+        """Start from a unit constant variance, the same in every run."""
+        return cls(
+            variance_offset=LearnableParameter(jnp.asarray(UNIT_SOFTPLUS_RAW)),
+            variance_slope=LearnableParameter(jnp.zeros(())),
+            integral_witness_map=IntegralWitnessMap.create(
+                1,
+                instrument_features=1,
+                hidden_features=mismatch_settings.integral_witness_hidden_features,
+                streams=streams,
+            ),
+            proportional_witness_map=ProportionalWitnessMap.create(
+                1,
+                instrument_features=1,
+                hidden_features=mismatch_settings.proportional_witness_hidden_features,
+                streams=streams,
+            ),
+            witness_multiplier=WitnessMultiplierParameter(jnp.zeros(())),
+            damping_weight=FixedParameter(jnp.asarray(mismatch_settings.damping_weight)),
+            effect=effect,
+            purify=purify,
+        )
+
+    def variance(self, squared_parent: JaxRealArray) -> JaxRealArray:
+        """Return the predicted variance at the parent's square."""
+        return fixed_mean_variance(
+            self.variance_offset.value, self.variance_slope.value, squared_parent
+        )
+
+    @override
+    def infer(
+        self,
+        observation: object,
+        state: object,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> ModelResult:
+        assert isinstance(observation, ConfoundedPredictionObservation)
+        parent = observation.predictor.observation.to_variance_parametrization().mean
+        prediction = NormalVP(self.effect * parent, self.variance(jnp.square(parent)))
+        target = jax.lax.stop_gradient(observation.target_observation.to_variance_parametrization())
+        loss = jnp.sum(target.cross_entropy(prediction))
+        if self.purify:
+            instrument = observation.predictor.instrument
+            losses = witness_losses(
+                _VARIANCE_ONLY * witness_residuals(target, prediction),
+                integral_witness=_VARIANCE_ONLY
+                * self.integral_witness_map.infer(instrument, streams=streams, inference=inference),
+                proportional_witness=_VARIANCE_ONLY
+                * self.proportional_witness_map.infer(
+                    instrument, streams=streams, inference=inference
+                ),
+                gain=None,
+                multiplier=self.witness_multiplier.value,
+                damping_weight=self.damping_weight.value,
+            )
+            loss += losses.loss
+        return ModelResult(
+            loss=loss,
+            configurations=frozendict(
+                {
+                    _TARGET_NODE: PredictionConfiguration(
+                        predicted_mean=prediction.mean[0], predicted_variance=prediction.variance[0]
+                    )
+                }
+            ),
+            state=state,
+        )
+
+
+class VarianceTelemetry(Telemetry):
+    """Record the fixed-mean variance model's offset and slope after every training update.
+
+    Other models record nothing.
+    """
+
+    @override
+    def training_snapshot(
+        self,
+        training_solution: TrainingSolution,
+        training_result: TrainingResult,
+        snapshots: Mapping[Telemetry, Any],
+    ) -> JaxRealArray | None:
+        model = training_solution.inference.assemble_model(
+            training_result.solution_state.dis_learnable_parameters.assembled()
+        )
+        if not isinstance(model, FixedMeanVarianceModel):
+            return None
+        return jnp.stack([model.variance_offset.value, model.variance_slope.value])
+
+
+class FixedMeanVarianceSolver(PurificationSolver):
+    """Train the fixed-mean variance model on a linear one-parent scenario."""
+
+    @override
+    def create_model(
+        self,
+        data_source: DataSource,
+        problem: Problem,
+        *,
+        streams: Mapping[str, RngStream],
+    ) -> Model:
+        assert self.scenario.n_parents == 1
+        assert not self.scenario.nonlinear
+        return FixedMeanVarianceModel.create(
+            effect=self.scenario.effects[0],
+            purify=self.purify,
+            mismatch_settings=self.mismatch_settings,
+            streams=streams,
+        )
+
+
+def _late_window(trajectory: np.ndarray) -> np.ndarray:
+    """Return the last quarter of a trajectory over training."""
+    return trajectory[-max(1, len(trajectory) // 4) :]
+
+
+def _seed_runs(runs: Sequence[Run], label: str) -> list[Run]:
+    return sorted(
+        (run for run in runs if run.variant_label == label),
+        key=lambda run: run.sweep_entry["seed"],
+    )
+
+
+class EffectTrajectoriesPlotter(Plotter):
+    """Plot each seed's effect estimate over training for each purification arm.
+
+    Each seed has its own line, so averaging cannot hide oscillations that are out of phase across
+    seeds. The late-training metrics use every update in the last quarter of training: the mean
+    signed error measures where an arm settles, and the standard deviation measures how much it
+    still moves.
+    """
+
+    _: KW_ONLY
+    arms: tuple[str, ...] = field(static=True)
+    effect: float = field(static=True)
+    points: int = field(static=True, default=200)
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((EffectTelemetry(),))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        trajectories = {
+            arm: [
+                np.asarray(run.training_results.telemetries[EffectTelemetry()]).ravel()
+                for run in _seed_runs(runs, arm)
+            ]
+            for arm in self.arms
+        }
+        updates = len(next(iter(trajectories.values()))[0])
+        shown = np.unique(np.linspace(0, updates - 1, self.points).round().astype(int))
+        lines = {
+            f"{arm} {seed}": [float(value) for value in trajectory[shown]]
+            for arm, arm_trajectories in trajectories.items()
+            for seed, trajectory in enumerate(arm_trajectories)
+        }
+        return {
+            "iteration": [int(index) + 1 for index in shown],
+            "line plots": {key: key for key in lines} | {"true effect": "True effect"},
+            "line styles": {"true effect": "dashed"},
+            **lines,
+            "true effect": [self.effect for _ in shown],
+            "late signed error": {
+                arm: [float(np.mean(_late_window(t)) - self.effect) for t in arm_trajectories]
+                for arm, arm_trajectories in trajectories.items()
+            },
+            "late variability": {
+                arm: [float(np.std(_late_window(t))) for t in arm_trajectories]
+                for arm, arm_trajectories in trajectories.items()
+            },
+            "updates": updates,
+        }
+
+
+class VarianceCurvesPlotter(Plotter):
+    """Plot the fixed-mean variance curves under intervention against both references.
+
+    Each curve is the final variance model evaluated at interventions on the parent, averaged
+    across seeds. The interventional reference is the observation variance with the parent set by
+    intervention. The observational reference is the observation's mean squared deviation from the
+    causal mean given the observed parent. The errors use a uniform grid because the observational
+    reference also averages to the interventional variance over the parent's distribution.
+    """
+
+    _: KW_ONLY
+    reconstruction: str = field(static=True)
+    purification: str = field(static=True)
+    scenario: ConfoundedPredictionScenario = field(static=True)
+    grid: tuple[float, ...] = field(
+        static=True, default=tuple(float(x) for x in np.linspace(-3.0, 3.0, 61))
+    )
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((VarianceTelemetry(),))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        grid = np.asarray(self.grid)
+        interventional = self.scenario.interventional_variance() + FEATURE_OBSERVATION_VARIANCE
+        observational = (
+            np.asarray(self.scenario.causal_residual_second_moment(jnp.asarray(grid[:, None])))
+            + FEATURE_OBSERVATION_VARIANCE
+        )
+
+        def final_parameters(label: str) -> list[np.ndarray]:
+            return [
+                np.asarray(run.training_results.telemetries[VarianceTelemetry()])[-1]
+                for run in _seed_runs(runs, label)
+            ]
+
+        def curves(label: str) -> list[np.ndarray]:
+            return [
+                np.asarray(fixed_mean_variance(offset, slope, jnp.asarray(np.square(grid))))
+                for offset, slope in final_parameters(label)
+            ]
+
+        arms = {"reconstruction": self.reconstruction, "purification": self.purification}
+        arm_curves = {key: curves(label) for key, label in arms.items()}
+        return {
+            "iteration": [float(value) for value in grid],
+            "line plots": {
+                "interventional": "Interventional",
+                "observational": "Observational",
+                "reconstruction": "Reconstruction",
+                "purification": "Purification",
+            },
+            "line styles": {"interventional": "dashed", "observational": "dashed"},
+            "interventional": [interventional for _ in grid],
+            "observational": [float(value) for value in observational],
+            **{
+                key: [float(value) for value in np.mean(seed_curves, axis=0)]
+                for key, seed_curves in arm_curves.items()
+            },
+            "grid error": {
+                key: [
+                    float(np.sqrt(np.mean(np.square(curve - interventional))))
+                    for curve in seed_curves
+                ]
+                for key, seed_curves in arm_curves.items()
+            },
+            "slope": {
+                key: [float(slope) for _, slope in final_parameters(label)]
+                for key, label in arms.items()
+            },
+            "interventional variance": interventional,
+        }
+
+
+INTEGRAL_ONLY = "Integral only"
+PROPORTIONAL_ONLY = "Proportional only"
+INTEGRAL_AND_PROPORTIONAL = "Integral and proportional"
+DAMPING_ARMS = (INTEGRAL_ONLY, PROPORTIONAL_ONLY, INTEGRAL_AND_PROPORTIONAL)
+FIXED_MEAN_RECONSTRUCTION = "Fixed mean, reconstruction"
+FIXED_MEAN_PURIFICATION = "Fixed mean, purification"
+# The witnesses need a hidden layer to detect the variance residual's even dependence on the
+# instrument.
+VARIANCE_MISMATCH_SETTINGS = MismatchSettings(
+    integral_witness_hidden_features=8, proportional_witness_hidden_features=8
+)
+
+
+def _damping_variants(solver: PurificationSolver) -> list[Variant]:
+    """Return the three purification arms, which differ only in the prediction's update."""
+    settings = solver.mismatch_settings
+    return [
+        Variant(
+            label=INTEGRAL_ONLY,
+            solver=replace(solver, mismatch_settings=replace(settings, damping_weight=0.0)),
+        ),
+        Variant(label=PROPORTIONAL_ONLY, solver=replace(solver, integral=False)),
+        Variant(label=INTEGRAL_AND_PROPORTIONAL, solver=solver),
+    ]
+
+
+class WitnessDiagnosticsExperiment(SeededExperiment):
+    """Test 6: what the proportional witness and the variance residual each contribute.
+
+    The damping comparison trains three purification arms on the one-parent scenario of test 4:
+    integral only, proportional only, and both. Integral only can keep oscillating about the
+    causal effect, and proportional only acts as a finite quadratic penalty that settles short of
+    it. The variance comparison fixes the mean at the causal mean, so reconstruction alone and
+    purification differ only in the variance update. Within each comparison, runs with the same
+    seed share initialization and training samples.
+    """
+
+    def __init__(
+        self,
+        damping_solver: PurificationSolver | None = None,
+        variance_solver: FixedMeanVarianceSolver | None = None,
+        *,
+        seeds: int = SEED_COUNT,
+    ) -> None:
+        damping_solver = PurificationSolver() if damping_solver is None else damping_solver
+        variance_solver = (
+            FixedMeanVarianceSolver(
+                mismatch_settings=VARIANCE_MISMATCH_SETTINGS,
+                training_examples=_VARIANCE_TRAINING_EXAMPLES,
+            )
+            if variance_solver is None
+            else variance_solver
+        )
+        super().__init__(
+            name="sip-witness-diagnostics",
+            variants=[
+                *_damping_variants(damping_solver),
+                Variant(
+                    label=FIXED_MEAN_RECONSTRUCTION,
+                    solver=replace(variance_solver, purify=False),
+                ),
+                Variant(
+                    label=FIXED_MEAN_PURIFICATION, solver=replace(variance_solver, purify=True)
+                ),
+            ],
+            plotters=[
+                EffectTrajectoriesPlotter(
+                    name="witness-diagnostics-damping",
+                    title="Effect estimates over training",
+                    arms=DAMPING_ARMS,
+                    effect=damping_solver.scenario.effects[0],
+                ),
+                VarianceCurvesPlotter(
+                    name="witness-diagnostics-variance",
+                    title="Predicted variance under intervention with the mean fixed",
+                    reconstruction=FIXED_MEAN_RECONSTRUCTION,
+                    purification=FIXED_MEAN_PURIFICATION,
+                    scenario=variance_solver.scenario,
+                ),
+            ],
+            sweep=[{"seed": seed} for seed in range(seeds)],
+        )
+
+
 NONLINEAR_CONDITION = "Tanh effect"
 NONLINEAR_SCENARIO = ConfoundedPredictionScenario(effects=(2.0,), nonlinear=True)
 # A nonlinear function needs hidden layers in the prediction map, and the witnesses need them to
@@ -731,4 +1200,5 @@ class NonlinearEffectExperiment(SeededExperiment):
 
 sip_causal_mean_experiment = CausalMeanExperiment()
 sip_causal_variance_experiment = CausalVarianceExperiment()
+sip_witness_diagnostics_experiment = WitnessDiagnosticsExperiment()
 sip_nonlinear_effect_experiment = NonlinearEffectExperiment()
