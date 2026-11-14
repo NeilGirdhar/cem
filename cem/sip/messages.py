@@ -43,7 +43,7 @@ class InstrumentedMessage(eqx.Module):
         The observation side is a proper standard normal (precision 1) so
         downstream reads that invert precision are well-posed. The instrument
         side is the null probe (precision 0): no experimental noise has been
-        injected yet, and the next-level witness / instrument maps correctly
+        injected yet, and the next-level witness and instrument maps correctly
         see zero on both natural-parameter channels.
         """
         zero = jnp.zeros(size)

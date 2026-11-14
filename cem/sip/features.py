@@ -64,7 +64,7 @@ class SIPFeature(eqx.Module):
 
         Observation content supplies the emitted observation and the credit baseline. The
         predictor supplies the causal prediction and its instrument. The gain width controls
-        whether the witness also receives a gain instrument.
+        whether the witnesses also receive a gain instrument.
         """
         observation_map = GaussianNeuralProjection.create(
             in_features=sizes.observation_content, out_features=n, streams=streams
@@ -110,7 +110,7 @@ class SIPFeature(eqx.Module):
 
         Score the raw observation with its added local variance and save the emitted message
         in state. With no gain parent, the feature must have been built with zero gain
-        features so the witness accepts predictor instruments alone.
+        features so the witnesses accept predictor instruments alone.
         """
         gain_observation = None if gain is None else gain.observation
         new_state, emitter_outputs = self.emitter.step(

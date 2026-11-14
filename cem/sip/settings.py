@@ -16,21 +16,37 @@ class CreditSettings:
             raise ValueError(msg)
 
 
+def _check_damping_weight(damping_weight: float) -> None:
+    if not math.isfinite(damping_weight) or damping_weight <= 0:
+        msg = "damping_weight must be finite and positive"
+        raise ValueError(msg)
+
+
 @dataclass(frozen=True)
 class MismatchSettings:
-    """Hidden-layer widths for a mismatch circuit's prediction and witness maps."""
+    """Hidden-layer widths for a mismatch circuit's maps and the weight of its proportional loss."""
 
     prediction_hidden_features: int | tuple[int, ...] = ()
-    witness_hidden_features: int | tuple[int, ...] = ()
+    integral_witness_hidden_features: int | tuple[int, ...] = ()
+    proportional_witness_hidden_features: int | tuple[int, ...] = ()
+    damping_weight: float = 1.0
+
+    def __post_init__(self) -> None:
+        _check_damping_weight(self.damping_weight)
 
 
 @dataclass(frozen=True)
 class TDSettings:
-    """The TD discount and hidden-layer widths for the prediction and witness maps."""
+    """The TD discount, hidden-layer widths for the circuit's maps, and its damping weight."""
 
     discount: float = 1.0
     prediction_hidden_features: int | tuple[int, ...] = ()
-    witness_hidden_features: int | tuple[int, ...] = ()
+    integral_witness_hidden_features: int | tuple[int, ...] = ()
+    proportional_witness_hidden_features: int | tuple[int, ...] = ()
+    damping_weight: float = 1.0
+
+    def __post_init__(self) -> None:
+        _check_damping_weight(self.damping_weight)
 
 
 @dataclass(frozen=True, kw_only=True)

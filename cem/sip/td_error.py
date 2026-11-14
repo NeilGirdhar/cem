@@ -1,4 +1,4 @@
-"""SIP TD-error circuit: reward prediction with bootstrap TD and confounding witness."""
+"""SIP TD-error circuit: bootstrap TD reward prediction with integral and proportional witnesses."""
 
 from collections.abc import Mapping
 from typing import Self
@@ -15,7 +15,12 @@ from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, variance_from_precision
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.settings import TDSettings
-from cem.sip.witness import WitnessMap, witness_loss, witness_norm_penalty, witness_residuals
+from cem.sip.witness import (
+    IntegralWitnessMap,
+    ProportionalWitnessMap,
+    witness_losses,
+    witness_residuals,
+)
 
 
 class TDTraces(eqx.Module):
@@ -29,14 +34,15 @@ class TDTraces(eqx.Module):
 
 
 class TDErrorOutputs(SIPLossOutputs):
-    """The advantage signal and the losses for value prediction and its confounding witness."""
+    """The advantage signal and the losses for value prediction and its witnesses."""
 
     advantage: JaxRealArray  # shape (n,); outgoing TD-error mean signal
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
     uncertainty_loss: JaxRealArray  # scalar
-    witness_loss: JaxRealArray  # scalar
-    witness_norm_penalty: JaxRealArray  # scalar
+    integral_witness_loss: JaxRealArray  # scalar
+    proportional_witness_loss: JaxRealArray  # scalar
+    witness_norm_loss: JaxRealArray  # scalar
 
 
 class _Moments(eqx.Module):
@@ -53,9 +59,11 @@ class TDError(eqx.Module):
     """
 
     prediction_map: GaussianNeuralProjection
-    witness_map: WitnessMap
+    integral_witness_map: IntegralWitnessMap
+    proportional_witness_map: ProportionalWitnessMap
     witness_multiplier: WitnessMultiplierParameter  # scalar
     discount: FixedParameter[JaxRealArray]  # scalar
+    damping_weight: FixedParameter[JaxRealArray]  # scalar
     delay_index: eqx.nn.StateIndex[TDTraces]
 
     @classmethod
@@ -74,14 +82,23 @@ class TDError(eqx.Module):
                 hidden_features=td_settings.prediction_hidden_features,
                 streams=streams,
             ),
-            witness_map=WitnessMap.create(
+            integral_witness_map=IntegralWitnessMap.create(
                 n,
                 instrument_features=predictor_features,
-                hidden_features=td_settings.witness_hidden_features,
+                hidden_features=td_settings.integral_witness_hidden_features,
+                streams=streams,
+            ),
+            proportional_witness_map=ProportionalWitnessMap.create(
+                n,
+                instrument_features=predictor_features,
+                hidden_features=td_settings.proportional_witness_hidden_features,
                 streams=streams,
             ),
             witness_multiplier=WitnessMultiplierParameter(jnp.zeros(())),
             discount=FixedParameter(jnp.asarray(td_settings.discount, dtype=jnp.float64)),
+            damping_weight=FixedParameter(
+                jnp.asarray(td_settings.damping_weight, dtype=jnp.float64)
+            ),
             delay_index=eqx.nn.StateIndex(TDTraces.initial(predictor_features)),
         )
 
@@ -96,26 +113,33 @@ class TDError(eqx.Module):
     ) -> tuple[eqx.nn.State, TDErrorOutputs]:
         """Score the previous step's value prediction against the current bootstrap target.
 
-        Evaluate the prediction and witness on the stored predictor so the witness tests the
-        instruments associated with the prediction being scored. Return the difference between
+        Evaluate the prediction and both witnesses on the stored predictor so the witnesses test
+        the instruments associated with the prediction being scored. Return the difference between
         the target mean and the delayed prediction mean as advantage, and save the current
-        predictor for the next step.
+        predictor for the next step. Reward features have unit gain.
         """
         delayed = state.get(self.delay_index)
         delayed_prediction = self._predict(delayed.predictor.observation)
-        delayed_witness = self.witness_map.infer(
-            delayed.predictor.instrument, streams=streams, inference=inference
-        )
+        delayed_instruments = delayed.predictor.instrument
         current_prediction = self._predict(predictor.observation)
 
         moments = self._moments(reward_observation, current_prediction, delayed_prediction)
         residuals = witness_residuals(moments.bootstrap, moments.delayed)
 
         reconstruction_cost = _reconstruction_cost(moments)
-        confounding_cost = jnp.sum(residuals * jax.lax.stop_gradient(delayed_witness))
         uncertainty_loss = jnp.sum(moments.delayed.variance)
-        loss = witness_loss(residuals, delayed_witness, None)
-        norm_penalty = witness_norm_penalty(delayed_witness, None, self.witness_multiplier.value)
+        losses = witness_losses(
+            residuals,
+            integral_witness=self.integral_witness_map.infer(
+                delayed_instruments, streams=streams, inference=inference
+            ),
+            proportional_witness=self.proportional_witness_map.infer(
+                delayed_instruments, streams=streams, inference=inference
+            ),
+            gain=None,
+            multiplier=self.witness_multiplier.value,
+            damping_weight=self.damping_weight.value,
+        )
 
         advantage = moments.bootstrap.mean - moments.delayed.mean
 
@@ -124,11 +148,12 @@ class TDError(eqx.Module):
         return new_state, TDErrorOutputs(
             advantage=advantage,
             reconstruction_cost=reconstruction_cost,
-            confounding_cost=confounding_cost,
+            confounding_cost=losses.confounding_cost,
             uncertainty_loss=uncertainty_loss,
-            witness_loss=loss,
-            witness_norm_penalty=norm_penalty,
-            loss=reconstruction_cost + confounding_cost + uncertainty_loss + loss + norm_penalty,
+            integral_witness_loss=losses.integral_witness_loss,
+            proportional_witness_loss=losses.proportional_witness_loss,
+            witness_norm_loss=losses.witness_norm_loss,
+            loss=reconstruction_cost + uncertainty_loss + losses.loss,
         )
 
     def _predict(self, predictor_observations: NormalNP) -> NormalNP:

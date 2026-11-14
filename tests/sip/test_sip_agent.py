@@ -55,10 +55,15 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
         prospect_sizes=(2, 4),
         credit_settings=CreditSettings(trace_decay_rate=0.25),
         mismatch_settings=MismatchSettings(
-            prediction_hidden_features=5, witness_hidden_features=(7,)
+            prediction_hidden_features=5,
+            integral_witness_hidden_features=(7,),
+            proportional_witness_hidden_features=6,
         ),
         td_settings=TDSettings(
-            discount=0.8, prediction_hidden_features=(9,), witness_hidden_features=8
+            discount=0.8,
+            prediction_hidden_features=(9,),
+            integral_witness_hidden_features=8,
+            proportional_witness_hidden_features=(4,),
         ),
     )
     agent = SIPAgent.create(settings, streams=streams)
@@ -80,20 +85,26 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
     )
     for mismatch in mismatches:
         assert mismatch.prediction_map.layers[0].bias.value.shape == (5,)
-        assert mismatch.witness_map.perceptron.layers[0].bias.value.shape == (7,)
+        assert mismatch.integral_witness_map.perceptron.layers[0].bias.value.shape == (7,)
+        assert mismatch.proportional_witness_map.perceptron.layers[0].bias.value.shape == (6,)
+        assert jnp.isclose(mismatch.damping_weight.value, settings.mismatch_settings.damping_weight)
         prediction_weight = mismatch.prediction_map.layers[0].weight
         assert isinstance(prediction_weight, LearnableParameter)
-        assert isinstance(mismatch.witness_map.perceptron.layers[0].weight, LearnableParameter)
+        for witness_map in (mismatch.integral_witness_map, mismatch.proportional_witness_map):
+            assert isinstance(witness_map.perceptron.layers[0].weight, LearnableParameter)
 
     td_error = agent.reward_critic.td_feature.td_error
     assert jnp.isclose(td_error.discount.value, settings.td_settings.discount)
     assert td_error.prediction_map.layers[0].bias.value.shape == (9,)
-    assert td_error.witness_map.perceptron.layers[0].bias.value.shape == (8,)
+    assert td_error.integral_witness_map.perceptron.layers[0].bias.value.shape == (8,)
+    assert td_error.proportional_witness_map.perceptron.layers[0].bias.value.shape == (4,)
+    assert jnp.isclose(td_error.damping_weight.value, settings.td_settings.damping_weight)
     assert td_error.prediction_map.layers[-1].bias.value.shape == (6,)
     assert td_error.prediction_map.input_pool.dummy_mean.value.shape == (12,)
     td_prediction_weight = td_error.prediction_map.layers[0].weight
     assert isinstance(td_prediction_weight, LearnableParameter)
-    assert isinstance(td_error.witness_map.perceptron.layers[0].weight, LearnableParameter)
+    for witness_map in (td_error.integral_witness_map, td_error.proportional_witness_map):
+        assert isinstance(witness_map.perceptron.layers[0].weight, LearnableParameter)
 
 
 def test_sip_agent_create_matches_coupling_shapes(
@@ -269,10 +280,11 @@ def test_shared_training_updates_sip_predictions(
     assert not jnp.allclose(
         new.prediction_map.layers[0].weight.value, old.prediction_map.layers[0].weight.value
     )
-    assert not jnp.allclose(
-        new.witness_map.perceptron.layers[0].weight.value,
-        old.witness_map.perceptron.layers[0].weight.value,
-    )
+    for name in ("integral_witness_map", "proportional_witness_map"):
+        assert not jnp.allclose(
+            getattr(new, name).perceptron.layers[0].weight.value,
+            getattr(old, name).perceptron.layers[0].weight.value,
+        )
     old_td = model.agent.reward_critic.td_feature.td_error.prediction_map.layers[0].weight.value
     new_td = updated.agent.reward_critic.td_feature.td_error.prediction_map.layers[0].weight.value
     assert not jnp.allclose(new_td, old_td)

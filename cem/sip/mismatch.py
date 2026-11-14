@@ -1,4 +1,4 @@
-"""SIP mismatch circuit: prediction map, witness, and purification losses."""
+"""SIP mismatch circuit: prediction map, integral and proportional witnesses, and their losses."""
 
 from collections.abc import Mapping
 from typing import Self
@@ -9,22 +9,29 @@ import jax.numpy as jnp
 from efax import NormalNP, NormalPP, NormalVP
 from tjax import JaxRealArray, RngStream
 
+from cem.framework.graph import FixedParameter
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, concat_messages
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
-from cem.sip.witness import WitnessMap, witness_loss, witness_norm_penalty, witness_residuals
+from cem.sip.witness import (
+    IntegralWitnessMap,
+    ProportionalWitnessMap,
+    witness_losses,
+    witness_residuals,
+)
 
 
 class MismatchOutputs(SIPLossOutputs):
-    """The demand for a better explanation and the losses that train the prediction and witness."""
+    """The demand for explanation and the losses that train the prediction and witnesses."""
 
     mismatch: NormalNP  # 2n unit-presence components; demand for explanation
     reconstruction_cost: JaxRealArray  # scalar
     confounding_cost: JaxRealArray  # scalar
-    witness_loss: JaxRealArray  # scalar
-    witness_norm_penalty: JaxRealArray  # scalar
+    integral_witness_loss: JaxRealArray  # scalar
+    proportional_witness_loss: JaxRealArray  # scalar
+    witness_norm_loss: JaxRealArray  # scalar
 
 
 class _Moments(eqx.Module):
@@ -49,8 +56,10 @@ class Mismatch(eqx.Module):
     """
 
     prediction_map: GaussianNeuralProjection
-    witness_map: WitnessMap
+    integral_witness_map: IntegralWitnessMap
+    proportional_witness_map: ProportionalWitnessMap
     witness_multiplier: WitnessMultiplierParameter  # scalar
+    damping_weight: FixedParameter[JaxRealArray]  # scalar
 
     @classmethod
     def create(
@@ -69,13 +78,22 @@ class Mismatch(eqx.Module):
                 hidden_features=mismatch_settings.prediction_hidden_features,
                 streams=streams,
             ),
-            witness_map=WitnessMap.create(
+            integral_witness_map=IntegralWitnessMap.create(
                 n,
                 instrument_features=predictor_features + gain_features,
-                hidden_features=mismatch_settings.witness_hidden_features,
+                hidden_features=mismatch_settings.integral_witness_hidden_features,
+                streams=streams,
+            ),
+            proportional_witness_map=ProportionalWitnessMap.create(
+                n,
+                instrument_features=predictor_features + gain_features,
+                hidden_features=mismatch_settings.proportional_witness_hidden_features,
                 streams=streams,
             ),
             witness_multiplier=WitnessMultiplierParameter(jnp.zeros(())),
+            damping_weight=FixedParameter(
+                jnp.asarray(mismatch_settings.damping_weight, dtype=jnp.float64)
+            ),
         )
 
     def step(
@@ -93,11 +111,11 @@ class Mismatch(eqx.Module):
         The outgoing mismatch carries, for each channel, the mean error and the deviation error:
         the predicted standard deviation minus the target's root-mean-square deviation about the
         predicted mean. Both scale linearly with the messages, so mismatch content does not
-        compound powers of scale as it passes between features. The witness instead tests centred
+        compound powers of scale as it passes between features. The witnesses instead test centred
         residuals for error predictable from the instruments.
 
-        When there is no gain parent, construct the witness without gain features. The circuit
-        then uses unit gain for both the losses and the witness norm constraint.
+        When there is no gain parent, construct the witnesses without gain features. The circuit
+        then uses unit gain for the losses and the witness norm constraint.
         """
         gain_observation = None if gain is None else gain.observation
         gain_instrument = None if gain is None else gain.instrument
@@ -106,24 +124,32 @@ class Mismatch(eqx.Module):
         )
         reconstruction = _reconstruction_and_mismatch(moments)
         residuals = witness_residuals(moments.target, moments.prediction)
-        confounding_witness = self._confounding_witness(
-            predictor.instrument, gain_instrument, streams=streams, inference=inference
+        instruments = (
+            predictor.instrument
+            if gain_instrument is None
+            else concat_messages(predictor.instrument, gain_instrument)
         )
-        confounding_cost = jnp.sum(
-            _scale_rows(residuals, moments.gain) * jax.lax.stop_gradient(confounding_witness)
-        )
-        loss = witness_loss(residuals, confounding_witness, moments.gain)
-        norm_penalty = witness_norm_penalty(
-            confounding_witness, moments.gain, self.witness_multiplier.value
+        losses = witness_losses(
+            residuals,
+            integral_witness=self.integral_witness_map.infer(
+                instruments, streams=streams, inference=inference
+            ),
+            proportional_witness=self.proportional_witness_map.infer(
+                instruments, streams=streams, inference=inference
+            ),
+            gain=moments.gain,
+            multiplier=self.witness_multiplier.value,
+            damping_weight=self.damping_weight.value,
         )
 
         return MismatchOutputs(
             mismatch=reconstruction.mismatch,
             reconstruction_cost=reconstruction.cost,
-            confounding_cost=confounding_cost,
-            witness_loss=loss,
-            witness_norm_penalty=norm_penalty,
-            loss=reconstruction.cost + confounding_cost + loss + norm_penalty,
+            confounding_cost=losses.confounding_cost,
+            integral_witness_loss=losses.integral_witness_loss,
+            proportional_witness_loss=losses.proportional_witness_loss,
+            witness_norm_loss=losses.witness_norm_loss,
+            loss=reconstruction.cost + losses.loss,
         )
 
     def _moments(
@@ -150,22 +176,6 @@ class Mismatch(eqx.Module):
             prediction=prediction.to_variance_parametrization(),
             gain=None if gain is None else jax.lax.stop_gradient(gain),
         )
-
-    def _confounding_witness(
-        self,
-        predictor_instruments: NormalNP,
-        gain_instrument: NormalNP | None,
-        *,
-        streams: Mapping[str, RngStream],
-        inference: bool,
-    ) -> JaxRealArray:
-        """Return the witness over the predictor and gain instruments jointly."""
-        instruments = (
-            predictor_instruments
-            if gain_instrument is None
-            else concat_messages(predictor_instruments, gain_instrument)
-        )
-        return self.witness_map.infer(instruments, streams=streams, inference=inference)
 
 
 def _reconstruction_and_mismatch(moments: _Moments) -> _Reconstruction:

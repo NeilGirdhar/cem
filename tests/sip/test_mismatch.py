@@ -4,6 +4,7 @@ from typing import TypedDict
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import pytest
 from efax import NormalNP, NormalPP
 from jax import tree
 from tjax import JaxRealArray, RngStream
@@ -63,8 +64,9 @@ def test_mismatch_loss_sums_prediction_and_witness_losses(
         outputs.loss,
         outputs.reconstruction_cost
         + outputs.confounding_cost
-        + outputs.witness_loss
-        + outputs.witness_norm_penalty,
+        - outputs.integral_witness_loss
+        - outputs.proportional_witness_loss
+        + outputs.witness_norm_loss,
     )
 
 
@@ -103,10 +105,19 @@ def test_reconstruction_cost_trains_prediction_map(streams: Mapping[str, RngStre
     assert jnp.any(jnp.abs(grads.prediction_map.layers[-1].weight.value) > 0)
 
 
-def test_confounding_cost_does_not_train_witness_map(
-    streams: Mapping[str, RngStream],
+_WITNESS_MAPS = ("integral_witness_map", "proportional_witness_map")
+_WITNESS_LOSSES = ("integral_witness_loss", "proportional_witness_loss")
+
+
+def _last_weight(m: Mismatch, name: str) -> JaxRealArray:
+    return getattr(m, name).perceptron.layers[-1].weight.value
+
+
+@pytest.mark.parametrize("witness_map", _WITNESS_MAPS)
+def test_confounding_cost_does_not_train_witness_maps(
+    streams: Mapping[str, RngStream], witness_map: str
 ) -> None:
-    """Confounding cost's gradient to witness params is zero (witness stop-gradded)."""
+    """Confounding cost holds both witnesses fixed."""
     n = 2
     mismatch = _mismatch(n, streams)
     inputs = _inputs(n)
@@ -115,34 +126,48 @@ def test_confounding_cost_does_not_train_witness_map(
         return m.step(**inputs, streams=streams, inference=True).confounding_cost
 
     grads = eqx.filter_grad(loss_fn)(mismatch)
-    assert jnp.allclose(grads.witness_map.perceptron.layers[-1].weight.value, 0.0)
+    assert jnp.allclose(_last_weight(grads, witness_map), 0.0)
 
 
-def test_witness_loss_does_not_train_prediction_map(
-    streams: Mapping[str, RngStream],
+@pytest.mark.parametrize("witness_loss", _WITNESS_LOSSES)
+def test_witness_losses_do_not_train_prediction_map(
+    streams: Mapping[str, RngStream], witness_loss: str
 ) -> None:
-    """Witness loss's gradient to prediction params is zero (residuals stop-gradded)."""
+    """Each witness loss holds the residuals fixed."""
     n = 2
     mismatch = _mismatch(n, streams)
     inputs = _inputs(n)
 
     def loss_fn(m: Mismatch) -> jnp.ndarray:
-        return m.step(**inputs, streams=streams, inference=True).witness_loss
+        return getattr(m.step(**inputs, streams=streams, inference=True), witness_loss)
 
     grads = eqx.filter_grad(loss_fn)(mismatch)
     assert jnp.allclose(grads.prediction_map.layers[-1].weight.value, 0.0)
 
 
-def test_witness_loss_trains_witness_map(streams: Mapping[str, RngStream]) -> None:
+@pytest.mark.parametrize(
+    ("witness_loss", "witness_map"), zip(_WITNESS_LOSSES, _WITNESS_MAPS, strict=True)
+)
+def test_each_witness_loss_trains_only_its_witness_map(
+    streams: Mapping[str, RngStream], witness_loss: str, witness_map: str
+) -> None:
     n = 2
     mismatch = _mismatch(n, streams)
     inputs = _inputs(n)
+    # Give the proportional witness a nonzero output so both losses have witness gradients.
+    mismatch = eqx.tree_at(
+        lambda m: m.proportional_witness_map.perceptron.layers[-1].bias.value,
+        mismatch,
+        jnp.full(2 * n, 0.3),
+    )
 
     def loss_fn(m: Mismatch) -> jnp.ndarray:
-        return m.step(**inputs, streams=streams, inference=True).witness_loss
+        return getattr(m.step(**inputs, streams=streams, inference=True), witness_loss)
 
     grads = eqx.filter_grad(loss_fn)(mismatch)
-    assert jnp.any(jnp.abs(grads.witness_map.perceptron.layers[-1].weight.value) > 0)
+    (other_map,) = (name for name in _WITNESS_MAPS if name != witness_map)
+    assert jnp.any(jnp.abs(_last_weight(grads, witness_map)) > 0)
+    assert jnp.allclose(_last_weight(grads, other_map), 0.0)
 
 
 def _recruiter_mismatch(n: int, streams: Mapping[str, RngStream]) -> Mismatch:

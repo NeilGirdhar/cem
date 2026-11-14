@@ -4,6 +4,7 @@ from typing import TypedDict
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import pytest
 from efax import NormalNP, NormalPP
 from jax import tree
 from tjax import JaxRealArray, RngStream
@@ -149,50 +150,54 @@ def test_uncertainty_loss_trains_prediction_map(
     assert jnp.any(jnp.abs(grads.prediction_map.layers[-1].weight.value) > 0)
 
 
-def test_confounding_cost_does_not_train_witness_map(
-    streams: Mapping[str, RngStream],
-) -> None:
-    n = 2
-    td = _td_error(n, streams)
+_WITNESS_MAPS = ("integral_witness_map", "proportional_witness_map")
+_WITNESS_LOSSES = ("integral_witness_loss", "proportional_witness_loss")
+
+
+def _last_weight(m: TDError, name: str) -> JaxRealArray:
+    return getattr(m, name).perceptron.layers[-1].weight.value
+
+
+def _output_gradients(td: TDError, name: str, streams: Mapping[str, RngStream]) -> TDError:
+    """Return the gradients of one TD-error output with respect to the circuit."""
     state = eqx.nn.State(td)
-    inputs = _inputs(n)
 
-    def loss_fn(m: TDError) -> jnp.ndarray:
-        _, out = m.step(**inputs, state=state, streams=streams, inference=True)
-        return out.confounding_cost
+    def output(m: TDError) -> JaxRealArray:
+        _, out = m.step(**_inputs(2), state=state, streams=streams, inference=True)
+        return getattr(out, name)
 
-    grads = eqx.filter_grad(loss_fn)(td)
-    assert jnp.allclose(grads.witness_map.perceptron.layers[-1].weight.value, 0.0)
+    return eqx.filter_grad(output)(td)
 
 
-def test_witness_loss_does_not_train_prediction_map(
-    streams: Mapping[str, RngStream],
+@pytest.mark.parametrize("witness_map", _WITNESS_MAPS)
+def test_confounding_cost_does_not_train_witness_maps(
+    streams: Mapping[str, RngStream], witness_map: str
 ) -> None:
-    n = 2
-    td = _td_error(n, streams)
-    state = eqx.nn.State(td)
-    inputs = _inputs(n)
+    td = _td_error(2, streams)
+    grads = _output_gradients(td, "confounding_cost", streams)
+    assert jnp.allclose(_last_weight(grads, witness_map), 0.0)
 
-    def loss_fn(m: TDError) -> jnp.ndarray:
-        _, out = m.step(**inputs, state=state, streams=streams, inference=True)
-        return out.witness_loss
 
-    grads = eqx.filter_grad(loss_fn)(td)
+@pytest.mark.parametrize("witness_loss", _WITNESS_LOSSES)
+def test_witness_losses_do_not_train_prediction_map(
+    streams: Mapping[str, RngStream], witness_loss: str
+) -> None:
+    td = _td_error(2, streams)
+    grads = _output_gradients(td, witness_loss, streams)
     assert jnp.allclose(grads.prediction_map.layers[-1].weight.value, 0.0)
 
 
-def test_witness_loss_trains_witness_map(streams: Mapping[str, RngStream]) -> None:
-    n = 2
-    td = _td_error(n, streams)
-    state = eqx.nn.State(td)
-    inputs = _inputs(n)
-
-    def loss_fn(m: TDError) -> jnp.ndarray:
-        _, out = m.step(**inputs, state=state, streams=streams, inference=True)
-        return out.witness_loss
-
-    grads = eqx.filter_grad(loss_fn)(td)
-    assert jnp.any(jnp.abs(grads.witness_map.perceptron.layers[-1].weight.value) > 0)
+@pytest.mark.parametrize(
+    ("witness_loss", "witness_map"), zip(_WITNESS_LOSSES, _WITNESS_MAPS, strict=True)
+)
+def test_each_witness_loss_trains_only_its_witness_map(
+    streams: Mapping[str, RngStream], witness_loss: str, witness_map: str
+) -> None:
+    td = _td_error(2, streams)
+    grads = _output_gradients(td, witness_loss, streams)
+    (other_map,) = (name for name in _WITNESS_MAPS if name != witness_map)
+    assert jnp.any(jnp.abs(_last_weight(grads, witness_map)) > 0)
+    assert jnp.allclose(_last_weight(grads, other_map), 0.0)
 
 
 def test_discount_scales_current_prediction_contribution_to_advantage(

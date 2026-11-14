@@ -292,13 +292,15 @@ def test_recruiter_feature_observation_equals_pre_gain(
 def test_recruiter_feature_witness_input_omits_gain(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """The recruiter's witness map input dim is 2 * predictor_features only."""
+    """The recruiter's witness maps take 2 * predictor_features inputs only."""
     n = 2
     feature = _recruiter_feature(n, streams)
-    first_layer = feature.feature.mismatch.witness_map.perceptron.layers[0]
+    mismatch = feature.feature.mismatch
     # predictor_features=2 → witness input dim = 2 * 2 (no gain concat).
     expected_input_dim = 2 * 2
-    assert first_layer.weight.value.shape[-1] == expected_input_dim
+    for witness_map in (mismatch.integral_witness_map, mismatch.proportional_witness_map):
+        first_layer = witness_map.perceptron.layers[0]
+        assert first_layer.weight.value.shape[-1] == expected_input_dim
 
 
 def test_recruiter_feature_step_runs_without_gain(

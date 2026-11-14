@@ -14,12 +14,16 @@ and take no prefix.
 Circuit sub-modules:
 
 - `Credit` — eligibility-based parameter-update rule.
-- `Mismatch` — witness over predictor and gain instruments producing reconstruction and confounding
-  costs.
-- `WitnessMap` — the confounding witness shared by `Mismatch` and `TDError`. It encodes each
-  instrument with bounded presence and returns tanh-bounded coefficients centred at the
-  all-certain-zero context. `witness_loss` trains it under the participation-weighted norm bound,
-  enforced by each circuit's learned witness multiplier.
+- `Mismatch` — prediction and two witnesses over predictor and gain instruments producing
+  reconstruction and confounding costs.
+- `IntegralWitnessMap` and `ProportionalWitnessMap` — the two witnesses shared by `Mismatch` and
+  `TDError`. Both encode each instrument with bounded presence and centre their output at the
+  all-certain-zero context. The integral witness returns tanh-bounded coefficients and ascends
+  `integral_witness_loss` under the participation-weighted norm bound, enforced by each circuit's
+  learned witness multiplier. The proportional witness is unbounded and ascends
+  `proportional_witness_loss`, a gain-weighted regression on the residuals. `witness_losses`
+  combines them: the confounding cost adds the proportional loss, scaled by the damping weight, to
+  the integral loss, which damps purification without moving its resting point.
 - `TDError` — Gaussian bootstrap value error with uncertainty penalty.
 - `Emitter` — forward dynamics: observation map, instrument map, noise top-up, injection.
 - `inherit_instrument`, `instrument_loss` — the first-stage instrument map and the
@@ -81,9 +85,9 @@ widths in `EnvironmentFeatures` and circuit settings in `CreditSettings`, `Misma
 and `TDSettings`. The agent derives connection widths from the environment and feature widths.
 
 `CreditSettings` requires a finite, positive trace decay rate shared by the agent's credit
-circuits. Mismatch and TD settings select the prediction and witness hidden widths. The TD
-settings also supply the discount. By default, the maps have no hidden layers and the discount
-is one.
+circuits. Mismatch and TD settings select the prediction, integral witness, and proportional
+witness hidden widths and the damping weight. The TD settings also supply the discount. By
+default, the maps have no hidden layers, and the damping weight and the discount are one.
 
 ## Target code layout
 
@@ -92,7 +96,8 @@ is one.
       evidence scaling, variance-from-precision).
     - `credit.py` — `Credit`.
     - `mismatch.py` — `Mismatch`.
-    - `witness.py` — `WitnessMap`, `witness_residuals`, `witness_loss`.
+    - `witness.py` — `IntegralWitnessMap`, `ProportionalWitnessMap`, `witness_residuals`,
+      `witness_losses`.
     - `instrument.py` — `inherit_instrument`, `instrument_loss`.
     - `td_error.py` — `TDError`.
     - `emitter.py` — `Emitter`.
