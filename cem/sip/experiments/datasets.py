@@ -19,6 +19,8 @@ from .scenarios import (
 
 _PARENT_INSTRUMENT_PRECISION = 1.0
 _FEATURE_OBSERVATION_PRECISION = 100.0
+# The variance of each feature's raw observation about the feature's value.
+FEATURE_OBSERVATION_VARIANCE = 1.0 / _FEATURE_OBSERVATION_PRECISION
 
 
 class InstrumentChainObservation(ProblemObservation):

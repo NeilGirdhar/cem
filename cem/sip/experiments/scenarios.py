@@ -3,6 +3,7 @@
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
+import numpy as np
 from tjax import JaxRealArray, KeyArray
 
 
@@ -100,6 +101,33 @@ class ConfoundedPredictionScenario(eqx.Module):
     @property
     def n_parents(self) -> int:
         return len(self.effects)
+
+    def interventional_variance(self) -> float:
+        """Return the target's variance when the parents are set by intervention.
+
+        Setting the parents leaves only the confounder and the disturbance to vary the target.
+        """
+        return self.target_confounding**2 + self.noise**2
+
+    def observational_variance(self) -> float:
+        """Return the target's variance about its best linear prediction from the parents.
+
+        The parents carry information about the confounder, so this is smaller than the
+        interventional variance.
+        """
+        effects = np.asarray(self.effects)
+        ones = np.ones_like(effects)
+        parent_covariance = (1.0 + self.noise**2) * np.eye(self.n_parents) + (
+            self.parent_confounding**2 * np.outer(ones, ones)
+        )
+        confounded = self.parent_confounding * self.target_confounding
+        covariance = parent_covariance @ effects + confounded * ones
+        target_variance = (
+            effects @ parent_covariance @ effects
+            + 2.0 * confounded * float(np.sum(effects))
+            + self.interventional_variance()
+        )
+        return float(target_variance - covariance @ np.linalg.solve(parent_covariance, covariance))
 
     def sample(self, key: KeyArray) -> ConfoundedPredictionSample:
         noise_key, confounder_key, parent_key, target_key = jr.split(key, 4)

@@ -8,7 +8,10 @@ from cem.sip.experiments.instruments import (
     sip_inherited_instrument_experiment,
     sip_instrument_depth_experiment,
 )
-from cem.sip.experiments.prediction import sip_causal_mean_experiment
+from cem.sip.experiments.prediction import (
+    sip_causal_mean_experiment,
+    sip_causal_variance_experiment,
+)
 
 experiments: dict[str, Experiment] = {
     experiment.name: experiment
@@ -19,5 +22,6 @@ experiments: dict[str, Experiment] = {
         sip_instrument_depth_experiment,
         sip_exclusion_repair_experiment,
         sip_causal_mean_experiment,
+        sip_causal_variance_experiment,
     ]
 }

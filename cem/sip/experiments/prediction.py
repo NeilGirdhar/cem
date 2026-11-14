@@ -36,6 +36,7 @@ from cem.sip.settings import MismatchSettings
 from .baselines import ordinary_least_squares_coefficients, two_stage_least_squares_coefficients
 from .common import SEED_COUNT, SeededExperiment, bar_chart
 from .datasets import (
+    FEATURE_OBSERVATION_VARIANCE,
     ConfoundedPredictionObservation,
     ConfoundedPredictionProblem,
     ConfoundedPredictionState,
@@ -46,9 +47,10 @@ _TARGET_NODE = "target"
 
 
 class PredictionConfiguration(NodeConfiguration):
-    """The mean of the target's prediction."""
+    """The mean and variance of the target's prediction."""
 
     predicted_mean: JaxRealArray  # scalar
+    predicted_variance: JaxRealArray  # scalar
 
 
 class PurificationModel(Model):
@@ -91,20 +93,27 @@ class PurificationModel(Model):
             streams=streams,
             inference=inference,
         )
-        prediction = self.mismatch.prediction_map.infer(observation.predictor.observation)
+        prediction = self.mismatch.prediction_map.infer(
+            observation.predictor.observation
+        ).to_variance_parametrization()
         return ModelResult(
             loss=outputs.loss if self.purify else outputs.reconstruction_cost,
             configurations=frozendict(
-                {_TARGET_NODE: PredictionConfiguration(predicted_mean=prediction.mean()[0])}
+                {
+                    _TARGET_NODE: PredictionConfiguration(
+                        predicted_mean=prediction.mean[0], predicted_variance=prediction.variance[0]
+                    )
+                }
             ),
             state=state,
         )
 
 
 class PredictionSamples(eqx.Module):
-    """Held-out examples: the prediction's mean and the structural variables."""
+    """Held-out examples: the prediction's moments and the structural variables."""
 
     predicted_mean: JaxRealArray  # (..., batch)
+    predicted_variance: JaxRealArray  # (..., batch)
     injected_noise: JaxRealArray  # (..., batch, k)
     parents: JaxRealArray  # (..., batch, k)
     target: JaxRealArray  # (..., batch)
@@ -127,6 +136,7 @@ class PredictionTelemetry(Telemetry):
         sample = state.sample
         return PredictionSamples(
             predicted_mean=configuration.predicted_mean,
+            predicted_variance=configuration.predicted_variance,
             injected_noise=sample.injected_noise,
             parents=sample.parents,
             target=sample.target,
@@ -173,9 +183,21 @@ def run_prediction_estimates(run: Run) -> PredictionEstimates:
     return estimate_prediction(samples)
 
 
+def run_predicted_variance(run: Run) -> float:
+    """Return the mean predicted variance over one run's held-out samples."""
+    samples = run.inference_results.telemetries[PredictionTelemetry()]
+    assert isinstance(samples, PredictionSamples)
+    return float(np.mean(np.asarray(samples.predicted_variance)))
+
+
 def variant_label(condition: str, *, purify: bool) -> str:
     """Return the label of a condition's variant with or without purification."""
     return f"{condition}, {'purification' if purify else 'reconstruction'}"
+
+
+def _condition_runs(runs: Sequence[Run], condition: str, *, purify: bool) -> list[Run]:
+    label = variant_label(condition, purify=purify)
+    return [run for run in runs if run.variant_label == label]
 
 
 class CausalMeanPlotter(Plotter):
@@ -196,8 +218,10 @@ class CausalMeanPlotter(Plotter):
     @override
     def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
         def estimates(*, purify: bool) -> list[PredictionEstimates]:
-            label = variant_label(self.condition, purify=purify)
-            return [run_prediction_estimates(run) for run in runs if run.variant_label == label]
+            return [
+                run_prediction_estimates(run)
+                for run in _condition_runs(runs, self.condition, purify=purify)
+            ]
 
         reconstruction = estimates(purify=False)
         purification = estimates(purify=True)
@@ -231,6 +255,50 @@ class CausalMeanPlotter(Plotter):
                 for estimator, seed_values in by_estimator.items()
             },
         }
+
+
+class CausalVariancePlotter(Plotter):
+    """Compare the learned predicted variances with the observational and interventional ones.
+
+    The observational variance is the target observation's variance about its best linear
+    prediction from the parents. The interventional variance is its variance with the parents set
+    by intervention. Both are population values, so they have no spread across seeds.
+    """
+
+    _: KW_ONLY
+    condition: str = field(static=True)
+    scenario: ConfoundedPredictionScenario = field(static=True)
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((PredictionTelemetry(),))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        def variances(*, purify: bool) -> list[float]:
+            return [
+                run_predicted_variance(run)
+                for run in _condition_runs(runs, self.condition, purify=purify)
+            ]
+
+        reconstruction = variances(purify=False)
+        purification = variances(purify=True)
+        observational = self.scenario.observational_variance() + FEATURE_OBSERVATION_VARIANCE
+        interventional = self.scenario.interventional_variance() + FEATURE_OBSERVATION_VARIANCE
+        return bar_chart(
+            ["Observational", "Reconstruction", "Purification", "Interventional"],
+            {
+                "variance": (
+                    "Variance",
+                    [
+                        [observational for _ in purification],
+                        reconstruction,
+                        purification,
+                        [interventional for _ in purification],
+                    ],
+                )
+            },
+        ) | {"observational variance": observational, "interventional variance": interventional}
 
 
 def sgd_gradient_transformations(learning_rate: float) -> DisGradientTransformation:
@@ -290,11 +358,23 @@ class PurificationSolver(Solver[ConfoundedPredictionProblem]):
 
 ONE_PARENT = "One parent"
 TWO_PARENTS = "Two parents"
-CAUSAL_MEAN_SCENARIOS = {
+PURIFICATION_SCENARIOS = {
     ONE_PARENT: ConfoundedPredictionScenario(),
     TWO_PARENTS: ConfoundedPredictionScenario(effects=(1.5, -1.0)),
 }
-_PLOTTER_NAMES = {ONE_PARENT: "causal-mean-one-parent", TWO_PARENTS: "causal-mean-two-parents"}
+_CONDITION_SLUGS = {ONE_PARENT: "one-parent", TWO_PARENTS: "two-parents"}
+
+
+def _purification_variants(solver: PurificationSolver) -> list[Variant]:
+    """Return each condition's variants with reconstruction alone and with purification."""
+    return [
+        Variant(
+            label=variant_label(condition, purify=purify),
+            solver=replace(solver, scenario=scenario, purify=purify),
+        )
+        for condition, scenario in PURIFICATION_SCENARIOS.items()
+        for purify in (False, True)
+    ]
 
 
 class CausalMeanExperiment(SeededExperiment):
@@ -309,28 +389,58 @@ class CausalMeanExperiment(SeededExperiment):
     def __init__(
         self, solver: PurificationSolver | None = None, *, seeds: int = SEED_COUNT
     ) -> None:
-        solver = PurificationSolver() if solver is None else solver
         super().__init__(
             name="sip-causal-mean",
-            variants=[
-                Variant(
-                    label=variant_label(condition, purify=purify),
-                    solver=replace(solver, scenario=scenario, purify=purify),
-                )
-                for condition, scenario in CAUSAL_MEAN_SCENARIOS.items()
-                for purify in (False, True)
-            ],
+            variants=_purification_variants(PurificationSolver() if solver is None else solver),
             plotters=[
                 CausalMeanPlotter(
-                    name=_PLOTTER_NAMES[condition],
+                    name=f"causal-mean-{_CONDITION_SLUGS[condition]}",
                     title=f"Effect errors on held-out samples: {condition.lower()}",
                     condition=condition,
                     effects=scenario.effects,
                 )
-                for condition, scenario in CAUSAL_MEAN_SCENARIOS.items()
+                for condition, scenario in PURIFICATION_SCENARIOS.items()
+            ],
+            sweep=[{"seed": seed} for seed in range(seeds)],
+        )
+
+
+# The variance converges more slowly than the mean.
+_VARIANCE_TRAINING_EXAMPLES = 80_000
+
+
+class CausalVarianceExperiment(SeededExperiment):
+    """Test 5: purification makes the predicted variance match the interventional variance.
+
+    The confounder enters the target additively, so the target's deviation from its causal mean is
+    independent of the instruments. The interventional variance then satisfies the circuit's
+    second-moment restriction. Reconstruction alone learns the smaller observational variance,
+    because the parents carry information about the confounder.
+    """
+
+    def __init__(
+        self, solver: PurificationSolver | None = None, *, seeds: int = SEED_COUNT
+    ) -> None:
+        solver = (
+            PurificationSolver(training_examples=_VARIANCE_TRAINING_EXAMPLES)
+            if solver is None
+            else solver
+        )
+        super().__init__(
+            name="sip-causal-variance",
+            variants=_purification_variants(solver),
+            plotters=[
+                CausalVariancePlotter(
+                    name=f"causal-variance-{_CONDITION_SLUGS[condition]}",
+                    title=f"Predicted variance on held-out samples: {condition.lower()}",
+                    condition=condition,
+                    scenario=scenario,
+                )
+                for condition, scenario in PURIFICATION_SCENARIOS.items()
             ],
             sweep=[{"seed": seed} for seed in range(seeds)],
         )
 
 
 sip_causal_mean_experiment = CausalMeanExperiment()
+sip_causal_variance_experiment = CausalVarianceExperiment()
