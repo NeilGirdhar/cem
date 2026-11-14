@@ -73,3 +73,48 @@ class InstrumentChainScenario(eqx.Module):
             oracle_first_stages=jnp.stack(oracle_first_stages),
             features=jnp.stack(features),
         )
+
+
+class ConfoundedPredictionSample(eqx.Module):
+    """One draw of the parents' injected noise, the confounder, the parents, and the target."""
+
+    injected_noise: JaxRealArray  # (k,)
+    confounder: JaxRealArray  # scalar
+    parents: JaxRealArray  # (k,)
+    target: JaxRealArray  # scalar
+
+
+class ConfoundedPredictionScenario(eqx.Module):
+    """Parents with injected noise and a target that they cause, all driven by one confounder.
+
+    Each parent is its own standard normal noise plus the confounder and a disturbance. The target
+    is a linear function of the parents plus the confounder and a disturbance. Regressing the target
+    on the parents is biased; each parent's noise identifies its effect.
+    """
+
+    effects: tuple[float, ...] = eqx.field(static=True, default=(1.5,))
+    parent_confounding: float = eqx.field(static=True, default=1.0)
+    target_confounding: float = eqx.field(static=True, default=-2.0)
+    noise: float = eqx.field(static=True, default=0.5)
+
+    @property
+    def n_parents(self) -> int:
+        return len(self.effects)
+
+    def sample(self, key: KeyArray) -> ConfoundedPredictionSample:
+        noise_key, confounder_key, parent_key, target_key = jr.split(key, 4)
+        injected_noise = jr.normal(noise_key, (self.n_parents,))
+        confounder = jr.normal(confounder_key, ())
+        parents = (
+            injected_noise
+            + self.parent_confounding * confounder
+            + self.noise * jr.normal(parent_key, (self.n_parents,))
+        )
+        target = (
+            jnp.vecdot(jnp.asarray(self.effects), parents)
+            + self.target_confounding * confounder
+            + self.noise * jr.normal(target_key, ())
+        )
+        return ConfoundedPredictionSample(
+            injected_noise=injected_noise, confounder=confounder, parents=parents, target=target
+        )

@@ -8,8 +8,14 @@ from tjax import KeyArray
 
 from cem.framework.problem import DataSource, Problem
 from cem.framework.problem.data_source import ProblemObservation, ProblemState
+from cem.sip.messages import InstrumentedMessage
 
-from .scenarios import InstrumentChainSample, InstrumentChainScenario
+from .scenarios import (
+    ConfoundedPredictionSample,
+    ConfoundedPredictionScenario,
+    InstrumentChainSample,
+    InstrumentChainScenario,
+)
 
 _PARENT_INSTRUMENT_PRECISION = 1.0
 _FEATURE_OBSERVATION_PRECISION = 100.0
@@ -73,4 +79,69 @@ class InstrumentChainProblem(Problem):
         return InstrumentChainObservation(
             parent_instrument=state.parent_instrument,
             feature_observations=state.feature_observations,
+        )
+
+
+class ConfoundedPredictionObservation(ProblemObservation):
+    """The parents' instrumented messages and the target's raw observation."""
+
+    predictor: InstrumentedMessage  # (k,)
+    target_observation: NormalNP  # (1,)
+
+
+class ConfoundedPredictionState(ConfoundedPredictionObservation, ProblemState):
+    """The observation together with the structural sample that generated it."""
+
+    sample: ConfoundedPredictionSample
+
+
+class ConfoundedPredictionDataSource(DataSource):
+    """Draw fresh samples from the scenario.
+
+    Each parent is a root controllable feature: its observation is its value, observed precisely,
+    and its instrument has its injected noise as its mean and unit precision. The target's raw
+    observation is the target's value, observed precisely.
+    """
+
+    scenario: ConfoundedPredictionScenario
+
+    @override
+    def initial_problem_state(self, example_key: KeyArray) -> ConfoundedPredictionState:
+        sample = self.scenario.sample(example_key)
+        noise = sample.injected_noise
+        target = sample.target[jnp.newaxis]
+        return ConfoundedPredictionState(
+            predictor=InstrumentedMessage(
+                observation=NormalPP(
+                    sample.parents, jnp.full_like(noise, _FEATURE_OBSERVATION_PRECISION)
+                ).to_nat(),
+                instrument=NormalPP(
+                    noise, jnp.full_like(noise, _PARENT_INSTRUMENT_PRECISION)
+                ).to_nat(),
+            ),
+            target_observation=NormalPP(
+                target, jnp.full_like(target, _FEATURE_OBSERVATION_PRECISION)
+            ).to_nat(),
+            sample=sample,
+        )
+
+
+class ConfoundedPredictionProblem(Problem):
+    """Predict a target from its parents' observations, with the parents' instruments available.
+
+    Training and inference draw from the same scenario. Their samples are independent because the
+    solver gives each split its own seed, so evaluation is always on held-out samples.
+    """
+
+    scenario: ConfoundedPredictionScenario
+
+    @override
+    def create_data_source(self, *, inference: bool = False) -> ConfoundedPredictionDataSource:
+        return ConfoundedPredictionDataSource(self.scenario)
+
+    @override
+    def extract_observation(self, state: ProblemState) -> ConfoundedPredictionObservation:
+        assert isinstance(state, ConfoundedPredictionState)
+        return ConfoundedPredictionObservation(
+            predictor=state.predictor, target_observation=state.target_observation
         )

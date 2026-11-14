@@ -27,7 +27,7 @@ Order of unblocked work: 1–12 (need `Emitter`, `Mismatch`, and `Credit`) then 
 - [x] Experiment 1
 - [x] Experiment 2
 - [x] Experiment 3
-- [ ] Experiment 4
+- [x] Experiment 4
 - [ ] Experiment 5
 - [ ] Experiment 6
 - [ ] Experiment 7

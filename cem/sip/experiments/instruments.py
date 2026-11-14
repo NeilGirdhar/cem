@@ -4,7 +4,7 @@ See `sip.md`, tests 1–3.
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import KW_ONLY, dataclass, replace
+from dataclasses import KW_ONLY, dataclass
 from statistics import fmean, pstdev
 from typing import Any, Self, override
 
@@ -17,7 +17,7 @@ from tjax import JaxRealArray, RngStream
 from tjax.dataclasses import field
 
 from cem.framework.graph import Model, ModelResult, NodeConfiguration
-from cem.framework.plotter import Experiment, Run, Variant
+from cem.framework.plotter import Run, Variant
 from cem.framework.plotter.plotter import PlottedSeries, Plotter
 from cem.framework.problem import DataSource, Problem
 from cem.framework.solution import Inference, InferenceResult, Telemetries, Telemetry
@@ -31,11 +31,11 @@ from .baselines import (
     two_stage_least_squares,
     two_stage_least_squares_coefficients,
 )
+from .common import SEED_COUNT, SeededExperiment, bar_chart
 from .datasets import InstrumentChainObservation, InstrumentChainProblem, InstrumentChainState
 from .scenarios import InstrumentChainScenario
 
 _CHAIN_NODE = "chain"
-_SEED_COUNT = 5
 
 
 class InstrumentChainConfiguration(NodeConfiguration):
@@ -187,33 +187,6 @@ def _run_hops(run: Run) -> tuple[HopEstimates, ...]:
     return estimate_hops(samples)
 
 
-def _bar_chart(
-    x_labels: Sequence[str], series: Mapping[str, tuple[str, Sequence[Sequence[float]]]]
-) -> PlottedSeries:
-    """Plot the mean of each series at each x position with one standard deviation across seeds.
-
-    Each series maps its key to its legend label and to its seed values at each x position.
-    """
-    return {
-        "iteration": list(range(len(x_labels))),
-        "x labels": list(x_labels),
-        "bar plots": {key: label for key, (label, _) in series.items()},
-        "bar errors": {
-            key: [pstdev(values) for values in seed_values]
-            for key, (_, seed_values) in series.items()
-        },
-        **{
-            key: [fmean(values) for values in seed_values]
-            for key, (_, seed_values) in series.items()
-        },
-        "seed values": {
-            key: [list(values) for values in seed_values]
-            for key, (_, seed_values) in series.items()
-        },
-        "error bars": "one population standard deviation across seeds",
-    }
-
-
 def _approximation_errors(hops_by_run: Sequence[tuple[HopEstimates, ...]]) -> PlottedSeries:
     """Report each hop's approximation error across seeds."""
     by_hop = [
@@ -252,7 +225,7 @@ class FirstStagePlotter(Plotter):
         hops_by_run = [_run_hops(run) for run in runs]
         first = [hops[0] for hops in hops_by_run]
         approximation = _approximation_errors(hops_by_run)
-        return _bar_chart(
+        return bar_chart(
             ["Oracle", "Inherited"],
             {
                 "strength": (
@@ -283,7 +256,7 @@ class DownstreamEffectPlotter(Plotter):
     def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
         first = [_run_hops(run)[0] for run in runs]
         errors = _estimator_errors(first, self.effect)
-        return _bar_chart(list(errors), {"error": ("Absolute error", list(errors.values()))}) | {
+        return bar_chart(list(errors), {"error": ("Absolute error", list(errors.values()))}) | {
             "true effect": self.effect
         }
 
@@ -303,7 +276,7 @@ class DepthFirstStagePlotter(Plotter):
     def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
         hops_by_run = [_run_hops(run) for run in runs]
         depth = len(hops_by_run[0])
-        return _bar_chart(
+        return bar_chart(
             [f"Feature {hop + 1}" for hop in range(depth)],
             {
                 "oracle": (
@@ -341,7 +314,7 @@ class DepthEffectPlotter(Plotter):
             _estimator_errors([hops[hop] for hops in hops_by_run], self.effect)
             for hop in range(depth)
         ]
-        return _bar_chart(
+        return bar_chart(
             [f"Hop {hop + 1}" for hop in range(depth)],
             {
                 key: (key, [errors[key] for errors in by_hop])
@@ -459,7 +432,7 @@ class ExclusionCoefficientsPlotter(Plotter):
                 for seed_values in by_estimator.values()
             ]
 
-        return _bar_chart(
+        return bar_chart(
             list(by_estimator),
             {"feature": ("Through the feature", errors(0)), "bypass": ("Bypass", errors(1))},
         ) | {"true effects": list(truth)}
@@ -482,7 +455,7 @@ class ExclusionDriftPlotter(Plotter):
         estimates = [_run_exclusion(run, self.scenario) for run in runs]
         effect = self.scenario.effect
         drift = bypass_drift(self.scenario)
-        return _bar_chart(
+        return bar_chart(
             ["True", "Repaired", "Omitted", "Predicted drift"],
             {
                 "estimate": (
@@ -528,33 +501,11 @@ class InstrumentChainSolver(Solver[InstrumentChainProblem]):
         )
 
 
-class _SeededExperiment(Experiment):
-    """Run one solver over several seeds.
-
-    Each seed trains from fresh initial parameters and evaluates on its own held-out samples,
-    where every estimator sees the same samples.
-    """
-
-    @override
-    def resolve_solver(
-        self,
-        variant: Variant,
-        sweep_entry: Mapping[str, Any],
-        hyperparameters: Mapping[str, Any],
-    ) -> Solver[Any]:
-        """Give each seed its own initial parameters and its own training and held-out samples."""
-        solver = super().resolve_solver(variant, sweep_entry, hyperparameters)
-        seed = sweep_entry["seed"]
-        return replace(
-            solver, parameters_seed=seed, training_seed=100 + seed, inference_seed=200 + seed
-        )
-
-
-class InheritedInstrumentExperiment(_SeededExperiment):
+class InheritedInstrumentExperiment(SeededExperiment):
     """Test 1: an inherited instrument identifies a downstream effect despite confounding."""
 
     def __init__(
-        self, solver: InstrumentChainSolver | None = None, *, seeds: int = _SEED_COUNT
+        self, solver: InstrumentChainSolver | None = None, *, seeds: int = SEED_COUNT
     ) -> None:
         solver = InstrumentChainSolver() if solver is None else solver
         super().__init__(
@@ -571,7 +522,7 @@ _DEPTH_SCENARIO = InstrumentChainScenario(depth=4, effect=1.0)
 _DEPTH_TRAINING_EXAMPLES = 40_000
 
 
-class InstrumentDepthExperiment(_SeededExperiment):
+class InstrumentDepthExperiment(SeededExperiment):
     """Test 2: inherited instruments identify every hop's effect along a confounded chain.
 
     With a unit effect, each hop adds confounded variation without amplifying the injected noise,
@@ -579,7 +530,7 @@ class InstrumentDepthExperiment(_SeededExperiment):
     """
 
     def __init__(
-        self, solver: InstrumentChainSolver | None = None, *, seeds: int = _SEED_COUNT
+        self, solver: InstrumentChainSolver | None = None, *, seeds: int = SEED_COUNT
     ) -> None:
         solver = (
             InstrumentChainSolver(
@@ -599,7 +550,7 @@ class InstrumentDepthExperiment(_SeededExperiment):
 _EXCLUSION_SCENARIO = InstrumentChainScenario(first_stage=(1.0, 1.0), bypass=(1.0, 0.0))
 
 
-class ExclusionRepairExperiment(_SeededExperiment):
+class ExclusionRepairExperiment(SeededExperiment):
     """Test 3: a bypass regressor repairs an exclusion violation.
 
     The first parent's noise reaches the successor both through the feature and directly. The
@@ -608,7 +559,7 @@ class ExclusionRepairExperiment(_SeededExperiment):
     """
 
     def __init__(
-        self, solver: InstrumentChainSolver | None = None, *, seeds: int = _SEED_COUNT
+        self, solver: InstrumentChainSolver | None = None, *, seeds: int = SEED_COUNT
     ) -> None:
         solver = InstrumentChainSolver(scenario=_EXCLUSION_SCENARIO) if solver is None else solver
         super().__init__(
