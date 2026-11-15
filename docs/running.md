@@ -16,7 +16,7 @@ The commands below assume the project's virtualenv is active — e.g. `source
 .venv/bin/activate.fish`. Otherwise prefix each command with `uv run` (so `cem list` becomes
 `uv run cem list`).
 
-The `cem` CLI is a Typer app with four verbs. Every experiment registered in
+The `cem` CLI is a Typer app with three verbs. Every experiment registered in
 `cem/commands/registry.py` is available by name; `cem list` prints the current catalogue.
 
 ## list — show registered experiments
@@ -25,7 +25,7 @@ The `cem` CLI is a Typer app with four verbs. Every experiment registered in
 cem list
 ```
 
-Prints each experiment's name and the verbs it supports (`generate`, `visualize`, and, for
+Prints each experiment's name and the verbs it supports (`generate` and, for
 `OptimizableExperiment` subclasses, `optimize`).
 
 ## generate — write chart JSON
@@ -38,15 +38,6 @@ Writes `results/supervised-missingness.json` containing every plotter's series f
 Each key in the JSON is a plotter `name` (e.g. `missing-data-distributional`,
 `calibration-scatter`). Override the directory with `--output-dir <path>`.
 
-## visualize — generate, compile, and open the PDF
-
-```bash
-cem visualize supervised-missingness
-```
-
-Generates the JSON, compiles a PDF with Typst/Lilaq, and opens it in the configured viewer.
-`--no-display` skips the viewer; `--viewer <bin>` overrides it.
-
 ## optimize — hyperparameter search
 
 ```bash
@@ -57,27 +48,8 @@ cem optimize <name> multi --trials 30 --jobs 8
 Only works for `OptimizableExperiment` subclasses. `single` runs trials in one process; `multi`
 dispatches across workers (`--jobs -1` uses all CPUs).
 
-## Rendering saved JSON in Typst
+## Chart JSON in the thesis
 
-The `cem generate` output is directly readable by `results/chart.typ`. Import one chart into
-another Typst document:
-
-```typst
-#import "results/chart.typ": chart-from-json
-
-#figure(
-  chart-from-json(
-    "supervised-missingness.json",
-    "missing-data-distributional",
-    width: 85%,
-  ),
-  caption: [Distributional loss on four tabular datasets.],
-)
-```
-
-To re-render saved JSON directly (one PDF per JSON):
-
-```bash
-typst compile --input source=supervised-missingness.json \
-    results/render.typ results/supervised-missingness.pdf
-```
+The thesis draws `cem generate` output with `chart.typ` in the thesis repository, which reads each
+plotter's dictionary from the JSON. That file documents the keys it reads (`line plots`,
+`bar plots`, `x labels`, `scatter series`, and so on).

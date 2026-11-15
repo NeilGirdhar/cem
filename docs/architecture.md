@@ -208,7 +208,7 @@ sharing `datasets.py` and `models.py`.
    ```
 
 4. **Register.** Import that singleton in `cem/commands/registry.py` and add it to the
-   `experiments` dict. The CLI picks it up under every verb (`list`, `generate`, `visualize`,
+   `experiments` dict. The CLI picks it up under every verb (`list`, `generate`, and
    `optimize` when applicable).
 
 Existing examples: `cem/npn/experiments/supervised/missingness.py` and

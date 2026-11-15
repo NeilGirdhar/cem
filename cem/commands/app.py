@@ -1,4 +1,4 @@
-"""Commands for listing, running, visualizing, and tuning experiments."""
+"""Commands for listing, running, and tuning experiments."""
 
 import json
 import logging
@@ -11,7 +11,6 @@ from typer import Argument, Option
 from cem.framework import Experiment, OptimizableExperiment, set_up_logging, solver_context_manager
 
 from ._optimize import OptimizationMode, run_optimize
-from ._render import compile_pdf, open_pdf
 from .registry import experiments
 from .settings import jax_cache_dir
 
@@ -58,7 +57,7 @@ def list_experiments() -> None:
     width = max(len(name) for name in experiments)
     for name in sorted(experiments):
         experiment = experiments[name]
-        verbs = "generate, visualize"
+        verbs = "generate"
         if isinstance(experiment, OptimizableExperiment):
             verbs += ", optimize"
         typer.echo(f"{name:<{width}}  ({verbs})")
@@ -73,23 +72,6 @@ def generate(
 ) -> None:
     """Run the named experiment and write its chart data as JSON."""
     _run_to_json(_lookup(name), output_dir, log=log)
-
-
-@app.command()
-def visualize(
-    name: str,
-    *,
-    output_dir: Annotated[Path, Option("--output-dir")] = Path("results"),
-    viewer: Annotated[str | None, Option("--viewer")] = None,
-    display: Annotated[bool, Option("--display/--no-display")] = True,
-    log: bool = True,
-) -> None:
-    """Run the named experiment, render its chart as a PDF, and optionally open it."""
-    json_path = _run_to_json(_lookup(name), output_dir, log=log)
-    pdf_path = output_dir / f"{name}.pdf"
-    compile_pdf(json_path, pdf_path)
-    if display:
-        open_pdf(pdf_path, viewer=viewer)
 
 
 @app.command()
