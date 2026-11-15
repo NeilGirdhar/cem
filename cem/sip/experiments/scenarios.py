@@ -208,3 +208,131 @@ class ConfoundedPredictionScenario(eqx.Module):
         return (1.0 + self.noise**2) * np.eye(self.n_parents) + (
             self.parent_confounding**2 * np.outer(ones, ones)
         )
+
+
+class EndogenousGainSample(eqx.Module):
+    """One draw of a confounded prediction sample, the gain instrument, and the observed gain."""
+
+    prediction: ConfoundedPredictionSample
+    gain_noise: JaxRealArray  # scalar
+    gain: JaxRealArray  # scalar
+
+
+class GainMoments(eqx.Module):
+    """The population moments of a prediction's gain-weighted residuals given the instruments.
+
+    Each has the shape of the instrument draws.
+    """
+
+    mean: JaxRealArray  # E[γ δ₁ | Ỹ₁, γ̃]
+    variance: JaxRealArray  # E[γ δ₂ | Ỹ₁, γ̃]
+    gain: JaxRealArray  # E[γ | γ̃]
+
+
+class EndogenousGainScenario(eqx.Module):
+    """A one-parent confounded prediction scenario with an additive gain.
+
+    The observed gain is f(U) + γ̃, where f(U) = 0.5 + κ tanh(U), U is the confounder, and the gain
+    instrument γ̃ is drawn uniformly from [-0.2, 0.2] independently of everything else. With κ = 0,
+    the gain is exogenous. With κ > 0, it depends on the confounder, and weighting by gain shifts
+    the confounder's gain-weighted mean by an amount that varies with γ̃.
+    """
+
+    prediction: ConfoundedPredictionScenario = eqx.field(
+        static=True, default_factory=ConfoundedPredictionScenario
+    )
+    gain_confounding: float = eqx.field(static=True, default=0.0)  # κ
+    base_gain: float = eqx.field(static=True, default=0.5)
+    gain_noise_width: float = eqx.field(static=True, default=0.2)
+
+    def __check_init__(self) -> None:  # ruff:ignore[bad-dunder-method-name]
+        if self.prediction.n_parents != 1 or self.prediction.nonlinear:
+            msg = "EndogenousGainScenario needs a linear one-parent prediction scenario"
+            raise ValueError(msg)
+        if self.gain_confounding + self.gain_noise_width >= self.base_gain:
+            msg = "The gain must stay positive"
+            raise ValueError(msg)
+
+    def sample(self, key: KeyArray) -> EndogenousGainSample:
+        prediction_key, gain_key = jr.split(key)
+        prediction = self.prediction.sample(prediction_key)
+        width = self.gain_noise_width
+        gain_noise = jr.uniform(gain_key, (), minval=-width, maxval=width)
+        return EndogenousGainSample(
+            prediction=prediction,
+            gain_noise=gain_noise,
+            gain=self._confounded_gain(prediction.confounder) + gain_noise,
+        )
+
+    def samples(self, key: KeyArray, examples: int) -> EndogenousGainSample:
+        """Return independent draws, each field with a leading axis of length `examples`."""
+        return jax.vmap(self.sample)(jr.split(key, examples))
+
+    def gain_weighted_confounder_mean(self, gain_noise: JaxRealArray) -> JaxRealArray:
+        """Return m(γ̃), the gain-weighted mean of the confounder at each gain instrument value."""
+        gain_mean, confounder_moment, _ = self._gain_confounder_moments()
+        return confounder_moment / (gain_mean + gain_noise)
+
+    def population_moments(
+        self,
+        *,
+        slope: float,
+        intercept: float,
+        variance: float,
+        observation_variance: float,
+        parent_noise: JaxRealArray,
+        gain_noise: JaxRealArray,
+    ) -> GainMoments:
+        """Return the gain-weighted residual moments of the prediction slope y + intercept.
+
+        The prediction has the given constant variance, and the target observation adds the
+        observation variance. The moments integrate out the confounder and both disturbances at
+        each instrument draw. The variance residual is the predicted variance minus the target
+        observation variance and the squared mean residual, so both moments vanish for a
+        calibrated prediction.
+
+        Args:
+            slope: The prediction's slope on the parent.
+            intercept: The prediction's intercept.
+            variance: The prediction's variance.
+            observation_variance: The variance of the target's observation.
+            parent_noise: The parent instrument draws Ỹ₁.
+            gain_noise: The gain instrument draws γ̃, the same shape as `parent_noise`.
+        """
+        scenario = self.prediction
+        slope_error = slope - scenario.effects[0]
+        # δ₁ = d + b U + e, where e collects both disturbances.
+        offset = slope_error * parent_noise + intercept
+        confounder_coefficient = slope_error * scenario.parent_confounding - (
+            scenario.target_confounding
+        )
+        disturbance_variance = scenario.noise**2 * (slope_error**2 + 1.0)
+        gain_mean, confounder_moment, squared_confounder_moment = self._gain_confounder_moments()
+        gain = gain_mean + gain_noise
+        mean = offset * gain + confounder_coefficient * confounder_moment
+        squared_residual = (
+            jnp.square(offset) * gain
+            + 2.0 * offset * confounder_coefficient * confounder_moment
+            + confounder_coefficient**2 * (squared_confounder_moment + gain_noise)
+            + disturbance_variance * gain
+        )
+        return GainMoments(
+            mean=mean,
+            variance=(variance - observation_variance) * gain - squared_residual,
+            gain=gain,
+        )
+
+    def _confounded_gain(self, confounder: JaxRealArray) -> JaxRealArray:
+        """Return f(U), the part of the gain that the confounder sets."""
+        return self.base_gain + self.gain_confounding * jnp.tanh(confounder)
+
+    def _gain_confounder_moments(self) -> tuple[float, float, float]:
+        """Return E[f(U)], E[f(U) U], and E[f(U) U²] by Gauss–Hermite quadrature."""
+        nodes, weights = np.polynomial.hermite_e.hermegauss(64)
+        weights /= weights.sum()
+        gain = np.asarray(self._confounded_gain(jnp.asarray(nodes)))
+        return (
+            float(weights @ gain),
+            float(weights @ (gain * nodes)),
+            float(weights @ (gain * nodes**2)),
+        )

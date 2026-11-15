@@ -3,8 +3,8 @@
 See `sip.md`, tests 4–8.
 """
 
-from collections.abc import Mapping, Sequence
-from dataclasses import KW_ONLY, dataclass, replace
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import KW_ONLY, asdict, dataclass, replace
 from typing import Any, Self, override
 
 import equinox as eqx
@@ -41,6 +41,7 @@ from cem.framework.solution import (
 )
 from cem.framework.solver import Solver, bool_field, float_field, int_field
 from cem.npn.gaussian import MINIMUM_VARIANCE, UNIT_SOFTPLUS_RAW
+from cem.sip.messages import concat_messages
 from cem.sip.mismatch import Mismatch
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
@@ -65,8 +66,15 @@ from .datasets import (
     ConfoundedPredictionObservation,
     ConfoundedPredictionProblem,
     ConfoundedPredictionState,
+    EndogenousGainObservation,
+    EndogenousGainProblem,
+    EndogenousGainState,
 )
-from .scenarios import ConfoundedPredictionSample, ConfoundedPredictionScenario
+from .scenarios import (
+    ConfoundedPredictionSample,
+    ConfoundedPredictionScenario,
+    EndogenousGainScenario,
+)
 
 _TARGET_NODE = "target"
 
@@ -1198,7 +1206,384 @@ class NonlinearEffectExperiment(SeededExperiment):
         )
 
 
+class GainPredictionConfiguration(NodeConfiguration):
+    """The target's predicted moments and both witnesses' outputs for one example."""
+
+    predicted_mean: JaxRealArray  # scalar
+    predicted_variance: JaxRealArray  # scalar
+    integral_witness: JaxRealArray  # (2,), mean and variance coordinates
+    proportional_witness: JaxRealArray  # (2,), mean and variance coordinates
+
+
+class EndogenousGainModel(Model):
+    """A target's full mismatch circuit with a gain parent.
+
+    The prediction map reads the parent's observation and fits one slope, one intercept, and one
+    variance. The observed gain weights learning, and both witnesses read the parent's instrument
+    and the gain instrument.
+    """
+
+    mismatch: Mismatch
+
+    @classmethod
+    def create(
+        cls, *, mismatch_settings: MismatchSettings, streams: Mapping[str, RngStream]
+    ) -> Self:
+        return cls(
+            Mismatch.create(
+                1,
+                predictor_features=1,
+                gain_features=1,
+                mismatch_settings=mismatch_settings,
+                streams=streams,
+            )
+        )
+
+    def prediction(self, parent: NormalNP) -> NormalVP:
+        """Return the prediction from the parent's observation."""
+        return self.mismatch.prediction_map.infer(parent).to_variance_parametrization()
+
+    @override
+    def infer(
+        self,
+        observation: object,
+        state: object,
+        *,
+        streams: Mapping[str, RngStream],
+        inference: bool,
+    ) -> ModelResult:
+        assert isinstance(observation, EndogenousGainObservation)
+        outputs = self.mismatch.step(
+            raw_observation=observation.target_observation,
+            local_variance=jnp.zeros(1),
+            predictor=observation.predictor,
+            gain=observation.gain,
+            streams=streams,
+            inference=inference,
+        )
+        instruments = concat_messages(observation.predictor.instrument, observation.gain.instrument)
+        prediction = self.prediction(observation.predictor.observation)
+        return ModelResult(
+            loss=outputs.loss,
+            configurations=frozendict(
+                {
+                    _TARGET_NODE: GainPredictionConfiguration(
+                        predicted_mean=prediction.mean[0],
+                        predicted_variance=prediction.variance[0],
+                        integral_witness=self.mismatch.integral_witness_map.infer(
+                            instruments, streams=streams, inference=inference
+                        )[0],
+                        proportional_witness=self.mismatch.proportional_witness_map.infer(
+                            instruments, streams=streams, inference=inference
+                        )[0],
+                    )
+                }
+            ),
+            state=state,
+        )
+
+
+class GainFitTelemetry(Telemetry):
+    """Record the endogenous-gain model's slope, intercept, and variance after every update.
+
+    The snapshot holds the predicted means at the parent values zero and one, and the predicted
+    variance, which is constant. Other models record nothing.
+    """
+
+    @override
+    def training_snapshot(
+        self,
+        training_solution: TrainingSolution,
+        training_result: TrainingResult,
+        snapshots: Mapping[Telemetry, Any],
+    ) -> JaxRealArray | None:
+        model = training_solution.inference.assemble_model(
+            training_result.solution_state.dis_learnable_parameters.assembled()
+        )
+        if not isinstance(model, EndogenousGainModel):
+            return None
+        at_zero, at_one = (model.prediction(_probe(parent)) for parent in (0.0, 1.0))
+        return jnp.stack([at_zero.mean[0], at_one.mean[0], at_zero.variance[0]])
+
+
+class GainWitnessSamples(eqx.Module):
+    """Held-out instrument draws, gains, and both witnesses' outputs."""
+
+    parent_noise: JaxRealArray  # (..., batch)
+    gain_noise: JaxRealArray  # (..., batch)
+    integral_witness: JaxRealArray  # (..., batch, 2)
+    proportional_witness: JaxRealArray  # (..., batch, 2)
+
+
+class GainWitnessTelemetry(Telemetry):
+    """Record every held-out example's instruments and witness outputs."""
+
+    @override
+    def inference_snapshot(
+        self,
+        inference: Inference,
+        inference_result: InferenceResult,
+        snapshots: Mapping[Telemetry, Any],
+    ) -> GainWitnessSamples | None:
+        configuration = inference_result.model_configuration[_TARGET_NODE]
+        if not isinstance(configuration, GainPredictionConfiguration):
+            return None
+        state = inference_result.initial_problem_state
+        assert isinstance(state, EndogenousGainState)
+        return GainWitnessSamples(
+            parent_noise=state.sample.prediction.injected_noise[..., 0],
+            gain_noise=state.sample.gain_noise,
+            integral_witness=configuration.integral_witness,
+            proportional_witness=configuration.proportional_witness,
+        )
+
+
+@dataclass(frozen=True)
+class GainFit:
+    """A run's final slope, intercept, and variance."""
+
+    slope: float
+    intercept: float
+    variance: float
+
+    @classmethod
+    def from_run(cls, run: Run) -> Self:
+        at_zero, at_one, variance = np.asarray(
+            run.training_results.telemetries[GainFitTelemetry()]
+        )[-1]
+        return cls(
+            slope=float(at_one - at_zero), intercept=float(at_zero), variance=float(variance)
+        )
+
+
+@dataclass(frozen=True)
+class GainScores:
+    """A run's fit and the population moments at it, over its held-out instrument draws.
+
+    Each moment is a root mean square over the draws. The proportional witness estimates each
+    gain-weighted moment divided by the mean gain, so each correlation compares the learned
+    proportional witness with that population target. The integral score is the population value
+    of the integral witness loss, the mean over draws of each moment times the integral witness.
+    """
+
+    fit: GainFit
+    mean_moment: float
+    variance_moment: float
+    mean_correlation: float
+    variance_correlation: float
+    mean_integral_score: float
+    variance_integral_score: float
+
+
+def score_gain_run(run: Run, scenario: EndogenousGainScenario) -> GainScores:
+    """Evaluate the population moments at a run's fit on its held-out instrument draws."""
+    fit = GainFit.from_run(run)
+    samples = run.inference_results.telemetries[GainWitnessTelemetry()]
+    assert isinstance(samples, GainWitnessSamples)
+    moments = scenario.population_moments(
+        slope=fit.slope,
+        intercept=fit.intercept,
+        variance=fit.variance,
+        observation_variance=FEATURE_OBSERVATION_VARIANCE,
+        parent_noise=jnp.asarray(samples.parent_noise).ravel(),
+        gain_noise=jnp.asarray(samples.gain_noise).ravel(),
+    )
+    integral = np.asarray(samples.integral_witness).reshape(-1, 2)
+    proportional = np.asarray(samples.proportional_witness).reshape(-1, 2)
+    gain = np.asarray(moments.gain)
+
+    def correlation(witness: np.ndarray, moment: np.ndarray) -> float:
+        target = moment / gain
+        if np.std(target) == 0 or np.std(witness) == 0:
+            return float("nan")
+        return float(np.corrcoef(witness, target)[0, 1])
+
+    by_coordinate = [np.asarray(moments.mean), np.asarray(moments.variance)]
+    return GainScores(
+        fit=fit,
+        mean_moment=float(np.sqrt(np.mean(np.square(by_coordinate[0])))),
+        variance_moment=float(np.sqrt(np.mean(np.square(by_coordinate[1])))),
+        mean_correlation=correlation(proportional[:, 0], by_coordinate[0]),
+        variance_correlation=correlation(proportional[:, 1], by_coordinate[1]),
+        mean_integral_score=float(np.mean(by_coordinate[0] * integral[:, 0])),
+        variance_integral_score=float(np.mean(by_coordinate[1] * integral[:, 1])),
+    )
+
+
+class EndogenousGainSolver(Solver[EndogenousGainProblem]):
+    """Train the endogenous-gain model on fresh samples and evaluate it on held-out ones."""
+
+    _: KW_ONLY
+    scenario: EndogenousGainScenario = eqx.field(default_factory=EndogenousGainScenario)
+    mismatch_settings: MismatchSettings = eqx.field(static=True, default_factory=MismatchSettings)
+    training_examples: int = int_field(default=40_000, domain=IntDistribution(1, 1 << 20, log=True))
+    training_batch_size: int = int_field(default=64, domain=IntDistribution(1, 1 << 12, log=True))
+    inference_examples: int = int_field(default=16, domain=IntDistribution(1, 1 << 12, log=True))
+    inference_batch_size: int = int_field(default=256, domain=IntDistribution(1, 1 << 12, log=True))
+    learning_rate: float = float_field(
+        default=0.003, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
+    )
+
+    @override
+    def problem(self) -> EndogenousGainProblem:
+        return EndogenousGainProblem(self.scenario)
+
+    @override
+    def create_model(
+        self,
+        data_source: DataSource,
+        problem: Problem,
+        *,
+        streams: Mapping[str, RngStream],
+    ) -> Model:
+        return EndogenousGainModel.create(mismatch_settings=self.mismatch_settings, streams=streams)
+
+    @override
+    def gradient_transformations(self) -> DisGradientTransformation:
+        return sgd_gradient_transformations(self.learning_rate)
+
+
+class EndogenousGainScoresPlotter(Plotter):
+    """Compare each gain rule's slope error and remaining population moments.
+
+    The moments are evaluated at each run's fitted parameters on its held-out instrument draws,
+    which both conditions share. The fits and witness checks are recorded for each seed.
+    """
+
+    _: KW_ONLY
+    conditions: Mapping[str, EndogenousGainScenario] = field(static=True)
+
+    @override
+    def telemetries(self) -> Telemetries:
+        return Telemetries((GainFitTelemetry(), GainWitnessTelemetry()))
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        scores = {
+            condition: [score_gain_run(run, scenario) for run in _seed_runs(runs, condition)]
+            for condition, scenario in self.conditions.items()
+        }
+        effects = {
+            condition: scenario.prediction.effects[0]
+            for condition, scenario in self.conditions.items()
+        }
+
+        def series(value: Callable[[GainScores], float]) -> list[list[float]]:
+            return [[value(score) for score in seed_scores] for seed_scores in scores.values()]
+
+        return bar_chart(
+            list(self.conditions),
+            {
+                "slope error": (
+                    "Slope error",
+                    [
+                        [score.fit.slope - effects[condition] for score in seed_scores]
+                        for condition, seed_scores in scores.items()
+                    ],
+                ),
+                "mean moment": ("Mean moment", series(lambda score: score.mean_moment)),
+                "variance moment": (
+                    "Variance moment",
+                    series(lambda score: score.variance_moment),
+                ),
+            },
+        ) | {
+            "seed scores": {
+                condition: [asdict(score) for score in seed_scores]
+                for condition, seed_scores in scores.items()
+            }
+        }
+
+
+class EndogenousGainConflictPlotter(Plotter):
+    """Plot the intercept and variance that each gain instrument value calls for.
+
+    At the causal slope, the mean moment at gain instrument value γ̃ vanishes for the intercept
+    λ m(γ̃), where λ is the target's confounding coefficient and m(γ̃) is the confounder's
+    gain-weighted mean. At that intercept, the variance moment vanishes for the observation
+    variance minus λ² m(γ̃)². A constant prediction can meet both only where m is constant.
+    """
+
+    _: KW_ONLY
+    conditions: Mapping[str, EndogenousGainScenario] = field(static=True)
+    grid: tuple[float, ...] = field(
+        static=True, default=tuple(float(x) for x in np.linspace(-0.2, 0.2, 41))
+    )
+
+    @override
+    def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
+        grid = jnp.asarray(self.grid)
+        lines: dict[str, list[float]] = {}
+        for condition, scenario in self.conditions.items():
+            prediction = scenario.prediction
+            weighted_mean = np.asarray(scenario.gain_weighted_confounder_mean(grid))
+            confounding = prediction.target_confounding
+            lines[f"{condition} intercept"] = [float(v) for v in confounding * weighted_mean]
+            lines[f"{condition} variance"] = [
+                float(v)
+                for v in prediction.interventional_variance()
+                + FEATURE_OBSERVATION_VARIANCE
+                - confounding**2 * np.square(weighted_mean)
+            ]
+        return {
+            "iteration": [float(value) for value in self.grid],
+            "line plots": {key: key for key in lines},
+            **lines,
+        }
+
+
+# The variance settles more slowly than the mean, as in test 5.
+_GAIN_TRAINING_EXAMPLES = 160_000
+GAIN_CONTROL = "Exogenous gain"
+ENDOGENOUS_GAIN = "Endogenous gain"
+ENDOGENOUS_GAIN_SCENARIOS = {
+    GAIN_CONTROL: EndogenousGainScenario(),
+    ENDOGENOUS_GAIN: EndogenousGainScenario(gain_confounding=0.2),
+}
+
+
+class EndogenousGainExperiment(SeededExperiment):
+    """Test 8: the full mismatch circuit under an additive gain that depends on the confounder.
+
+    Both conditions draw the gain instrument uniformly from [-0.2, 0.2] and add it to f(U). The
+    control's f is constant, so the causal slope, a zero intercept, and the interventional
+    observation variance satisfy both witness moments. With f(U) = 0.5 + 0.2 tanh(U), the mean
+    moment calls for an intercept that varies with the gain instrument, so no single intercept
+    satisfies it. The conditions share seeds, initialization, and sample draws.
+    """
+
+    def __init__(
+        self, solver: EndogenousGainSolver | None = None, *, seeds: int = SEED_COUNT
+    ) -> None:
+        solver = (
+            EndogenousGainSolver(training_examples=_GAIN_TRAINING_EXAMPLES)
+            if solver is None
+            else solver
+        )
+        super().__init__(
+            name="sip-endogenous-gain",
+            variants=[
+                Variant(label=condition, solver=replace(solver, scenario=scenario))
+                for condition, scenario in ENDOGENOUS_GAIN_SCENARIOS.items()
+            ],
+            plotters=[
+                EndogenousGainScoresPlotter(
+                    name="endogenous-gain-scores",
+                    title="Slope error and remaining population moments",
+                    conditions=ENDOGENOUS_GAIN_SCENARIOS,
+                ),
+                EndogenousGainConflictPlotter(
+                    name="endogenous-gain-conflict",
+                    title="Intercept and variance that each gain instrument value calls for",
+                    conditions=ENDOGENOUS_GAIN_SCENARIOS,
+                ),
+            ],
+            sweep=[{"seed": seed} for seed in range(seeds)],
+        )
+
+
 sip_causal_mean_experiment = CausalMeanExperiment()
 sip_causal_variance_experiment = CausalVarianceExperiment()
 sip_witness_diagnostics_experiment = WitnessDiagnosticsExperiment()
 sip_nonlinear_effect_experiment = NonlinearEffectExperiment()
+sip_endogenous_gain_experiment = EndogenousGainExperiment()

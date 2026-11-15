@@ -192,8 +192,25 @@ full configuration and writes chart JSON.
      of `Y`.
 
 7. **Nonlinear effects.** Match a nonlinear structural function that the instruments identify.
-8. **Endogenous gain.** Gain depends on the confounder, isolating the weighted-moment conditions.
-   Run with and without the witness-gain map.
+8. **Endogenous gain.** Test the full mismatch circuit under an additive gain that depends on the
+   confounder. Gain keeps its existing roles: the observed gain `γ` weights learning, and both
+   witnesses read the gain instrument `γ̃` alongside the parent instrument `Ỹ₁`. The prediction
+   map reads `Y₁` and fits one slope, one intercept, and one variance.
+
+   Reuse the one-parent setup of experiment 4. In both conditions, draw `γ̃` uniformly from
+   `[−0.2, 0.2]` and set `γ = f(U) + γ̃`. The control uses `f(U) = 0.5`; endogenous gain uses
+   `f(U) = 0.5 + 0.2 tanh(U)`. Match seeds, initialization, and sample draws across conditions.
+
+   In the control, the causal slope, intercept 0, and observation variance 4.26 satisfy both
+   witness moments. With endogenous gain, let `m(γ̃)` be the gain-weighted mean of `U` at each
+   gain-instrument value. At slope 1.5, the mean moment calls for the intercept `−2m(γ̃)`, and at
+   that intercept the variance moment calls for `4.26 − 4m(γ̃)²`. Both vary with `γ̃`, so no single
+   prediction satisfies both moments.
+
+   For each seed, report the fitted slope against 1.5 and the population mean and variance moments
+   at the fitted parameters, evaluated separately on held-out instrument draws. Compare the learned
+   proportional witnesses with these population moments. The population calculation establishes
+   the intercept conflict; the runs measure how much it affects the learned slope.
 
 ### Emitter and credit (oracle goals)
 
