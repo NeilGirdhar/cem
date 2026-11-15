@@ -60,7 +60,7 @@ from .baselines import (
     sieve_two_stage_least_squares_coefficients,
     two_stage_least_squares_coefficients,
 )
-from .common import SEED_COUNT, SeededExperiment, bar_chart, reference_seed
+from .common import SEED_COUNT, SeededExperiment, bar_chart, reference_seed, seed_runs
 from .datasets import (
     FEATURE_OBSERVATION_VARIANCE,
     ConfoundedPredictionObservation,
@@ -925,13 +925,6 @@ def _late_window(trajectory: np.ndarray) -> np.ndarray:
     return trajectory[-max(1, len(trajectory) // 4) :]
 
 
-def _seed_runs(runs: Sequence[Run], label: str) -> list[Run]:
-    return sorted(
-        (run for run in runs if run.variant_label == label),
-        key=lambda run: run.sweep_entry["seed"],
-    )
-
-
 class EffectTrajectoriesPlotter(Plotter):
     """Plot each seed's effect estimate over training for each purification arm.
 
@@ -955,7 +948,7 @@ class EffectTrajectoriesPlotter(Plotter):
         trajectories = {
             arm: [
                 np.asarray(run.training_results.telemetries[EffectTelemetry()]).ravel()
-                for run in _seed_runs(runs, arm)
+                for run in seed_runs(runs, arm)
             ]
             for arm in self.arms
         }
@@ -1018,7 +1011,7 @@ class VarianceCurvesPlotter(Plotter):
         def final_parameters(label: str) -> list[np.ndarray]:
             return [
                 np.asarray(run.training_results.telemetries[VarianceTelemetry()])[-1]
-                for run in _seed_runs(runs, label)
+                for run in seed_runs(runs, label)
             ]
 
         def curves(label: str) -> list[np.ndarray]:
@@ -1460,7 +1453,7 @@ class EndogenousGainScoresPlotter(Plotter):
     @override
     def plotted_series(self, runs: Sequence[Run]) -> PlottedSeries:
         scores = {
-            condition: [score_gain_run(run, scenario) for run in _seed_runs(runs, condition)]
+            condition: [score_gain_run(run, scenario) for run in seed_runs(runs, condition)]
             for condition, scenario in self.conditions.items()
         }
         effects = {

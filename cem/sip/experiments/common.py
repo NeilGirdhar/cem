@@ -5,7 +5,7 @@ from dataclasses import replace
 from statistics import fmean, pstdev
 from typing import Any, override
 
-from cem.framework.plotter import Experiment, Variant
+from cem.framework.plotter import Experiment, Run, Variant
 from cem.framework.plotter.plotter import PlottedSeries
 from cem.framework.solver import Solver
 
@@ -19,6 +19,14 @@ def reference_seed(seed: int) -> int:
     held-out samples (seed 200 + seed), so a reference fitted on it is scored out of sample.
     """
     return 300 + seed
+
+
+def seed_runs(runs: Sequence[Run], label: str) -> list[Run]:
+    """Return one variant's runs in seed order."""
+    return sorted(
+        (run for run in runs if run.variant_label == label),
+        key=lambda run: run.sweep_entry["seed"],
+    )
 
 
 def bar_chart(

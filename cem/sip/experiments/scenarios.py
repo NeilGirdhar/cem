@@ -336,3 +336,61 @@ class EndogenousGainScenario(eqx.Module):
             float(weights @ (gain * nodes)),
             float(weights @ (gain * nodes**2)),
         )
+
+
+class DirectCreditSample(eqx.Module):
+    """One draw of the confounder, the goal's disturbance, the gain instrument, and the gain."""
+
+    confounder: JaxRealArray  # scalar
+    goal_noise: JaxRealArray  # scalar
+    gain_noise: JaxRealArray  # scalar
+    gain: JaxRealArray  # scalar
+
+
+class DirectCreditScenario(eqx.Module):
+    """A goal whose confounded correlation with a controllable feature opposes its causal effect.
+
+    The feature's observation content reveals a standard normal confounder U. The goal is
+    G = β x + λ U + η, where x is the feature's emitted value, so the causal derivative of the
+    expected goal with respect to x is β. With β > 0 and λ < 0, an emitter whose observation tracks
+    U sees the goal fall as x rises, even though raising x raises the goal.
+
+    The gain is g(U) + γ̃, where g(U) = base + κ tanh(U) and the gain instrument γ̃ is drawn uniformly
+    from [-w, w] independently of everything else. The defaults give unit gain.
+    """
+
+    causal_effect: float = eqx.field(static=True, default=1.0)  # β
+    goal_confounding: float = eqx.field(static=True, default=-3.0)  # λ
+    goal_noise_scale: float = eqx.field(static=True, default=0.5)
+    base_gain: float = eqx.field(static=True, default=1.0)
+    gain_confounding: float = eqx.field(static=True, default=0.0)  # κ
+    gain_noise_width: float = eqx.field(static=True, default=0.0)  # w
+
+    def __check_init__(self) -> None:  # ruff:ignore[bad-dunder-method-name]
+        if self.gain_confounding + self.gain_noise_width >= self.base_gain:
+            msg = "The gain must stay positive"
+            raise ValueError(msg)
+
+    def sample(self, key: KeyArray) -> DirectCreditSample:
+        confounder_key, goal_key, gain_key = jr.split(key, 3)
+        confounder = jr.normal(confounder_key, ())
+        width = self.gain_noise_width
+        gain_noise = jr.uniform(gain_key, (), minval=-width, maxval=width)
+        return DirectCreditSample(
+            confounder=confounder,
+            goal_noise=self.goal_noise_scale * jr.normal(goal_key, ()),
+            gain_noise=gain_noise,
+            gain=self.base_gain + self.gain_confounding * jnp.tanh(confounder) + gain_noise,
+        )
+
+    def samples(self, key: KeyArray, examples: int) -> DirectCreditSample:
+        """Return independent draws, each field with a leading axis of length `examples`."""
+        return jax.vmap(self.sample)(jr.split(key, examples))
+
+    def goal(self, value: JaxRealArray, sample: DirectCreditSample) -> JaxRealArray:
+        """Return the goal when the feature takes the given value."""
+        return (
+            self.causal_effect * value
+            + self.goal_confounding * sample.confounder
+            + sample.goal_noise
+        )

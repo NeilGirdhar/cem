@@ -13,6 +13,8 @@ from cem.sip.messages import InstrumentedMessage
 from .scenarios import (
     ConfoundedPredictionSample,
     ConfoundedPredictionScenario,
+    DirectCreditSample,
+    DirectCreditScenario,
     EndogenousGainSample,
     EndogenousGainScenario,
     InstrumentChainSample,
@@ -209,3 +211,49 @@ class EndogenousGainProblem(Problem):
             gain=state.gain,
             target_observation=state.target_observation,
         )
+
+
+class DirectCreditState(ProblemState):
+    """The feature's observation content and gain, and the sample that generated them.
+
+    The content and the gain are precise observations. The model sees the whole state because the
+    oracle goal depends on the value the feature emits, so the model evaluates the goal from the
+    sample after emitting.
+    """
+
+    content: NormalNP  # (1,)
+    gain: NormalNP  # (1,)
+    sample: DirectCreditSample
+
+
+class DirectCreditDataSource(DataSource):
+    """Draw fresh samples from the scenario."""
+
+    scenario: DirectCreditScenario
+
+    @override
+    def initial_problem_state(self, example_key: KeyArray) -> DirectCreditState:
+        sample = self.scenario.sample(example_key)
+        return DirectCreditState(
+            content=_precise(sample.confounder[jnp.newaxis]),
+            gain=_precise(sample.gain[jnp.newaxis]),
+            sample=sample,
+        )
+
+
+class DirectCreditProblem(Problem):
+    """Credit a controllable feature's experiments with an oracle goal.
+
+    Training and inference draw from the same scenario, with independent samples.
+    """
+
+    scenario: DirectCreditScenario
+
+    @override
+    def create_data_source(self, *, inference: bool = False) -> DirectCreditDataSource:
+        return DirectCreditDataSource(self.scenario)
+
+    @override
+    def extract_observation(self, state: ProblemState) -> DirectCreditState:
+        assert isinstance(state, DirectCreditState)
+        return state

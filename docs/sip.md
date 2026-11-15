@@ -218,6 +218,25 @@ full configuration and writes chart JSON.
    effect. Compare the actual parameter update with the oracle causal gradient; report both their
    inner product and the angle. Separate goal contribution from shrinkage before checking
    direction. Include a unit-gain baseline and an endogenous-gain condition.
+
+   A controllable emitter's observation content reveals a standard normal confounder `U`. Measure
+   credit at a fixed operating point, without training: the affine observation map has weight 1
+   and bias 0, and the inherited instrument is a standard normal, so each emission injects
+   unit-variance noise. The goal is `G = x − 3U + η`, where `x` is the emitted value and `η` has
+   standard deviation 0.5. Its causal derivative in `x` is 1, but its regression slope on `x` is
+   −0.5. Each example starts with empty traces, so the goal credits only the current emission.
+
+   Average over held-out emissions:
+   - goal credit, the goal times the mean eligibility trace;
+   - shrinkage credit;
+   - observational credit, which pairs the goal with the emitted value in place of the instrument.
+
+   Compare them with the causal gradient `β E[∂μ/∂θ]` and the gain-weighted causal gradient
+   `β E[γ ∂μ/∂θ]` over all the observation map's parameters. Unit gain should align goal credit
+   with the causal gradient. With the gain `0.5 + 0.2 tanh(U) + γ̃` of experiment 8, goal credit
+   should follow the gain-weighted gradient, which tilts toward contexts with high gain while
+   keeping a positive inner product with the causal gradient. Observational credit should
+   oppose the causal gradient.
 10. **Mean credit — inherited.** Same comparison at a non-controllable feature whose variation comes
     only from inherited instruments.
 11. **Precision.** In a controlled Gaussian case, check presence against known pointwise curvature

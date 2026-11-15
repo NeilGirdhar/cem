@@ -32,7 +32,7 @@ and 17–18 need the full `SIPAgent`.
 - [x] Experiment 6
 - [x] Experiment 7
 - [x] Experiment 8
-- [ ] Experiment 9
+- [x] Experiment 9
 - [ ] Experiment 10
 - [ ] Experiment 11
 - [ ] Experiment 12

@@ -17,7 +17,7 @@ from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, evidence_scale
 
 
-class _ObservationCoordinates(eqx.Module):
+class ObservationCoordinates(eqx.Module):
     """Represent raw Gaussian means and precisions, with one entry per channel.
 
     The observation pullback accepts cotangents in the same coordinates. To assign
@@ -29,7 +29,7 @@ class _ObservationCoordinates(eqx.Module):
 
 
 type _ObservationProjection = EligibilityTraining[
-    GaussianNeuralProjection, NormalNP, _ObservationCoordinates, NormalNP
+    GaussianNeuralProjection, NormalNP, ObservationCoordinates, NormalNP
 ]
 
 
@@ -132,7 +132,7 @@ class Emitter(eqx.Module):
         mean_trace = self.observation_projection.accumulate(
             traces.mean,
             pullback,
-            _ObservationCoordinates(
+            ObservationCoordinates(
                 mean=mean_contribution, precision=jnp.zeros_like(precision_contribution)
             ),
             decay=decay,
@@ -140,7 +140,7 @@ class Emitter(eqx.Module):
         precision_trace = self.observation_projection.accumulate(
             traces.precision,
             pullback,
-            _ObservationCoordinates(
+            ObservationCoordinates(
                 mean=jnp.zeros_like(mean_contribution), precision=precision_contribution
             ),
             decay=decay,
@@ -149,7 +149,7 @@ class Emitter(eqx.Module):
             self.trace_index, _ObservationTraces(mean=mean_trace, precision=precision_trace)
         )
         (shrinkage_credit,) = pullback(
-            _ObservationCoordinates(
+            ObservationCoordinates(
                 mean=credit_outputs.shrinkage_cotangent,
                 precision=jnp.zeros_like(precision_contribution),
             )
@@ -199,11 +199,11 @@ class Emitter(eqx.Module):
 
 def _project_observation(
     model: GaussianNeuralProjection, content: NormalNP
-) -> tuple[_ObservationCoordinates, NormalNP]:
+) -> tuple[ObservationCoordinates, NormalNP]:
     """Project the content while confining observation credit to the map parameters."""
     observation = model.infer(stop_gradient(content))
     moments = observation.to_precision_parametrization()
-    return _ObservationCoordinates(mean=moments.mean, precision=moments.precision), observation
+    return ObservationCoordinates(mean=moments.mean, precision=moments.precision), observation
 
 
 def _shift_mean(message: NormalNP, displacement: JaxRealArray) -> NormalNP:
