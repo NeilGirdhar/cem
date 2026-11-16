@@ -41,3 +41,27 @@ def test_mlp_dropout_applies_when_inference_false(streams: Mapping[str, RngStrea
         f.infer(x, streams=streams, inference=False),
         f.infer(x, streams=streams, inference=True),
     )
+
+
+def test_mlp_zero_dropout_rate_is_identity(streams: Mapping[str, RngStream]) -> None:
+    f = MLP.create(4, 3, hidden_features=(6,), streams=streams)
+    x = jnp.linspace(-1.0, 1.0, 4, dtype=jnp.float64)
+
+    assert jnp.allclose(
+        f.infer(x, streams=streams, inference=False),
+        f.infer(x, streams=streams, inference=True),
+    )
+
+
+def test_mlp_dropout_preserves_expected_output(streams: Mapping[str, RngStream]) -> None:
+    """Inverted dropout keeps the expected hidden activations, and the output layer is affine.
+
+    With one hidden layer, the mean output in training mode therefore equals the inference output.
+    """
+    f = MLP.create(4, 3, hidden_features=(6,), dropout_rate=0.3, streams=streams)
+    x = jnp.linspace(-1.0, 1.0, 4, dtype=jnp.float64)
+
+    samples = jnp.stack([f.infer(x, streams=streams, inference=False) for _ in range(2000)])
+    assert jnp.allclose(
+        jnp.mean(samples, axis=0), f.infer(x, streams=streams, inference=True), atol=0.05
+    )

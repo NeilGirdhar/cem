@@ -14,7 +14,6 @@ from cem.framework.graph.parameters import (
     FixedParameter,
     LearnableParameter,
     Parameter,
-    apply_to_parameters,
     count_real_learnable_parameters,
     is_parameter,
 )
@@ -33,7 +32,6 @@ __all__ = [
     "ParameterType",
     "TargetConfiguration",
     "TargetNode",
-    "apply_to_parameters",
     "count_real_learnable_parameters",
     "is_parameter",
     "verify_model_has_no_free_parameters",

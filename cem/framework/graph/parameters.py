@@ -1,9 +1,5 @@
 """Parameter wrappers that let optimizers distinguish model weights from fixed values."""
 
-from collections.abc import Callable, Sequence
-from functools import partial
-from typing import Any, cast
-
 import equinox as eqx
 import jax.numpy as jnp
 from jax import tree
@@ -40,18 +36,3 @@ def count_real_learnable_parameters(x: object, /) -> int:
         multiplier = 2 if jnp.iscomplexobj(value) else 1
         count += multiplier * value.size
     return count
-
-
-def apply_to_parameters[T](f: Callable[[Parameter[Any]], Parameter[Any]], x: T) -> T:
-    """Apply a replacement function to every parameter wrapper in a pytree."""
-    return cast("T", eqx.tree_at(_get_parameters, x, replace_fn=partial(_apply_to_parameter, f)))
-
-
-def _get_parameters(m: object, /) -> Sequence[Any]:
-    return tree.leaves(m, is_leaf=is_parameter)
-
-
-def _apply_to_parameter(f: Callable[[Parameter[Any]], Parameter[Any]], x: object, /) -> object:
-    if isinstance(x, Parameter):
-        return f(x)
-    return x
