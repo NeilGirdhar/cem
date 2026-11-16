@@ -3,10 +3,11 @@ from collections.abc import Mapping
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
+from efax import parameter_concat
 from tjax import RngStream
 
 from cem.sip.features import ProspectFeature, TDCosts
-from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.sip.messages import InstrumentedMessage
 from cem.sip.reward_critic import RewardCritic
 from cem.sip.settings import TDSettings
 
@@ -188,8 +189,8 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
         )
         prospects.append(out)
     expected_predictor = InstrumentedMessage(
-        observation=concat_messages(*[p.message.observation for p in prospects]),
-        instrument=concat_messages(*[p.message.instrument for p in prospects]),
+        observation=parameter_concat([p.message.observation for p in prospects]),
+        instrument=parameter_concat([p.message.instrument for p in prospects]),
     )
     _, td_out = critic.td_feature.step(
         fresh,

@@ -98,7 +98,7 @@ def test_same_displacement_shifts_both_means(streams: Mapping[str, RngStream]) -
 
 
 def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> None:
-    """Without noise, `observation` equals `evidence_scale(raw_observation, gain)`."""
+    """Without noise, `observation` equals `raw_observation.scale_evidence(gain)`."""
     n = 2
     emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=False, streams=streams)
     state = eqx.nn.State(emitter)

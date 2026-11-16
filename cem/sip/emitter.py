@@ -14,7 +14,7 @@ from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit, CreditOutputs
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import InstrumentedMessage, evidence_scale
+from cem.sip.messages import InstrumentedMessage
 
 
 class ObservationCoordinates(eqx.Module):
@@ -113,8 +113,9 @@ class Emitter(eqx.Module):
             observation = noised_raw_observation
             instrument = noised_instrument
         else:
-            observation = evidence_scale(noised_raw_observation, gain)
-            instrument = evidence_scale(noised_instrument, gain)
+            # See `evidence-scaling-link` in the thesis.
+            observation = noised_raw_observation.scale_evidence(gain)
+            instrument = noised_instrument.scale_evidence(gain)
 
         new_state, credit_outputs = self.credit.step(
             state,

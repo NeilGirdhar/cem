@@ -12,7 +12,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
-from efax import NormalNP, NormalPP, NormalVP
+from efax import NormalNP, NormalPP, NormalVP, parameter_concat
 from jax.nn import softplus
 from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream
@@ -41,7 +41,6 @@ from cem.framework.solution import (
 )
 from cem.framework.solver import Solver, bool_field, float_field, int_field
 from cem.npn.gaussian import MINIMUM_VARIANCE, UNIT_SOFTPLUS_RAW
-from cem.sip.messages import concat_messages
 from cem.sip.mismatch import Mismatch
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
@@ -1254,7 +1253,9 @@ class EndogenousGainModel(Model):
             streams=streams,
             inference=inference,
         )
-        instruments = concat_messages(observation.predictor.instrument, observation.gain.instrument)
+        instruments = parameter_concat(
+            [observation.predictor.instrument, observation.gain.instrument]
+        )
         prediction = self.prediction(observation.predictor.observation)
         return ModelResult(
             loss=outputs.loss,

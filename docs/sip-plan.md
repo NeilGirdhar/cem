@@ -85,7 +85,7 @@ The claim, its arms, and the expected outcomes are in [`sip.md`](sip.md#tested-c
 Not blockers; record so they are not lost:
 
 - [ ] Verify the gain-weighted witness norm bound once recruiters supply gain.
-- [ ] Check whether high recruiter gain requires a numerical guard in `evidence_scale`.
+- [ ] Check whether high recruiter gain requires a numerical guard in `scale_evidence`.
 - [ ] Evaluate a low-rank diffuse readout for prospects.
 - [ ] Design a DAG for sensations and intentions with per-feature TD advantage routing.
 - [ ] Learn pseudo-rewards maximally controllable by specific intentions from environment reward,

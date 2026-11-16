@@ -3,12 +3,12 @@ from collections.abc import Mapping
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from efax import NormalPP
+from efax import NormalPP, parameter_concat
 from tjax import RngStream
 
 from cem.framework.graph import LearnableParameter
 from cem.sip.intentions import Intentions
-from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.sip.messages import InstrumentedMessage
 
 from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _i_message, _message
 
@@ -112,7 +112,7 @@ def test_intentions_infer_uses_previous_lower_message_and_current_upper_mismatch
     _, bottom_out = intentions.features[0].step(
         fresh,
         keys[0],
-        observation_content=concat_messages(readouts[0], top_out.observation_mismatch),
+        observation_content=parameter_concat([readouts[0], top_out.observation_mismatch]),
         predictor=InstrumentedMessage.initial(0),
         gain=None,
         **advantages,

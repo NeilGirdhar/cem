@@ -6,13 +6,13 @@ from typing import Self
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from efax import NormalNP, NormalPP, NormalVP
+from efax import NormalNP, NormalPP, NormalVP, parameter_concat
 from tjax import JaxRealArray, RngStream
 
 from cem.framework.graph import FixedParameter
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.sip.messages import InstrumentedMessage
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.settings import MismatchSettings
 from cem.sip.witness import (
@@ -127,7 +127,7 @@ class Mismatch(eqx.Module):
         instruments = (
             predictor.instrument
             if gain_instrument is None
-            else concat_messages(predictor.instrument, gain_instrument)
+            else parameter_concat([predictor.instrument, gain_instrument])
         )
         losses = witness_losses(
             residuals,

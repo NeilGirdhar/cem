@@ -45,9 +45,10 @@ Messages (`messages.py`):
 
 - `InstrumentedMessage` — paired observation and instrument Gaussian message, the unit exchanged
   between features.
-- `concat_messages`, `concat_instrumented_messages` — component-axis concatenation.
-- `variance_from_precision`, `evidence_scale` — Gaussian-message utilities. Moment conversions
-  use efax's normal parametrizations.
+- `concat_instrumented_messages` — component-axis concatenation of both channels, using
+  efax's `parameter_concat`.
+- `variance_from_precision` — a Gaussian-message utility. Moment conversions use efax's normal
+  parametrizations, and evidence scaling uses efax's `scale_evidence`.
 
 Composition modules (plain `eqx.Module`s, not `Model` subclasses):
 
@@ -93,8 +94,8 @@ default, the maps have no hidden layers, and the damping weight and the discount
 ## Target code layout
 
 - `cem/sip/` — the circuit.
-    - `messages.py` — `InstrumentedMessage` plus SIP-specific Gaussian helpers (concatenation,
-      evidence scaling, variance-from-precision).
+    - `messages.py` — `InstrumentedMessage` plus SIP-specific Gaussian helpers
+      (instrumented-message concatenation, variance-from-precision).
     - `credit.py` — `Credit`.
     - `mismatch.py` — `Mismatch`.
     - `witness.py` — `IntegralWitnessMap`, `ProportionalWitnessMap`, `witness_residuals`,

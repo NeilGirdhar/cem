@@ -9,13 +9,12 @@ from typing import Self
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from efax import NormalNP, NormalPP
+from efax import NormalNP, NormalPP, parameter_concat
 from tjax import KeyArray, RngStream
 
 from cem.sip.features import SIPFeatureOutputs
 from cem.sip.intentions import Intentions
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import concat_messages
 from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.sensations import Sensations
 from cem.sip.settings import SIPAgentSettings
@@ -139,7 +138,7 @@ class SIPAgent(eqx.Module):
             state.get(intention_features[i].last_message_index) for i in range(n_levels)
         ]
         last_action = state.get(intention_features[0].last_message_index).observation
-        sensation_input = concat_messages(observation, last_action)
+        sensation_input = parameter_concat([observation, last_action])
         state, sensation_outputs = self.sensations.infer(
             state,
             key_s,
@@ -167,9 +166,8 @@ class SIPAgent(eqx.Module):
 
         # All prospects share the observation context. Each gets an instrument from one
         # feature so its contribution to reward prediction can track that feature's variation.
-        diffuse = concat_messages(
-            *[out.message.observation for out in sensation_outputs],
-            *[out.message.observation for out in intention_outputs],
+        diffuse = parameter_concat(
+            [out.message.observation for out in [*sensation_outputs, *intention_outputs]]
         )
         prospect_observation_content = [diffuse] * len(self.reward_critic.prospect_features)
         prospect_predictor_instruments = [out.message.instrument for out in sensation_outputs] + [
@@ -181,10 +179,12 @@ class SIPAgent(eqx.Module):
         curiosity = jnp.stack([out.confounding_cost for out in sensation_outputs])
         tracking = -jnp.stack([out.reconstruction_cost for out in sensation_outputs])
         intrinsic_precision = jnp.ones_like(curiosity)
-        reward_observation = concat_messages(
-            environment_reward_observation,
-            NormalPP(curiosity, intrinsic_precision).to_nat(),
-            NormalPP(tracking, intrinsic_precision).to_nat(),
+        reward_observation = parameter_concat(
+            [
+                environment_reward_observation,
+                NormalPP(curiosity, intrinsic_precision).to_nat(),
+                NormalPP(tracking, intrinsic_precision).to_nat(),
+            ]
         )
         state, critic_outputs = self.reward_critic.step(
             state,

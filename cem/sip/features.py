@@ -16,7 +16,7 @@ from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs
-from cem.sip.messages import InstrumentedMessage, evidence_scale
+from cem.sip.messages import InstrumentedMessage
 from cem.sip.mismatch import Mismatch
 from cem.sip.settings import CreditSettings, MismatchSettings, TDSettings
 from cem.sip.td_error import TDError
@@ -256,8 +256,9 @@ class SensationInputFeature(eqx.Module):
             out_observation = observation
             out_instrument = inherited_instrument
         else:
-            out_observation = evidence_scale(observation, gain_mean)
-            out_instrument = evidence_scale(inherited_instrument, gain_mean)
+            # See `evidence-scaling-link` in the thesis.
+            out_observation = observation.scale_evidence(gain_mean)
+            out_instrument = inherited_instrument.scale_evidence(gain_mean)
 
         mismatch_outputs = self.mismatch.step(
             raw_observation=observation,

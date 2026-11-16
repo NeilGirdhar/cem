@@ -17,12 +17,7 @@ from cem.sip.features import (
     TDFeatureOutputs,
 )
 from cem.sip.intentions import Intentions
-from cem.sip.messages import (
-    InstrumentedMessage,
-    concat_instrumented_messages,
-    concat_messages,
-    evidence_scale,
-)
+from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 from cem.sip.mismatch import Mismatch, MismatchOutputs
 from cem.sip.model import SIPActionConfiguration, SIPModel, SIPObservation
 from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
@@ -79,6 +74,4 @@ __all__ = [
     "TDSettings",
     "TDTraces",
     "concat_instrumented_messages",
-    "concat_messages",
-    "evidence_scale",
 ]

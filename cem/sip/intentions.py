@@ -5,12 +5,12 @@ from typing import Self
 
 import equinox as eqx
 import jax.random as jr
-from efax import NormalNP
+from efax import NormalNP, parameter_concat
 from tjax import JaxRealArray, KeyArray, RngStream
 
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import IntentionFeature, SIPFeatureOutputs, SIPFeatureSizes
-from cem.sip.messages import InstrumentedMessage, concat_messages
+from cem.sip.messages import InstrumentedMessage
 from cem.sip.settings import CreditSettings, MismatchSettings
 
 
@@ -108,7 +108,7 @@ class Intentions(ExplanatoryCoupling):
         for i in range(top_index - 1, -1, -1):
             above = outputs[i + 1]
             assert above is not None
-            content = concat_messages(readouts[i], above.observation_mismatch)
+            content = parameter_concat([readouts[i], above.observation_mismatch])
             state, outputs[i] = self.features[i].step(
                 state,
                 keys[i],

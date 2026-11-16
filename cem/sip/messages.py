@@ -4,15 +4,13 @@ from typing import Final
 
 import equinox as eqx
 import jax.numpy as jnp
-from efax import NormalNP, NormalPP
+from efax import NormalNP, NormalPP, parameter_concat
 from tjax import JaxRealArray, divide_where
 
 __all__ = [
     "MAX_VARIANCE",
     "InstrumentedMessage",
     "concat_instrumented_messages",
-    "concat_messages",
-    "evidence_scale",
     "variance_from_precision",
 ]
 
@@ -71,33 +69,9 @@ def variance_from_precision(
     )
 
 
-def concat_messages(*messages: NormalNP) -> NormalNP:
-    """Concatenate 1-D Gaussian messages along the component axis.
-
-    Treats each input as an independent-component diagonal Gaussian and
-    returns the joint with the components laid out in the given order.
-    """
-    return NormalNP(
-        mean_times_precision=jnp.concat([m.mean_times_precision for m in messages]),
-        negative_half_precision=jnp.concat([m.negative_half_precision for m in messages]),
-    )
-
-
 def concat_instrumented_messages(*messages: InstrumentedMessage) -> InstrumentedMessage:
     """Concatenate instrumented messages along the component axis on each channel."""
     return InstrumentedMessage(
-        observation=concat_messages(*[m.observation for m in messages]),
-        instrument=concat_messages(*[m.instrument for m in messages]),
-    )
-
-
-def evidence_scale(message: NormalNP, gain: JaxRealArray) -> NormalNP:
-    """Scale a Gaussian message's evidence by `gain`.
-
-    Multiplies both natural parameters by `gain`. The mean is preserved and the
-    precision is scaled by `gain` (@evidence-scaling-link in `thesis.typ`).
-    """
-    return NormalNP(
-        mean_times_precision=gain * message.mean_times_precision,
-        negative_half_precision=gain * message.negative_half_precision,
+        observation=parameter_concat([m.observation for m in messages]),
+        instrument=parameter_concat([m.instrument for m in messages]),
     )
