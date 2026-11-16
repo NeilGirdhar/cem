@@ -18,7 +18,6 @@ from cem.framework.graph.parameters import (
     count_real_learnable_parameters,
     is_parameter,
 )
-from cem.framework.graph.surrogate import cotangent_surrogate_loss
 
 __all__ = [
     "DisGradientState",
@@ -35,7 +34,6 @@ __all__ = [
     "TargetConfiguration",
     "TargetNode",
     "apply_to_parameters",
-    "cotangent_surrogate_loss",
     "count_real_learnable_parameters",
     "is_parameter",
     "verify_model_has_no_free_parameters",

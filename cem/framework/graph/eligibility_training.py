@@ -6,10 +6,9 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import tree
-from tjax import JaxRealArray, PyTree
+from tjax import JaxRealArray, PyTree, cotangent_surrogate_loss, scale_tree
 
 from .parameters import LearnableParameter, is_parameter
-from .surrogate import cotangent_surrogate_loss
 
 
 class EligibilityTraining[M: eqx.Module, X, C: PyTree, Y: PyTree](eqx.Module):
@@ -69,11 +68,10 @@ class EligibilityTraining[M: eqx.Module, X, C: PyTree, Y: PyTree](eqx.Module):
         )
 
     def get_loss(self, trace: M, factor: JaxRealArray) -> JaxRealArray:
-        """Return a scalar loss whose descent update follows the scaled trace."""
+        """Return a scalar loss whose descent update follows the scaled trace.
+
+        The trace holds ascent cotangents, -dL/dX in the thesis's convention, so negate it to give
+        tjax the loss derivative it expects. See `eligibility-training-link` in the thesis.
+        """
         trainable, _ = self._partition()
-        losses = tree.map(
-            lambda parameter, cotangent: cotangent_surrogate_loss(parameter, factor * cotangent),
-            trainable,
-            trace,
-        )
-        return tree.reduce(jnp.add, losses, jnp.asarray(0.0))
+        return cotangent_surrogate_loss(trainable, scale_tree(trace, scalar_scale=-factor))

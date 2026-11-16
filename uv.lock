@@ -242,7 +242,7 @@ requires-dist = [
     { name = "rich", specifier = ">=15" },
     { name = "scipy", specifier = ">=1.18.1" },
     { name = "threadpoolctl", specifier = ">=3.7" },
-    { name = "tjax", specifier = ">=2.2" },
+    { name = "tjax", specifier = ">=2.2.1" },
     { name = "typer", specifier = ">=0.27.3" },
     { name = "wandb", specifier = ">=0.31" },
 ]
@@ -2314,7 +2314,7 @@ wheels = [
 
 [[package]]
 name = "tjax"
-version = "2.2.0"
+version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "array-api-compat" },
@@ -2324,9 +2324,9 @@ dependencies = [
     { name = "optype", extra = ["numpy"] },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/86/f2/867b7d5c6b87516ec7ba2ea0079664a3dca99bc1f0dfa9c127ee5fe00dd7/tjax-2.2.0.tar.gz", hash = "sha256:5eb898d5bce63f1452aff4bd1d31a0597fdba9ec7060c3ac435213d63bf3b5c8", size = 82962, upload-time = "2026-11-08T18:48:16.667Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/41/19ff745e11a587765072e55bf49c408926c6c32cc4fd4585761c100e8911/tjax-2.2.1.tar.gz", hash = "sha256:13b751e9ba984f586ee6146cfe778b5b4f7d1a4c20ddcb874721a73b15a73098", size = 83568, upload-time = "2026-11-16T03:39:46.096Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a9/2a/aa15047cfa2cbe178315e62e3c58cb91612d54f0ef5a1ebaea0c44d67638/tjax-2.2.0-py3-none-any.whl", hash = "sha256:90bd1312d3ad67658671c2e83bf8b8d9dc508faaf5d44e9659f7af95772f99be", size = 98278, upload-time = "2026-11-08T18:48:15.377Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/81/4135371455b605a493213bdb1df039324ef96f6d11b3c3038d6794221706/tjax-2.2.1-py3-none-any.whl", hash = "sha256:124ad65c43d0ad146ea622bb3f5ce58f8b4e7a65884eba7f81042c51eb61dd9b", size = 99020, upload-time = "2026-11-16T03:39:44.446Z" },
 ]
 
 [[package]]

@@ -8,8 +8,8 @@ from typing import Any
 import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
-from jax import lax, tree
-from tjax import Array, GenericString, JaxArray, KeyArray, PyTree, dynamic_tree_all, jit
+from jax import lax
+from tjax import GenericString, JaxArray, KeyArray, all_finite, jit
 
 from cem.framework.problem.data_source import DataSource
 from cem.framework.solution.inference import SolutionState, TrainingResult
@@ -27,14 +27,6 @@ from .training_solution import TrainingSolution
 
 log = logging.getLogger(__name__)
 _logged_training_jit_signatures: set[tuple[int, int, tuple[str, ...]]] = set()
-
-
-def all_finite(x: Array, /) -> JaxArray:
-    return jnp.all(jnp.isfinite(x))
-
-
-def is_all_finite_tree(x: PyTree, /) -> JaxArray:
-    return dynamic_tree_all(tree.map(all_finite, x))
 
 
 @partial(jit, static_argnames=("batch_size", "max_chunk_size"))
@@ -80,8 +72,8 @@ def train_episode_chunk(  # ruff:ignore[too-many-arguments, too-many-positional-
                 step_solution, result, snapshots
             ),
         )
-        finite_parameters = is_all_finite_tree(result.solution_state.dis_learnable_parameters)
-        finite_inference_result = is_all_finite_tree(result.inference_result)
+        finite_parameters = all_finite(result.solution_state.dis_learnable_parameters)
+        finite_inference_result = all_finite(result.inference_result)
         new_solution_state = lax.cond(
             valid,
             lambda: result.solution_state,
