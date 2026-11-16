@@ -146,7 +146,11 @@ class Experiment:
         )
 
     def variant_for(self, run: Run) -> Variant:
-        """Return the variant that produced ``run``."""
+        """Return the variant that produced ``run``.
+
+        A run records only its variant's label. Scoring that compares a run with its variant's
+        default configuration needs the variant itself, including its default solver.
+        """
         for variant in self.variants:
             if variant.label == run.variant_label:
                 return variant
@@ -154,7 +158,12 @@ class Experiment:
         raise KeyError(msg)
 
     def solver_for(self, run: Run, hyperparameters: Mapping[str, Any]) -> Solver[Any]:
-        """Reconstruct the solver for a run using its variant and sweep overrides."""
+        """Reconstruct the solver that produced ``run`` under the given hyperparameters.
+
+        A run stores its results but not its solver, so scoring that depends on the configuration,
+        such as a penalty on model size, rebuilds the solver the same way the run was configured:
+        from its variant, its sweep entry, and the hyperparameters.
+        """
         return self.resolve_solver(self.variant_for(run), run.sweep_entry, hyperparameters)
 
     def runs(

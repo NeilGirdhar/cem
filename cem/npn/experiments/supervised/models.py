@@ -326,11 +326,21 @@ class SupervisedSolver(Solver[SupervisedProblem]):
         )
 
     def compute_proxy(self) -> JaxRealArray:
-        """Estimate training work by multiplying the trainable scalar count by the episode count."""
+        """Return the training work: the number of training examples times the parameter count.
+
+        A hyperparameter search that optimizes model size can add a penalty proportional to this
+        proxy divided by the default configuration's proxy. A larger model or a longer training run
+        must then lower the loss by more than it adds in cost. The proxy counts work rather than
+        measuring time, so it doesn't depend on hardware or compilation.
+        """
         return jnp.asarray(self.training_examples * self.parameter_count())
 
     def parameter_count(self) -> int:
-        """Return the model's trainable real scalar degrees of freedom."""
+        """Return the model's trainable real scalar degrees of freedom.
+
+        Counting builds the model, so the count is cached by the fields that determine the
+        architecture. Configurations that differ only in fields such as the learning rate share it.
+        """
         return _supervised_parameter_count(
             self.dataset_kind,
             self.link_kind,
@@ -383,7 +393,12 @@ def _supervised_parameter_count(
     *,
     include_missingness_mask: bool,
 ) -> int:
-    """Count the selected architecture's trainable real parameters without training it."""
+    """Count the selected architecture's trainable real parameters without training it.
+
+    Build the initial model of a solver with this architecture and count its learnable parameters.
+    The arguments are exactly the fields that determine the architecture, so the cache holds one
+    entry per architecture.
+    """
     solver = SupervisedSolver(
         dataset_kind=dataset_kind,
         link_kind=link_kind,
