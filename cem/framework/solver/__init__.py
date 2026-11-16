@@ -1,13 +1,13 @@
 """Solver configuration, hyperparameter search fields, and the JAX execution context."""
 
 from .context_manager import jax_is_initialized, solver_context_manager
-from .hp_field import bool_field, chooser_field, float_field, hardware_friendly_ints, int_field
+from .hp_field import bool_field, categorical_field, float_field, hardware_friendly_ints, int_field
 from .solver import Solver
 
 __all__ = [
     "Solver",
     "bool_field",
-    "chooser_field",
+    "categorical_field",
     "float_field",
     "hardware_friendly_ints",
     "int_field",

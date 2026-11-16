@@ -99,7 +99,7 @@ def float_field(
     )
 
 
-def chooser_field[T: int | float | str | None](
+def categorical_field[T: int | float | str | None](
     *,
     default: T | MISSING = MISSING,  # ty: ignore[invalid-type-form]
     static: bool = True,
