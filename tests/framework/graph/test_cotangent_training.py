@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from tjax import JaxRealArray
 
-from cem.framework.graph import EligibilityTraining, FixedParameter, LearnableParameter
+from cem.framework.graph import CotangentTraining, FixedParameter, LearnableParameter
 
 
 class _Map(eqx.Module):
@@ -19,14 +19,14 @@ def _project(model: _Map, x: JaxRealArray) -> tuple[JaxRealArray, JaxRealArray]:
 
 
 def test_drift_is_each_emissions_parameter_cotangent() -> None:
-    training = EligibilityTraining(
+    training = CotangentTraining(
         _Map(LearnableParameter(jnp.asarray(2.0)), FixedParameter(jnp.asarray(1.0))),
         _project,
     )
 
     @eqx.filter_jit
     def emit(
-        wrapper: EligibilityTraining[_Map, JaxRealArray, JaxRealArray, JaxRealArray],
+        wrapper: CotangentTraining[_Map, JaxRealArray, JaxRealArray, JaxRealArray],
         x: JaxRealArray,
     ) -> tuple[JaxRealArray, _Map]:
         observation, pullback = wrapper.infer(x)

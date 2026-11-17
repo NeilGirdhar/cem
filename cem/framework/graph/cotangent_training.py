@@ -11,7 +11,7 @@ from tjax import JaxRealArray, PyTree, cotangent_surrogate_loss, scale_tree
 from .parameters import LearnableParameter, is_parameter
 
 
-class EligibilityTraining[M: eqx.Module, X, C: PyTree, Y: PyTree](eqx.Module):
+class CotangentTraining[M: eqx.Module, X, C: PyTree, Y: PyTree](eqx.Module):
     """Train a map on parameter cotangents recorded when it produced its outputs.
 
     `M` is the map type. Its floating-point or complex `LearnableParameter` leaves
@@ -55,7 +55,7 @@ class EligibilityTraining[M: eqx.Module, X, C: PyTree, Y: PyTree](eqx.Module):
         """Return the parameter cotangent that this step adds to the eligibility trace.
 
         The drift is the output cotangent pulled back through the map as it ran, held fixed so
-        that a later goal can credit it. See `eligibility-training-link` in the thesis.
+        that a later goal can credit it. See `cotangent-training-link` in the thesis.
         """
         (cotangent,) = pullback(output_cotangent)
         return jax.lax.stop_gradient(cotangent)
@@ -64,7 +64,7 @@ class EligibilityTraining[M: eqx.Module, X, C: PyTree, Y: PyTree](eqx.Module):
         """Return a scalar loss whose descent update follows the scaled trace.
 
         The trace holds ascent cotangents, -dL/dX in the thesis's convention, so negate it to give
-        tjax the loss derivative it expects. See `eligibility-training-link` in the thesis.
+        tjax the loss derivative it expects. See `cotangent-training-link` in the thesis.
         """
         trainable, _ = self._partition()
         return cotangent_surrogate_loss(trainable, scale_tree(trace, scalar_scale=-factor))

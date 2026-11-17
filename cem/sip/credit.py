@@ -69,7 +69,7 @@ class Credit(eqx.Module):
         The baseline map must emit one component for the scalar goal.
         """
         # Read before it is updated, a one-slot delay line holds the previous step's drift, so each
-        # goal credits only the emission one step before it. See `eligibility-training-link` in the
+        # goal credits only the emission one step before it. See `cotangent-training-link` in the
         # thesis.
         lag_filter = DelayLine(jnp.ones(1, dtype=jnp.float64))
         absent = jnp.zeros(goal_baseline_map.in_features, dtype=jnp.float64)

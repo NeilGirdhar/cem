@@ -9,7 +9,7 @@ from efax import NormalNP, NormalPP
 from jax.lax import stop_gradient
 from tjax import JaxRealArray, KeyArray, PyTree
 
-from cem.framework.graph import EligibilityTraining
+from cem.framework.graph import CotangentTraining
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit, CreditEmission, CreditOutputs
 from cem.sip.instrument import inherit_instrument, instrument_loss
@@ -28,7 +28,7 @@ class ObservationCoordinates(eqx.Module):
     precision: JaxRealArray
 
 
-type _ObservationProjection = EligibilityTraining[
+type _ObservationProjection = CotangentTraining[
     GaussianNeuralProjection, NormalNP, ObservationCoordinates, NormalNP
 ]
 
@@ -247,7 +247,7 @@ class Emitter(eqx.Module):
         *,
         controllable: bool,
     ) -> Self:
-        observation_projection: _ObservationProjection = EligibilityTraining(
+        observation_projection: _ObservationProjection = CotangentTraining(
             observation_map, _project_observation
         )
         empty_trace = credit.lag_filter.value.init(observation_projection.zero_trace())

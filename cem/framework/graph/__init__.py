@@ -1,5 +1,6 @@
 """Model and node interfaces, parameter types, and parameter-specific gradient transforms."""
 
+from cem.framework.graph.cotangent_training import CotangentTraining
 from cem.framework.graph.disassembled import (
     DisGradientState,
     DisGradientTransformation,
@@ -7,7 +8,6 @@ from cem.framework.graph.disassembled import (
     ParameterType,
     verify_model_has_no_free_parameters,
 )
-from cem.framework.graph.eligibility_training import EligibilityTraining
 from cem.framework.graph.model import Model, ModelResult
 from cem.framework.graph.node import NodeConfiguration, TargetConfiguration, TargetNode
 from cem.framework.graph.parameters import (
@@ -19,10 +19,10 @@ from cem.framework.graph.parameters import (
 )
 
 __all__ = [
+    "CotangentTraining",
     "DisGradientState",
     "DisGradientTransformation",
     "DisModel",
-    "EligibilityTraining",
     "FixedParameter",
     "LearnableParameter",
     "Model",
