@@ -4,14 +4,14 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from efax import parameter_concat
-from tjax import RngStream
+from tjax import KeyArray, RngStream
 
-from cem.sip.features import ProspectFeature, TDCosts
-from cem.sip.messages import InstrumentedMessage
-from cem.sip.reward_critic import RewardCritic
+from cem.sip.features import ProspectFeature
+from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
+from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.settings import TDSettings
 
-from .tools import CREDIT_SETTINGS, _message
+from .tools import _clone, _message
 
 
 def _prospect(n: int, streams: Mapping[str, RngStream]) -> ProspectFeature:
@@ -19,7 +19,6 @@ def _prospect(n: int, streams: Mapping[str, RngStream]) -> ProspectFeature:
         n,
         observation_content_features=2,
         predictor_features=2,
-        credit_settings=CREDIT_SETTINGS,
         streams=streams,
     )
 
@@ -35,15 +34,15 @@ def test_prospect_feature_outputs_have_expected_shapes(
 ) -> None:
     n = 3
     feature = _prospect(n, streams)
-    state = eqx.nn.State(feature)
-    _, outputs = feature.step(
-        state,
+    state, emission = feature.emit(
+        eqx.nn.State(feature),
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
         predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain=None,
-        reconstruction=jnp.asarray(0.5),
-        confounding=jnp.asarray(0.2),
+    )
+    _, outputs = feature.credit(
+        state, emission, reconstruction=jnp.asarray(0.5), confounding=jnp.asarray(0.2)
     )
     assert outputs.message.observation.mean_times_precision.shape == (n,)
     assert outputs.message.instrument.mean_times_precision.shape == (n,)
@@ -56,16 +55,14 @@ def test_prospect_message_is_independent_of_the_local_noise_key(
     feature = _prospect(2, streams)
     messages = []
     for seed in (0, 1):
-        _, outputs = feature.step(
+        _, emission = feature.emit(
             eqx.nn.State(feature),
             jr.key(seed),
             observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
             predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
             gain=None,
-            reconstruction=jnp.asarray(0.5),
-            confounding=jnp.asarray(0.2),
         )
-        messages.append(outputs.message)
+        messages.append(emission.message)
     assert eqx.tree_equal(*messages)
 
 
@@ -75,14 +72,12 @@ def test_prospect_feature_stores_message_into_state(
     n = 2
     feature = _prospect(n, streams)
     state = eqx.nn.State(feature)
-    new_state, outputs = feature.step(
+    new_state, outputs = feature.emit(
         state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
         predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
         gain=None,
-        reconstruction=jnp.asarray(0.5),
-        confounding=jnp.asarray(0.2),
     )
     stored = new_state.get(feature.last_message_index)
     assert jnp.allclose(
@@ -99,7 +94,6 @@ def _critic(streams: Mapping[str, RngStream]) -> RewardCritic:
         observation_content_features=[2, 2],
         predictor_features=[2, 2],
         reward_features=1,
-        credit_settings=CREDIT_SETTINGS,
         td_settings=TDSettings(),
         streams=streams,
     )
@@ -173,19 +167,12 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
     # Re-run prospects manually with the same keys, then TD directly.
     keys = jr.split(key, len(critic.prospect_features))
     fresh = eqx.nn.State(critic)
-    costs = fresh.get(critic.td_feature.last_costs_index)
     prospects: list = []
     for feature, k, oc, pi in zip(
         critic.prospect_features, keys, observation_content, predictor_instruments, strict=True
     ):
-        fresh, out = feature.step(
-            fresh,
-            k,
-            observation_content=oc,
-            predictor_instrument=pi,
-            gain=None,
-            reconstruction=costs.reconstruction,
-            confounding=costs.confounding,
+        fresh, out = feature.emit(
+            fresh, k, observation_content=oc, predictor_instrument=pi, gain=None
         )
         prospects.append(out)
     expected_predictor = InstrumentedMessage(
@@ -204,20 +191,11 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
     assert jnp.allclose(outputs.td.confounding_cost, td_out.confounding_cost)
 
 
-def test_reward_critic_feeds_td_costs_back_to_prospects(
+def test_reward_critic_credits_prospects_with_this_steps_td_costs(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """Prospects receive the previous TD reconstruction and confounding costs."""
+    """Each prospect takes its credit from the TD costs that the critic computes in that step."""
     critic = _critic(streams)
-    state = eqx.nn.State(critic)
-
-    stored_costs = TDCosts(
-        reconstruction=jnp.asarray(0.7, dtype=jnp.float64),
-        confounding=jnp.asarray(0.2, dtype=jnp.float64),
-    )
-    state = state.set(critic.td_feature.last_costs_index, stored_costs)
-
-    key = jr.key(0)
     observation_content = [
         _message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
         _message(jnp.asarray([0.2, 0.4]), jnp.ones(2)),
@@ -227,28 +205,47 @@ def test_reward_critic_feeds_td_costs_back_to_prospects(
         _message(jnp.asarray([-0.3, 0.2]), jnp.ones(2)),
     ]
     reward_observation = _message(jnp.asarray([0.6]), jnp.ones(1))
-    _, critic_outputs = critic.step(
-        state,
-        key,
-        observation_content=observation_content,
-        predictor_instruments=predictor_instruments,
+
+    def run(state: eqx.nn.State, key: KeyArray) -> tuple[eqx.nn.State, RewardCriticOutputs]:
+        return critic.step(
+            state,
+            key,
+            observation_content=observation_content,
+            predictor_instruments=predictor_instruments,
+            reward_observation=reward_observation,
+            streams=streams,
+            inference=True,
+        )
+
+    # The first step leaves an emission for the second step's costs to credit.
+    state, _ = run(eqx.nn.State(critic), jr.key(0))
+    key = jr.key(1)
+    _, outputs = run(_clone(state), key)
+
+    manual = _clone(state)
+    emissions = []
+    for feature, k, oc, pi in zip(
+        critic.prospect_features,
+        jr.split(key, len(critic.prospect_features)),
+        observation_content,
+        predictor_instruments,
+        strict=True,
+    ):
+        manual, emission = feature.emit(
+            manual, k, observation_content=oc, predictor_instrument=pi, gain=None
+        )
+        emissions.append(emission)
+    manual, td_out = critic.td_feature.step(
+        manual,
         reward_observation=reward_observation,
+        predictor=concat_instrumented_messages(*[e.message for e in emissions]),
         streams=streams,
         inference=True,
     )
-
-    keys = jr.split(key, len(critic.prospect_features))
-    fresh = eqx.nn.State(critic)
-    _, direct = critic.prospect_features[0].step(
-        fresh,
-        keys[0],
-        observation_content=observation_content[0],
-        predictor_instrument=predictor_instruments[0],
-        gain=None,
-        reconstruction=stored_costs.reconstruction,
-        confounding=stored_costs.confounding,
+    _, expected = critic.prospect_features[0].credit(
+        manual,
+        emissions[0],
+        reconstruction=td_out.reconstruction_cost,
+        confounding=td_out.confounding_cost,
     )
-    assert jnp.allclose(
-        critic_outputs.prospects[0].message.observation.mean_times_precision,
-        direct.message.observation.mean_times_precision,
-    )
+    assert jnp.allclose(outputs.prospects[0].loss, expected.loss)

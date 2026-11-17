@@ -1,7 +1,7 @@
 """Self-instrumental purification components."""
 
-from cem.sip.credit import Credit, CreditOutputs, CreditTraces
-from cem.sip.emitter import Emitter, EmitterOutputs
+from cem.sip.credit import Credit, CreditEmission, CreditOutputs, CreditState
+from cem.sip.emitter import Emitter, EmitterEmission, EmitterOutputs
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import (
     IntentionFeature,
@@ -23,7 +23,6 @@ from cem.sip.model import SIPActionConfiguration, SIPModel, SIPObservation
 from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.sensations import Sensations
 from cem.sip.settings import (
-    CreditSettings,
     EnvironmentFeatures,
     MismatchSettings,
     SIPAgentSettings,
@@ -35,10 +34,11 @@ from cem.sip.witness import IntegralWitnessMap, ProportionalWitnessMap
 
 __all__ = [
     "Credit",
+    "CreditEmission",
     "CreditOutputs",
-    "CreditSettings",
-    "CreditTraces",
+    "CreditState",
     "Emitter",
+    "EmitterEmission",
     "EmitterOutputs",
     "EnvironmentFeatures",
     "ExplanatoryCoupling",

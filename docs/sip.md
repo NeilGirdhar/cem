@@ -83,11 +83,11 @@ The bottom intention has no predictor inputs.
 ## Agent construction
 
 Pass `SIPAgentSettings` and random streams to `SIPAgent.create`. The settings group environment
-widths in `EnvironmentFeatures` and circuit settings in `CreditSettings`, `MismatchSettings`,
-and `TDSettings`. The agent derives connection widths from the environment and feature widths.
+widths in `EnvironmentFeatures` and circuit settings in `MismatchSettings` and `TDSettings`. The
+agent derives connection widths from the environment and feature widths.
 
-`CreditSettings` requires a finite, positive trace decay rate shared by the agent's credit
-circuits. Mismatch and TD settings select the prediction, integral witness, and proportional
+The credit circuits need no settings: each goal credits the emission one step before it. Mismatch
+and TD settings select the prediction, integral witness, and proportional
 witness hidden widths and the damping weight. The TD settings also supply the discount. By
 default, the maps have no hidden layers, and the damping weight and the discount are one.
 
@@ -225,10 +225,11 @@ full configuration and writes chart JSON.
    and bias 0, and the inherited instrument is a standard normal, so each emission injects
    unit-variance noise. The goal is `G = x − 3U + η`, where `x` is the emitted value and `η` has
    standard deviation 0.5. Its causal derivative in `x` is 1, but its regression slope on `x` is
-   −0.5. Each example starts with empty traces, so the goal credits only the current emission.
+   −0.5. The goal credits only the example's emission, as the lag filter does when the goal
+   arrives at the next step.
 
    Average over held-out emissions:
-   - goal credit, the goal times the mean eligibility trace;
+   - goal credit, the goal times the emission's mean drift;
    - shrinkage credit;
    - observational credit, which pairs the goal with the emitted value in place of the instrument.
 

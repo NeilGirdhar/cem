@@ -11,7 +11,7 @@ from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter
 
-from .tools import CREDIT_SETTINGS, _message
+from .tools import _clone, _message
 
 
 def _emitter(
@@ -31,7 +31,7 @@ def _emitter(
     baseline_map = GaussianNeuralProjection.create(
         in_features=content_dim, out_features=1, hidden_features=(), streams=streams
     )
-    credit = Credit.create(n, baseline_map, credit_settings=CREDIT_SETTINGS)
+    credit = Credit.create(baseline_map)
     return Emitter.create(
         observation_map=observation_map,
         instrument_map=instrument_map,
@@ -123,17 +123,47 @@ def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> No
 
 
 def test_goal_credit_reaches_observation_map(streams: Mapping[str, RngStream]) -> None:
-    """A unit increase in the goal adds its mean and precision credit to the gradient.
+    """A unit increase in the goal adds the previous emission's credit to the gradient.
 
     The goal scales the mean trace, and the goal prediction error, which rises with the goal,
-    scales the precision trace. The emitter's other terms do not depend on the goal.
+    scales the precision trace. Both traces hold the previous emission's drifts. The emitter's
+    other terms do not depend on the goal.
     """
     n = 2
     emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=False, streams=streams)
+    inputs = {
+        "observation_content": _message(jnp.asarray([0.5]), jnp.ones(1)),
+        "predictor_instrument": _message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 1.0])),
+        "gain_observation": _message(jnp.ones(n), jnp.ones(n)),
+    }
+    state, _ = emitter.step(eqx.nn.State(emitter), jr.key(0), **inputs, goal=jnp.asarray(0.0))
+    lag_filter = emitter.credit.lag_filter.value
+    traces = state.get(emitter.trace_index)
+    credit_trace = (
+        lag_filter.value(traces.mean).layers[0].weight.value
+        + lag_filter.value(traces.precision).layers[0].weight.value
+    )
 
-    def weight_gradient(goal: float) -> tuple[jnp.ndarray, jnp.ndarray]:
-        def loss_fn(em: Emitter) -> tuple[jnp.ndarray, jnp.ndarray]:
-            new_state, outputs = em.step(
+    def weight_gradient(goal: float) -> jnp.ndarray:
+        def loss_fn(em: Emitter) -> jnp.ndarray:
+            _, outputs = em.step(_clone(state), jr.key(1), **inputs, goal=jnp.asarray(goal))
+            return outputs.loss
+
+        grads = eqx.filter_grad(loss_fn)(emitter)
+        return grads.observation_map.layers[0].weight.value
+
+    assert jnp.any(jnp.abs(credit_trace) > 0)
+    assert jnp.allclose(weight_gradient(1.0) - weight_gradient(0.0), -credit_trace)
+
+
+def test_goal_does_not_credit_its_own_step(streams: Mapping[str, RngStream]) -> None:
+    """With nothing retained, the goal leaves the observation map's gradient unchanged."""
+    n = 2
+    emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=False, streams=streams)
+
+    def weight_gradient(goal: float) -> jnp.ndarray:
+        def loss_fn(em: Emitter) -> jnp.ndarray:
+            _, outputs = em.step(
                 eqx.nn.State(em),
                 jr.key(0),
                 observation_content=_message(jnp.asarray([0.5]), jnp.ones(1)),
@@ -141,19 +171,12 @@ def test_goal_credit_reaches_observation_map(streams: Mapping[str, RngStream]) -
                 gain_observation=_message(jnp.ones(n), jnp.ones(n)),
                 goal=jnp.asarray(goal),
             )
-            traces = new_state.get(em.trace_index)
-            credit_trace = (
-                traces.mean.layers[0].weight.value + traces.precision.layers[0].weight.value
-            )
-            return outputs.loss, credit_trace
+            return outputs.loss
 
-        (_, credit_trace), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(emitter)
-        return grads.observation_map.layers[0].weight.value, credit_trace
+        grads = eqx.filter_grad(loss_fn)(emitter)
+        return grads.observation_map.layers[0].weight.value
 
-    unit_gradient, credit_trace = weight_gradient(1.0)
-    zero_gradient, _ = weight_gradient(0.0)
-    assert jnp.any(jnp.abs(credit_trace) > 0)
-    assert jnp.allclose(unit_gradient - zero_gradient, -credit_trace)
+    assert jnp.allclose(weight_gradient(1.0), weight_gradient(0.0))
 
 
 def test_observation_projection_stops_gradients_at_its_input(

@@ -19,7 +19,7 @@ from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.messages import InstrumentedMessage
 from cem.sip.settings import TDSettings
 
-from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _message
+from .tools import MISMATCH_SETTINGS, _clone, _message
 
 
 class _SIPStepInputs(TypedDict):
@@ -48,7 +48,6 @@ def _sip_feature(
         n,
         sizes,
         controllable=controllable,
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
@@ -145,42 +144,42 @@ def test_sensation_credit_lowers_dissonance(streams: Mapping[str, RngStream]) ->
     """
     n = 2
     feature = _sip_feature(n, streams, controllable=False)
+    # The first step records the experiments that the second step's cost credits.
+    state, _ = feature.step(
+        eqx.nn.State(feature), **_sip_inputs(n), streams=streams, inference=True
+    )
+    lag_filter = feature.emitter.credit.lag_filter.value
+    traces = state.get(feature.emitter.trace_index)
+    credit_trace = (
+        lag_filter.value(traces.mean).layers[0].weight.value
+        + lag_filter.value(traces.precision).layers[0].weight.value
+    )
 
-    def weight_gradient(reconstruction: float) -> tuple[JaxRealArray, JaxRealArray]:
-        def loss_fn(model: SensationFeature) -> tuple[JaxRealArray, JaxRealArray]:
+    def weight_gradient(reconstruction: float) -> JaxRealArray:
+        def loss_fn(model: SensationFeature) -> JaxRealArray:
             inputs = _sip_inputs(n)
             inputs["reconstruction"] = jnp.asarray(reconstruction)
-            new_state, outputs = model.step(
-                eqx.nn.State(model),
-                **inputs,
-                streams=streams,
-                inference=True,
-            )
-            traces = new_state.get(model.emitter.trace_index)
-            credit_trace = (
-                traces.mean.layers[0].weight.value + traces.precision.layers[0].weight.value
-            )
-            return outputs.loss, credit_trace
+            _, outputs = model.step(_clone(state), **inputs, streams=streams, inference=True)
+            return outputs.loss
 
-        (_, credit_trace), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(feature)
-        return grads.emitter.observation_map.layers[0].weight.value, credit_trace
+        grads = eqx.filter_grad(loss_fn)(feature)
+        return grads.emitter.observation_map.layers[0].weight.value
 
-    unit_gradient, credit_trace = weight_gradient(1.0)
-    zero_gradient, _ = weight_gradient(0.0)
     assert jnp.any(jnp.abs(credit_trace) > 0)
-    assert jnp.allclose(unit_gradient - zero_gradient, credit_trace)
+    assert jnp.allclose(weight_gradient(1.0) - weight_gradient(0.0), credit_trace)
 
 
-def test_sip_feature_state_carries_credit_traces(
+def test_sip_feature_state_retains_its_emission(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """After a step, the new state's credit traces are nonzero (updated from zero init)."""
+    """After a step, the credit circuit retains that step's emission for the next goal."""
     n = 2
     feature = _sip_feature(n, streams)
     state = eqx.nn.State(feature)
     new_state, _ = feature.step(state, **_sip_inputs(n), streams=streams, inference=True)
-    traces = new_state.get(feature.emitter.credit.trace_index)
-    assert jnp.any(traces.obs_precision > 0)
+    credit = feature.emitter.credit
+    retained = new_state.get(credit.state_index)
+    assert jnp.allclose(credit.lag_filter.value.value(retained.emission_weight), 1.0)
 
 
 def test_td_feature_observation_is_reward_passthrough(
@@ -242,7 +241,6 @@ def _recruiter_feature(n: int, streams: Mapping[str, RngStream]) -> RecruiterFea
         n,
         observation_content_features=1,
         predictor_features=2,
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )

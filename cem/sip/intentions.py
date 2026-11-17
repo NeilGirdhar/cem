@@ -11,7 +11,7 @@ from tjax import JaxRealArray, KeyArray, RngStream
 from cem.sip.explanatory_coupling import ExplanatoryCoupling
 from cem.sip.features import IntentionFeature, SIPFeatureOutputs, SIPFeatureSizes
 from cem.sip.messages import InstrumentedMessage
-from cem.sip.settings import CreditSettings, MismatchSettings
+from cem.sip.settings import MismatchSettings
 
 
 class Intentions(ExplanatoryCoupling):
@@ -28,7 +28,6 @@ class Intentions(ExplanatoryCoupling):
         sizes: Sequence[int],
         *,
         readout_features: Sequence[int],
-        credit_settings: CreditSettings,
         mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
@@ -60,7 +59,6 @@ class Intentions(ExplanatoryCoupling):
                     n,
                     feature_sizes,
                     controllable=True,
-                    credit_settings=credit_settings,
                     mismatch_settings=mismatch_settings,
                     streams=streams,
                 )

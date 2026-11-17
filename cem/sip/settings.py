@@ -5,18 +5,6 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
-class CreditSettings:
-    """The decay rate for all eligibility traces in a credit circuit."""
-
-    trace_decay_rate: float
-
-    def __post_init__(self) -> None:
-        if not math.isfinite(self.trace_decay_rate) or self.trace_decay_rate <= 0:
-            msg = "trace_decay_rate must be finite and positive"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True)
 class MismatchSettings:
     """Hidden-layer widths for a mismatch circuit's maps and the weight of its proportional loss.
 
@@ -67,6 +55,5 @@ class SIPAgentSettings:
     environment: EnvironmentFeatures
     level_sizes: tuple[int, ...]
     prospect_sizes: tuple[int, ...] | None = None
-    credit_settings: CreditSettings
     mismatch_settings: MismatchSettings = field(default_factory=MismatchSettings)
     td_settings: TDSettings = field(default_factory=TDSettings)

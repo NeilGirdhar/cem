@@ -1,18 +1,15 @@
-import math
 from collections.abc import Mapping
 
 import equinox as eqx
 import jax.numpy as jnp
-import pytest
 from efax import NormalNP
 from jax import tree, value_and_grad
 from tjax import JaxRealArray, RngStream
 
 from cem.npn.gaussian import GaussianNeuralProjection
-from cem.sip.credit import Credit, CreditTraces
-from cem.sip.settings import CreditSettings
+from cem.sip.credit import Credit, CreditEmission
 
-from .tools import CREDIT_SETTINGS, _message
+from .tools import _message
 
 
 def _baseline_projection(
@@ -26,111 +23,94 @@ def _baseline_projection(
     )
 
 
-def test_traces_zeros_initialization() -> None:
-    traces = CreditTraces.zeros(3)
-    assert traces.goal_penalty.shape == ()
-    assert traces.goal_penalty == 0
-    assert jnp.allclose(traces.obs_precision, jnp.zeros(3))
+def _emit(
+    credit: Credit,
+    *,
+    inst_mean: JaxRealArray,
+    inst_precision: JaxRealArray | None = None,
+    gain: JaxRealArray | None = None,
+    raw_mean: JaxRealArray | None = None,
+    raw_precision: JaxRealArray | None = None,
+    content: NormalNP | None = None,
+) -> CreditEmission:
+    n = inst_mean.shape[0]
+    ones = jnp.ones(n)
+    return credit.emit(
+        gain_observation=_message(ones if gain is None else gain, ones),
+        noised_instrument=_message(inst_mean, ones if inst_precision is None else inst_precision),
+        observation_content=(
+            _message(jnp.asarray([0.0]), jnp.asarray([1.0])) if content is None else content
+        ),
+        raw_observation=_message(
+            jnp.zeros(n) if raw_mean is None else raw_mean,
+            ones if raw_precision is None else raw_precision,
+        ),
+    )
 
 
-@pytest.mark.parametrize("rate", [0.0, -0.1, math.inf, math.nan])
-def test_credit_settings_reject_invalid_decay_rates(rate: float) -> None:
-    with pytest.raises(ValueError, match="finite and positive"):
-        CreditSettings(trace_decay_rate=rate)
+def _baseline(credit: Credit, content: NormalNP) -> JaxRealArray:
+    """Recover the baseline the way Credit does, so tests do not depend on NPN init."""
+    message = credit.goal_baseline_map.infer(content)
+    return message.mean_times_precision[0] / (-2 * message.negative_half_precision[0])
 
 
-def test_step_advances_traces_from_zero(streams: Mapping[str, RngStream]) -> None:
-    n = 2
-    credit = Credit.create(n, _baseline_projection(1, streams), credit_settings=CREDIT_SETTINGS)
-    initial_state = eqx.nn.State(credit)
+def test_credit_starts_with_nothing_retained(streams: Mapping[str, RngStream]) -> None:
+    credit = Credit.create(_baseline_projection(2, streams))
+    lag_filter = credit.lag_filter.value
+    retained = eqx.nn.State(credit).get(credit.state_index)
+    assert jnp.allclose(lag_filter.value(retained.goal_penalty), 0.0)
+    assert jnp.allclose(lag_filter.value(retained.emission_weight), 0.0)
+    assert jnp.allclose(retained.observation_content.negative_half_precision, jnp.zeros(2))
 
+
+def test_emit_records_contributions(streams: Mapping[str, RngStream]) -> None:
+    credit = Credit.create(_baseline_projection(1, streams))
     inst_mean = jnp.asarray([2.0, -3.0])
     inst_precision = jnp.asarray([0.5, 4.0])
     gain = jnp.asarray([1.0, 0.5])
-    raw_mean = jnp.asarray([1.0, 0.0])
+    raw_mean = jnp.asarray([1.0, -2.0])
     raw_precision = jnp.asarray([0.25, 0.75])
 
-    new_state, outputs = credit.step(
-        initial_state,
-        gain_observation=_message(gain, jnp.ones(n)),
-        noised_instrument=_message(inst_mean, inst_precision),
-        observation_content=_message(jnp.asarray([0.0]), jnp.asarray([1.0])),
-        raw_observation=_message(raw_mean, raw_precision),
-        goal=jnp.asarray(0.0),
+    emission = _emit(
+        credit,
+        inst_mean=inst_mean,
+        inst_precision=inst_precision,
+        gain=gain,
+        raw_mean=raw_mean,
+        raw_precision=raw_precision,
     )
-    traces = new_state.get(credit.trace_index)
 
-    # The initial traces are zero, so this step contains only the new contribution.
-    assert jnp.allclose(outputs.mean_contribution, gain * inst_precision * inst_mean)
-    assert jnp.allclose(outputs.precision_contribution, -0.5 * gain * jnp.square(inst_mean))
+    assert jnp.allclose(emission.mean_contribution, gain * inst_precision * inst_mean)
+    assert jnp.allclose(emission.precision_contribution, -0.5 * gain * jnp.square(inst_mean))
     assert jnp.allclose(
-        traces.goal_penalty, jnp.sum(raw_precision * outputs.precision_contribution)
+        emission.goal_penalty, jnp.sum(raw_precision * emission.precision_contribution)
     )
-    assert jnp.allclose(traces.obs_precision, gain * raw_precision)
+    # Shrinkage is weighted by the emission's own gain-weighted raw precision.
+    assert jnp.allclose(emission.shrinkage_cotangent, -raw_mean * gain * raw_precision)
 
 
-def test_step_shrinkage_uses_observation_precision_trace(
-    streams: Mapping[str, RngStream],
-) -> None:
+def test_goal_prediction_uses_the_previous_emission(streams: Mapping[str, RngStream]) -> None:
+    """The goal is predicted from the content and penalty of the emission one step before it."""
     n = 2
-    credit = Credit.create(n, _baseline_projection(1, streams), credit_settings=CREDIT_SETTINGS)
-    initial_state = eqx.nn.State(credit)
-
-    inst_mean = jnp.asarray([2.0, -1.0])
-    inst_precision = jnp.asarray([1.0, 2.0])
-    gain = jnp.asarray([1.0, 1.0])
-    raw_mean = jnp.asarray([3.0, -2.0])
-    raw_precision = jnp.asarray([0.5, 1.5])
-    goal = jnp.asarray(2.5)
-
-    _, outputs = credit.step(
-        initial_state,
-        gain_observation=_message(gain, jnp.ones(n)),
-        noised_instrument=_message(inst_mean, inst_precision),
-        observation_content=_message(jnp.asarray([0.0]), jnp.asarray([1.0])),
-        raw_observation=_message(raw_mean, raw_precision),
-        goal=goal,
-    )
-
-    expected_obs_precision_trace = gain * raw_precision
-    assert jnp.allclose(outputs.shrinkage_cotangent, -raw_mean * expected_obs_precision_trace)
-
-
-def test_step_goal_prediction_error_uses_goal_penalty(
-    streams: Mapping[str, RngStream],
-) -> None:
-    n = 2
-    credit = Credit.create(n, _baseline_projection(1, streams), credit_settings=CREDIT_SETTINGS)
-    initial_state = eqx.nn.State(credit)
-
+    credit = Credit.create(_baseline_projection(1, streams))
     inst_mean = jnp.asarray([1.0, 2.0])
-    inst_precision = jnp.asarray([1.0, 1.0])
-    gain = jnp.asarray([1.0, 1.0])
-    raw_mean = jnp.asarray([0.0, 0.0])
-    raw_precision = jnp.asarray([1.0, 1.0])
-    content_mean = jnp.asarray([0.0])
-    content_precision = jnp.asarray([1.0])
+    first_content = _message(jnp.asarray([0.7]), jnp.asarray([1.0]))
+    later_content = _message(jnp.asarray([-0.4]), jnp.asarray([2.0]))
+
+    state, _ = credit.credit(
+        eqx.nn.State(credit),
+        _emit(credit, inst_mean=inst_mean, content=first_content),
+        jnp.asarray(0.0),
+    )
+    emission = _emit(credit, inst_mean=jnp.zeros(n), content=later_content)
     goal = jnp.asarray(4.0)
 
     def prediction_error(target: JaxRealArray) -> JaxRealArray:
-        _, outputs = credit.step(
-            initial_state,
-            gain_observation=_message(gain, jnp.ones(n)),
-            noised_instrument=_message(inst_mean, inst_precision),
-            observation_content=_message(content_mean, content_precision),
-            raw_observation=_message(raw_mean, raw_precision),
-            goal=target,
-        )
+        _, outputs = credit.credit(state, emission, target)
         return outputs.goal_prediction_error
 
-    # Recover baseline the way Credit does, so the test does not depend on NPN init.
-    baseline_message = credit.goal_baseline_map.infer(_message(content_mean, content_precision))
-    baseline = baseline_message.mean_times_precision[0] / (
-        -2 * baseline_message.negative_half_precision[0]
-    )
-    expected_quadratic_trace = gain * jnp.square(inst_mean)
-    expected_prediction = baseline - 0.5 * jnp.sum(raw_precision * expected_quadratic_trace)
-    expected_error = goal - expected_prediction
+    expected_penalty = -0.5 * jnp.sum(jnp.square(inst_mean))
+    expected_error = goal - (_baseline(credit, first_content) + expected_penalty)
     error, goal_gradient = value_and_grad(prediction_error)(goal)
     assert jnp.allclose(error, expected_error)
     assert jnp.allclose(goal_gradient, 0.0)
@@ -141,7 +121,7 @@ def test_goal_prediction_loss_trains_only_the_baseline_map(
 ) -> None:
     """The loss holds the observation content and the goal penalty fixed."""
     n = 1
-    credit = Credit.create(n, _baseline_projection(1, streams), credit_settings=CREDIT_SETTINGS)
+    credit = Credit.create(_baseline_projection(1, streams))
     initial_state = eqx.nn.State(credit)
 
     content = _message(jnp.ones(n), jnp.ones(n))
@@ -149,14 +129,15 @@ def test_goal_prediction_loss_trains_only_the_baseline_map(
 
     def loss(inputs: tuple[Credit, NormalNP, NormalNP]) -> tuple[JaxRealArray, JaxRealArray]:
         circuit, observation_content, raw_observation = inputs
-        _, outputs = circuit.step(
-            initial_state,
-            gain_observation=_message(jnp.ones(n), jnp.ones(n)),
-            noised_instrument=_message(jnp.ones(n), jnp.ones(n)),
-            observation_content=observation_content,
-            raw_observation=raw_observation,
-            goal=jnp.asarray(1.0),
-        )
+        state = initial_state
+        for goal in (0.0, 1.0):
+            emission = circuit.emit(
+                gain_observation=_message(jnp.ones(n), jnp.ones(n)),
+                noised_instrument=_message(jnp.ones(n), jnp.ones(n)),
+                observation_content=observation_content,
+                raw_observation=raw_observation,
+            )
+            state, outputs = circuit.credit(state, emission, jnp.asarray(goal))
         return outputs.goal_prediction_loss, outputs.goal_prediction_error
 
     (value, error), (credit_gradient, content_gradient, raw_gradient) = eqx.filter_value_and_grad(
@@ -167,41 +148,39 @@ def test_goal_prediction_loss_trains_only_the_baseline_map(
     assert jnp.any(credit_gradient.goal_baseline_map.layers[-1].bias.value != 0)
 
 
-def test_goal_penalty_retains_precision_from_emission(streams: Mapping[str, RngStream]) -> None:
-    n = 1
-    decay_rate = jnp.log(2.0).item()  # exp(-ln 2) = 0.5
-    credit = Credit.create(
-        n,
-        _baseline_projection(1, streams),
-        credit_settings=CreditSettings(trace_decay_rate=decay_rate),
-    )
-    state = eqx.nn.State(credit)
+def test_first_goal_trains_nothing(streams: Mapping[str, RngStream]) -> None:
+    """A goal that follows no emission leaves the baseline map untrained."""
+    credit = Credit.create(_baseline_projection(1, streams))
+    initial_state = eqx.nn.State(credit)
 
-    inst_mean = jnp.asarray([2.0])
-    inst_precision = jnp.asarray([1.0])
-    gain = jnp.asarray([1.0])
+    def loss(circuit: Credit) -> JaxRealArray:
+        emission = _emit(circuit, inst_mean=jnp.ones(1))
+        _, outputs = circuit.credit(initial_state, emission, jnp.asarray(3.0))
+        return outputs.goal_prediction_loss
+
+    value, gradient = eqx.filter_value_and_grad(loss)(credit)
+    assert jnp.allclose(value, 0.0)
+    assert all(jnp.allclose(leaf, 0.0) for leaf in tree.leaves(gradient))
+
+
+def test_goal_penalty_applies_only_to_the_next_goal(streams: Mapping[str, RngStream]) -> None:
+    credit = Credit.create(_baseline_projection(1, streams))
+    lag_filter = credit.lag_filter.value
     raw_precision = jnp.asarray([3.0])
 
-    # Step once to populate traces.
-    state, _ = credit.step(
-        state,
-        gain_observation=_message(gain, jnp.ones(n)),
-        noised_instrument=_message(inst_mean, inst_precision),
-        observation_content=_message(jnp.asarray([0.0]), jnp.asarray([1.0])),
-        raw_observation=_message(jnp.zeros(n), raw_precision),
-        goal=jnp.asarray(0.0),
+    state, _ = credit.credit(
+        eqx.nn.State(credit),
+        _emit(credit, inst_mean=jnp.asarray([2.0]), raw_precision=raw_precision),
+        jnp.asarray(0.0),
     )
-    first_penalty = state.get(credit.trace_index).goal_penalty
+    first_penalty = lag_filter.value(state.get(credit.state_index).goal_penalty)
     assert jnp.allclose(first_penalty, -6.0)
 
-    # Step a second time with zero contribution so only decay acts.
-    state, _ = credit.step(
+    # An emission with no contribution replaces the penalty rather than adding to it.
+    state, _ = credit.credit(
         state,
-        gain_observation=_message(gain, jnp.ones(n)),
-        noised_instrument=_message(jnp.zeros(n), jnp.ones(n)),
-        observation_content=_message(jnp.asarray([0.0]), jnp.asarray([1.0])),
-        raw_observation=_message(jnp.zeros(n), 2 * raw_precision),
-        goal=jnp.asarray(0.0),
+        _emit(credit, inst_mean=jnp.zeros(1), raw_precision=raw_precision),
+        jnp.asarray(0.0),
     )
-    second_penalty = state.get(credit.trace_index).goal_penalty
-    assert jnp.allclose(second_penalty, 0.5 * first_penalty)
+    second_penalty = lag_filter.value(state.get(credit.state_index).goal_penalty)
+    assert jnp.allclose(second_penalty, 0.0)

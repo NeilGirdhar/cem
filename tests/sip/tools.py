@@ -1,10 +1,11 @@
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 from efax import NormalNP, NormalPP
 
 from cem.sip import InstrumentedMessage
-from cem.sip.settings import CreditSettings, MismatchSettings
+from cem.sip.settings import MismatchSettings
 
-CREDIT_SETTINGS = CreditSettings(trace_decay_rate=0.1)
 MISMATCH_SETTINGS = MismatchSettings()
 
 
@@ -14,3 +15,9 @@ def _message(mean: jnp.ndarray, precision: jnp.ndarray) -> NormalNP:
 
 def _i_message(observation: NormalPP, instrument: NormalPP) -> InstrumentedMessage:
     return InstrumentedMessage(observation.to_nat(), instrument.to_nat())
+
+
+def _clone(state: eqx.nn.State) -> eqx.nn.State:
+    """Return a copy of a state, so a test can advance it more than once."""
+    leaves, treedef = jax.tree_util.tree_flatten(state)
+    return jax.tree_util.tree_unflatten(treedef, leaves)

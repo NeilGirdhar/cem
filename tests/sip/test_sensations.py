@@ -8,7 +8,7 @@ from tjax import RngStream
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 from cem.sip.sensations import Sensations
 
-from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _message
+from .tools import MISMATCH_SETTINGS, _message
 
 
 def _predictors(size: int) -> InstrumentedMessage:
@@ -22,7 +22,6 @@ def test_sensations_create_input_feature_has_no_observation_map(
     sensations = Sensations.create(
         [3, 2, 4],
         predictor_features=[2, 2, 2],
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
@@ -38,7 +37,6 @@ def test_sensations_create_interior_content_sizes_follow_mismatch_cascade(
     sensations = Sensations.create(
         sizes,
         predictor_features=[2, 2, 2],
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
@@ -55,7 +53,6 @@ def test_sensations_infer_returns_one_output_per_layer(
     sensations = Sensations.create(
         sizes,
         predictor_features=[1, 1],
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
@@ -82,7 +79,6 @@ def test_sensations_input_feature_passes_observation_through_unchanged(
     sensations = Sensations.create(
         sizes,
         predictor_features=[1],
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
@@ -114,7 +110,6 @@ def test_sensations_infer_feeds_costs_from_below(
     sensations = Sensations.create(
         sizes,
         predictor_features=[1, 1],
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )

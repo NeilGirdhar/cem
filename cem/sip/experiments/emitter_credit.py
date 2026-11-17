@@ -34,7 +34,6 @@ from cem.framework.solver import Solver, int_field
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter, ObservationCoordinates
-from cem.sip.settings import CreditSettings
 
 from .common import SEED_COUNT, SeededExperiment, bar_chart, seed_runs
 from .datasets import DirectCreditProblem, DirectCreditState
@@ -84,9 +83,9 @@ class DirectCreditModel(Model):
     is zero, so the inherited instrument is the map's initial bias, a standard normal. Each
     emission therefore injects unit-variance noise with a centred, unit-precision instrument.
 
-    The model stores the emitter's maps and assembles the emitter for each example, so every
-    example starts with empty traces. The mean trace then holds only the current emission's
-    contribution, and the goal credits that emission alone. The model measures credit at fixed
+    The model stores the emitter's maps and assembles the emitter for each example, then credits
+    the goal to that example's emission alone, as the lag filter does when the goal arrives at the
+    next step. The model measures credit at fixed
     parameters and never trains, so it reports no loss.
     """
 
@@ -94,7 +93,6 @@ class DirectCreditModel(Model):
     instrument_map: GaussianNeuralProjection
     goal_baseline_map: GaussianNeuralProjection
     scenario: DirectCreditScenario = eqx.field(static=True)
-    credit_settings: CreditSettings = eqx.field(static=True)
 
     @classmethod
     def create(
@@ -102,7 +100,6 @@ class DirectCreditModel(Model):
         scenario: DirectCreditScenario,
         *,
         observation_weight: float,
-        credit_settings: CreditSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         def projection() -> GaussianNeuralProjection:
@@ -113,12 +110,11 @@ class DirectCreditModel(Model):
             instrument_map=_with_output_weight(projection(), 0.0),
             goal_baseline_map=projection(),
             scenario=scenario,
-            credit_settings=credit_settings,
         )
 
     def emitter(self) -> Emitter:
         """Assemble a controllable emitter from the maps, with empty traces."""
-        credit = Credit.create(1, self.goal_baseline_map, credit_settings=self.credit_settings)
+        credit = Credit.create(self.goal_baseline_map)
         return Emitter.create(
             observation_map=self.observation_map,
             instrument_map=self.instrument_map,
@@ -137,20 +133,20 @@ class DirectCreditModel(Model):
     ) -> ModelResult:
         """Emit, evaluate the oracle goal at the emitted value, and form each credit vector.
 
-        The mean trace does not depend on the goal, so the model emits before the goal arrives.
+        The emission's drift does not depend on the goal, so the model emits before the goal
+        arrives and credits the goal to that drift.
         """
         assert isinstance(observation, DirectCreditState)
         emitter = self.emitter()
         absent = NormalNP(jnp.zeros(1), jnp.zeros(1))
-        emitter_state, outputs = emitter.step(
+        _, emission = emitter.emit(
             eqx.nn.State(emitter),
             streams["inference"].key(),
             observation_content=observation.content,
             predictor_instrument=absent,
             gain_observation=observation.gain,
-            goal=jnp.zeros(()),
         )
-        value = outputs.message.observation.mean()[0]
+        value = emission.message.observation.mean()[0]
         goal = self.scenario.goal(value, observation.sample)
         gain = observation.gain.mean()[0]
         _, pullback = emitter.observation_projection.infer(observation.content)
@@ -161,14 +157,13 @@ class DirectCreditModel(Model):
             )
             return _flatten(parameters)
 
-        instrument_precision = outputs.noised_instrument.to_precision_parametrization().precision
-        mean_trace = emitter_state.get(emitter.trace_index).mean
+        instrument_precision = emission.noised_instrument.to_precision_parametrization().precision
         configuration = DirectCreditConfiguration(
             gain=gain,
             value=value,
             goal=goal,
-            mean_credit=goal * _flatten(mean_trace),
-            shrinkage_credit=pull_back_mean(outputs.credit_outputs.shrinkage_cotangent),
+            mean_credit=goal * _flatten(emission.mean_drift),
+            shrinkage_credit=pull_back_mean(emission.credit_emission.shrinkage_cotangent),
             observational_credit=goal * pull_back_mean(gain * instrument_precision * value),
             mean_jacobian=pull_back_mean(jnp.ones(1)),
         )
@@ -180,8 +175,7 @@ class DirectCreditModel(Model):
 
     def parameter_names(self) -> list[str]:
         """Return the observation map's trainable parameter names in flattened order."""
-        emitter = self.emitter()
-        trace = eqx.nn.State(emitter).get(emitter.trace_index).mean
+        trace = self.emitter().observation_projection.zero_trace()
         names: list[str] = []
         for path, leaf in tree.leaves_with_path(trace):
             name = "".join(str(key) for key in path).removeprefix(".").removesuffix(".value")
@@ -281,9 +275,6 @@ class DirectCreditSolver(Solver[DirectCreditProblem]):
     _: KW_ONLY
     scenario: DirectCreditScenario = eqx.field(default_factory=DirectCreditScenario)
     observation_weight: float = eqx.field(static=True, default=1.0)
-    credit_settings: CreditSettings = eqx.field(
-        static=True, default_factory=lambda: CreditSettings(trace_decay_rate=1.0)
-    )
     inference_examples: int = int_field(default=256, domain=IntDistribution(1, 1 << 12, log=True))
     inference_batch_size: int = int_field(default=256, domain=IntDistribution(1, 1 << 12, log=True))
 
@@ -302,7 +293,6 @@ class DirectCreditSolver(Solver[DirectCreditProblem]):
         return DirectCreditModel.create(
             self.scenario,
             observation_weight=self.observation_weight,
-            credit_settings=self.credit_settings,
             streams=streams,
         )
 
@@ -343,7 +333,6 @@ class DirectCreditPlotter(Plotter):
         names = DirectCreditModel.create(
             next(iter(self.conditions.values())),
             observation_weight=1.0,
-            credit_settings=CreditSettings(trace_decay_rate=1.0),
             streams=create_streams({"parameters": jr.key(0)}),
         ).parameter_names()
         return bar_chart(

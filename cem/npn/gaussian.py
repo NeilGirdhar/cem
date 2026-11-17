@@ -123,6 +123,11 @@ class GaussianNeuralProjection(eqx.Module):
     input_pool: GaussianNeuralProjectionInputPool
     layers: tuple[GaussianNeuralProjectionLayer, ...]
 
+    @property
+    def in_features(self) -> int:
+        """The number of input components."""
+        return self.input_pool.dummy_mean.value.shape[0]
+
     @classmethod
     def create(
         cls,

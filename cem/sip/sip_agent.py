@@ -80,14 +80,12 @@ class SIPAgent(eqx.Module):
             sensation_sizes,
             # Each sensation receives the previous message from the matching intention.
             predictor_features=list(intention_sizes),
-            credit_settings=agent_settings.credit_settings,
             mismatch_settings=agent_settings.mismatch_settings,
             streams=streams,
         )
         intentions = Intentions.create(
             intention_sizes,
             readout_features=sensation_sizes,
-            credit_settings=agent_settings.credit_settings,
             mismatch_settings=agent_settings.mismatch_settings,
             streams=streams,
         )
@@ -98,7 +96,6 @@ class SIPAgent(eqx.Module):
             # Match one instrument source to each prospect, with sensations before intentions.
             predictor_features=list(sensation_sizes) + list(intention_sizes),
             reward_features=reward_features,
-            credit_settings=agent_settings.credit_settings,
             td_settings=agent_settings.td_settings,
             streams=streams,
         )

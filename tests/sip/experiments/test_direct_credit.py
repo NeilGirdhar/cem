@@ -17,7 +17,6 @@ from cem.sip.experiments.emitter_credit import (
     sip_direct_credit_experiment,
 )
 from cem.sip.experiments.scenarios import DirectCreditScenario
-from cem.sip.settings import CreditSettings
 
 _SEEDS = 2
 # Both conditions' goal credit lies within about 1° of the gradient that it estimates.
@@ -55,7 +54,6 @@ def test_mean_credit_is_the_goal_times_the_instrument_pullback() -> None:
     model = DirectCreditModel.create(
         scenario,
         observation_weight=1.0,
-        credit_settings=CreditSettings(trace_decay_rate=1.0),
         streams=create_streams({"parameters": jr.key(0)}),
     )
     state = DirectCreditDataSource(scenario).initial_problem_state(jr.key(1))

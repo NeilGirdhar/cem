@@ -7,11 +7,11 @@ import jax.numpy as jnp
 import jax.random as jr
 from efax import NormalNP, NormalPP
 from jax.lax import stop_gradient
-from tjax import JaxRealArray, KeyArray
+from tjax import JaxRealArray, KeyArray, PyTree
 
 from cem.framework.graph import EligibilityTraining
 from cem.npn.gaussian import GaussianNeuralProjection
-from cem.sip.credit import Credit, CreditOutputs
+from cem.sip.credit import Credit, CreditEmission, CreditOutputs
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage
@@ -34,15 +34,32 @@ type _ObservationProjection = EligibilityTraining[
 
 
 class _ObservationTraces(eqx.Module):
-    """Retain parameter cotangents from the mean and precision pullbacks.
+    """The lag filter's state for the mean, precision, and shrinkage eligibility traces.
 
-    Both traces follow the observation map's PyTree structure. At each trainable leaf,
-    they store the accumulated cotangent from credit applied to the corresponding
-    output coordinate.
+    Each follows the observation map's PyTree structure, with the filter's state at each trainable
+    leaf. Their drifts are the cotangents that the mean and precision contributions and the
+    shrinkage cotangent pull back to.
     """
 
-    mean: GaussianNeuralProjection
-    precision: GaussianNeuralProjection
+    mean: PyTree
+    precision: PyTree
+    shrinkage: PyTree
+
+
+class EmitterEmission(SIPLossOutputs):
+    """The outgoing message, the signals used to score it, and the drifts awaiting a goal.
+
+    The loss holds the instrument loss, the one term that does not wait for the goal.
+    """
+
+    message: InstrumentedMessage
+    raw_observation: NormalNP
+    noised_instrument: NormalNP
+    local_variance: JaxRealArray
+    mean_drift: GaussianNeuralProjection
+    precision_drift: GaussianNeuralProjection
+    shrinkage_drift: GaussianNeuralProjection
+    credit_emission: CreditEmission
 
 
 class EmitterOutputs(SIPLossOutputs):
@@ -52,6 +69,7 @@ class EmitterOutputs(SIPLossOutputs):
     raw_observation: NormalNP
     noised_instrument: NormalNP
     local_variance: JaxRealArray
+    credit_emission: CreditEmission
     credit_outputs: CreditOutputs
 
 
@@ -71,7 +89,7 @@ class Emitter(eqx.Module):
     def observation_map(self) -> GaussianNeuralProjection:
         return self.observation_projection.model
 
-    def step(
+    def emit(
         self,
         state: eqx.nn.State,
         key: KeyArray,
@@ -79,9 +97,8 @@ class Emitter(eqx.Module):
         observation_content: NormalNP,
         predictor_instrument: NormalNP,
         gain_observation: NormalNP | None,
-        goal: JaxRealArray,
-    ) -> tuple[eqx.nn.State, EmitterOutputs]:
-        """Emit an instrumented observation and compute credit for the raw observation.
+    ) -> tuple[eqx.nn.State, EmitterEmission]:
+        """Emit an instrumented observation and record the drifts that a later goal will credit.
 
         For a controllable emitter, add the same random displacement to the observation and
         its instrument. The fresh noise fills the positive gap between inherited instrument
@@ -90,9 +107,8 @@ class Emitter(eqx.Module):
         Apply gain to the precision of both outgoing messages. With no gain observation, emit
         both at their original precision and use unit gain for credit.
 
-        The goal scales the mean trace, and the goal prediction error scales the precision trace.
-        The loss also applies shrinkage credit through the current pullback and includes the goal
-        prediction and instrument losses.
+        Every drift is pulled back through the map as it ran, so the goal that arrives later
+        credits this emission's computation.
         """
         raw_observation, pullback = self.observation_projection.infer(observation_content)
         inherited_instrument = inherit_instrument(self.instrument_map, predictor_instrument)
@@ -117,62 +133,110 @@ class Emitter(eqx.Module):
             observation = noised_raw_observation.scale_evidence(gain)
             instrument = noised_instrument.scale_evidence(gain)
 
-        new_state, credit_outputs = self.credit.step(
-            state,
+        credit_emission = self.credit.emit(
             gain_observation=gain_observation,
             noised_instrument=noised_instrument,
             observation_content=observation_content,
             raw_observation=raw_observation,
-            goal=goal,
         )
-
-        traces = new_state.get(self.trace_index)
-        mean_contribution = credit_outputs.mean_contribution
-        precision_contribution = credit_outputs.precision_contribution
-        decay = self.credit.trace_decay()
-        mean_trace = self.observation_projection.accumulate(
-            traces.mean,
+        mean_contribution = credit_emission.mean_contribution
+        precision_contribution = credit_emission.precision_contribution
+        mean_drift = self.observation_projection.drift(
             pullback,
             ObservationCoordinates(
                 mean=mean_contribution, precision=jnp.zeros_like(precision_contribution)
             ),
-            decay=decay,
         )
-        precision_trace = self.observation_projection.accumulate(
-            traces.precision,
+        precision_drift = self.observation_projection.drift(
             pullback,
             ObservationCoordinates(
                 mean=jnp.zeros_like(mean_contribution), precision=precision_contribution
             ),
-            decay=decay,
         )
-        new_state = new_state.set(
-            self.trace_index, _ObservationTraces(mean=mean_trace, precision=precision_trace)
-        )
-        (shrinkage_credit,) = pullback(
+        shrinkage_drift = self.observation_projection.drift(
+            pullback,
             ObservationCoordinates(
-                mean=credit_outputs.shrinkage_cotangent,
+                mean=credit_emission.shrinkage_cotangent,
                 precision=jnp.zeros_like(precision_contribution),
-            )
+            ),
         )
-        loss = (
-            self.observation_projection.get_loss(mean_trace, goal)
-            + self.observation_projection.get_loss(
-                precision_trace, credit_outputs.goal_prediction_error
-            )
-            + self.observation_projection.get_loss(shrinkage_credit, jnp.asarray(1.0))
-            + credit_outputs.goal_prediction_loss
-            + instrument_loss(inherited_instrument, raw_observation, gain)
-        )
-        outputs = EmitterOutputs(
+        return state, EmitterEmission(
             message=InstrumentedMessage(observation, instrument),
             raw_observation=raw_observation,
             noised_instrument=noised_instrument,
             local_variance=local_variance,
-            credit_outputs=credit_outputs,
-            loss=loss,
+            mean_drift=mean_drift,
+            precision_drift=precision_drift,
+            shrinkage_drift=shrinkage_drift,
+            credit_emission=credit_emission,
+            loss=instrument_loss(inherited_instrument, raw_observation, gain),
         )
-        return new_state, outputs
+
+    def credit_goal(
+        self, state: eqx.nn.State, emission: EmitterEmission, goal: JaxRealArray
+    ) -> tuple[eqx.nn.State, CreditOutputs, JaxRealArray]:
+        """Credit the arriving goal to the retained emissions, then retain this emission.
+
+        The goal scales the mean trace, the goal prediction error scales the precision trace, and
+        the shrinkage trace applies at unit scale. The traces are read before this emission's
+        drifts enter them, so every training signal for an emission arrives with the goal that
+        follows it, and none arrives for an emission whose goal never does. Return the new state,
+        the credit outputs, and the loss, which includes the goal prediction loss.
+        """
+        lag_filter = self.credit.lag_filter.value
+        traces = state.get(self.trace_index)
+        new_state, credit_outputs = self.credit.credit(state, emission.credit_emission, goal)
+        loss = (
+            self.observation_projection.get_loss(lag_filter.value(traces.mean), goal)
+            + self.observation_projection.get_loss(
+                lag_filter.value(traces.precision), credit_outputs.goal_prediction_error
+            )
+            + self.observation_projection.get_loss(
+                lag_filter.value(traces.shrinkage), jnp.asarray(1.0)
+            )
+            + credit_outputs.goal_prediction_loss
+        )
+        new_state = new_state.set(
+            self.trace_index,
+            _ObservationTraces(
+                mean=lag_filter.update(traces.mean, emission.mean_drift),
+                precision=lag_filter.update(traces.precision, emission.precision_drift),
+                shrinkage=lag_filter.update(traces.shrinkage, emission.shrinkage_drift),
+            ),
+        )
+        return new_state, credit_outputs, loss
+
+    def step(
+        self,
+        state: eqx.nn.State,
+        key: KeyArray,
+        *,
+        observation_content: NormalNP,
+        predictor_instrument: NormalNP,
+        gain_observation: NormalNP | None,
+        goal: JaxRealArray,
+    ) -> tuple[eqx.nn.State, EmitterOutputs]:
+        """Emit, then credit a goal that is already available at this step.
+
+        See `emit` and `credit_goal`.
+        """
+        state, emission = self.emit(
+            state,
+            key,
+            observation_content=observation_content,
+            predictor_instrument=predictor_instrument,
+            gain_observation=gain_observation,
+        )
+        state, credit_outputs, credit_loss = self.credit_goal(state, emission, goal)
+        return state, EmitterOutputs(
+            message=emission.message,
+            raw_observation=emission.raw_observation,
+            noised_instrument=emission.noised_instrument,
+            local_variance=emission.local_variance,
+            credit_emission=emission.credit_emission,
+            credit_outputs=credit_outputs,
+            loss=emission.loss + credit_loss,
+        )
 
     @classmethod
     def create(
@@ -186,11 +250,11 @@ class Emitter(eqx.Module):
         observation_projection: _ObservationProjection = EligibilityTraining(
             observation_map, _project_observation
         )
-        zero_trace = observation_projection.zero_trace()
+        empty_trace = credit.lag_filter.value.init(observation_projection.zero_trace())
         return cls(
             observation_projection=observation_projection,
             trace_index=eqx.nn.StateIndex(
-                _ObservationTraces(mean=zero_trace, precision=zero_trace)
+                _ObservationTraces(mean=empty_trace, precision=empty_trace, shrinkage=empty_trace)
             ),
             instrument_map=instrument_map,
             credit=credit,

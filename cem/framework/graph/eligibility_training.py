@@ -51,21 +51,14 @@ class EligibilityTraining[M: eqx.Module, X, C: PyTree, Y: PyTree](eqx.Module):
         _, pullback, observation = jax.vjp(project, trainable, has_aux=True)
         return observation, pullback
 
-    def accumulate(
-        self,
-        trace: M,
-        pullback: Callable[[C], tuple[M]],
-        output_cotangent: C,
-        *,
-        decay: JaxRealArray,
-    ) -> M:
-        """Add the current parameter cotangent to the retained fraction of the trace."""
+    def drift(self, pullback: Callable[[C], tuple[M]], output_cotangent: C) -> M:
+        """Return the parameter cotangent that this step adds to the eligibility trace.
+
+        The drift is the output cotangent pulled back through the map as it ran, held fixed so
+        that a later goal can credit it. See `eligibility-training-link` in the thesis.
+        """
         (cotangent,) = pullback(output_cotangent)
-        return tree.map(
-            lambda old, new: jax.lax.stop_gradient(decay.astype(old.real.dtype) * old + new),
-            trace,
-            cotangent,
-        )
+        return jax.lax.stop_gradient(cotangent)
 
     def get_loss(self, trace: M, factor: JaxRealArray) -> JaxRealArray:
         """Return a scalar loss whose descent update follows the scaled trace.

@@ -12,7 +12,6 @@ from cem.framework.graph import FixedParameter, LearnableParameter
 from cem.framework.problem import DataSource, Problem, ProblemState
 from cem.framework.solution.training_solution import TrainingSolution
 from cem.sip import (
-    CreditSettings,
     EnvironmentFeatures,
     InstrumentedMessage,
     MismatchSettings,
@@ -26,7 +25,7 @@ from cem.sip import (
     TDSettings,
 )
 
-from .tools import CREDIT_SETTINGS, _i_message, _message
+from .tools import _i_message, _message
 
 ENV_OBS = 2
 ENV_ACT = 2
@@ -38,7 +37,6 @@ def _agent(streams: Mapping[str, RngStream]) -> SIPAgent:
         SIPAgentSettings(
             environment=EnvironmentFeatures(observation_features=ENV_OBS, action_features=ENV_ACT),
             level_sizes=INTERIOR,
-            credit_settings=CREDIT_SETTINGS,
         ),
         streams=streams,
     )
@@ -53,7 +51,6 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
         ),
         level_sizes=INTERIOR,
         prospect_sizes=(2, 4),
-        credit_settings=CreditSettings(trace_decay_rate=0.25),
         mismatch_settings=MismatchSettings(
             prediction_hidden_features=5,
             integral_witness_hidden_features=(7,),
@@ -70,10 +67,6 @@ def test_sip_agent_settings_reach_their_circuits(streams: Mapping[str, RngStream
     sensations = agent.sensations.interior_features
     intentions = agent.intentions.features
     prospects = agent.reward_critic.prospect_features
-    for feature in (*sensations, *intentions, *prospects):
-        assert jnp.isclose(
-            feature.emitter.credit.trace_decay_rate.value, settings.credit_settings.trace_decay_rate
-        )
     for feature in (*sensations, *prospects):
         observation_weight = feature.emitter.observation_map.layers[0].weight
         assert isinstance(observation_weight, LearnableParameter)

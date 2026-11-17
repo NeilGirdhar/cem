@@ -13,12 +13,12 @@ from tjax import JaxRealArray, KeyArray, RngStream
 
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit
-from cem.sip.emitter import Emitter
+from cem.sip.emitter import Emitter, EmitterEmission
 from cem.sip.instrument import inherit_instrument, instrument_loss
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage
 from cem.sip.mismatch import Mismatch
-from cem.sip.settings import CreditSettings, MismatchSettings, TDSettings
+from cem.sip.settings import MismatchSettings, TDSettings
 from cem.sip.td_error import TDError
 
 
@@ -56,7 +56,6 @@ class SIPFeature(eqx.Module):
         sizes: SIPFeatureSizes,
         *,
         controllable: bool,
-        credit_settings: CreditSettings,
         mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
@@ -78,7 +77,7 @@ class SIPFeature(eqx.Module):
         emitter = Emitter.create(
             observation_map=observation_map,
             instrument_map=instrument_map,
-            credit=Credit.create(n, baseline_map, credit_settings=credit_settings),
+            credit=Credit.create(baseline_map),
             controllable=controllable,
         )
         mismatch_circuit = Mismatch.create(
@@ -292,7 +291,6 @@ class RecruiterFeature(eqx.Module):
         *,
         observation_content_features: int,
         predictor_features: int,
-        credit_settings: CreditSettings,
         mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
@@ -306,7 +304,6 @@ class RecruiterFeature(eqx.Module):
                 n,
                 sizes,
                 controllable=True,
-                credit_settings=credit_settings,
                 mismatch_settings=mismatch_settings,
                 streams=streams,
             )
@@ -361,7 +358,6 @@ class ProspectFeature(eqx.Module):
         *,
         observation_content_features: int,
         predictor_features: int,
-        credit_settings: CreditSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
         observation_map = GaussianNeuralProjection.create(
@@ -376,7 +372,7 @@ class ProspectFeature(eqx.Module):
         emitter = Emitter.create(
             observation_map=observation_map,
             instrument_map=instrument_map,
-            credit=Credit.create(n, baseline_map, credit_settings=credit_settings),
+            credit=Credit.create(baseline_map),
             controllable=False,
         )
         return cls(
@@ -384,7 +380,7 @@ class ProspectFeature(eqx.Module):
             last_message_index=eqx.nn.StateIndex(InstrumentedMessage.initial(n)),
         )
 
-    def step(
+    def emit(
         self,
         state: eqx.nn.State,
         key: KeyArray,
@@ -392,31 +388,44 @@ class ProspectFeature(eqx.Module):
         observation_content: NormalNP,
         predictor_instrument: NormalNP,
         gain: InstrumentedMessage | None,
-        reconstruction: JaxRealArray,
-        confounding: JaxRealArray,
-    ) -> tuple[eqx.nn.State, ProspectFeatureOutputs]:
-        """Advance the prospect feature one time step.
+    ) -> tuple[eqx.nn.State, EmitterEmission]:
+        """Emit the prospect's message, before the TD feature scores the critic.
 
-        Passes `gain.observation` to the emitter for evidence scaling when a
-        gain parent is wired in; the instrument half is unused because there
-        is no mismatch circuit. `gain=None` skips evidence scaling.
-
-        Credit raises the emitter's goal, so the goal is the negated dissonance of the TD
-        prediction: the sum of its reconstruction and confounding costs, negated.
+        Passes `gain.observation` to the emitter for evidence scaling when a gain parent is wired
+        in; the instrument half is unused because there is no mismatch circuit. `gain=None` skips
+        evidence scaling.
         """
         gain_observation = None if gain is None else gain.observation
-        new_state, emitter_outputs = self.emitter.step(
+        new_state, emission = self.emitter.emit(
             state,
             key,
             observation_content=observation_content,
             predictor_instrument=predictor_instrument,
             gain_observation=gain_observation,
-            goal=-(reconstruction + confounding),
         )
-        new_state = new_state.set(self.last_message_index, emitter_outputs.message)
+        new_state = new_state.set(self.last_message_index, emission.message)
+        return new_state, emission
+
+    def credit(
+        self,
+        state: eqx.nn.State,
+        emission: EmitterEmission,
+        *,
+        reconstruction: JaxRealArray,
+        confounding: JaxRealArray,
+    ) -> tuple[eqx.nn.State, ProspectFeatureOutputs]:
+        """Credit the TD feature's costs from this step, after it has scored the critic.
+
+        Those costs score the delayed prediction, which the prospects emitted at the previous
+        step, so the lag filter's goal arrives one step after its emission. Credit raises the
+        emitter's goal, so the goal is the negated dissonance of the TD prediction: the sum of its
+        reconstruction and confounding costs, negated.
+        """
+        new_state, _, credit_loss = self.emitter.credit_goal(
+            state, emission, -(reconstruction + confounding)
+        )
         return new_state, ProspectFeatureOutputs(
-            message=emitter_outputs.message,
-            loss=emitter_outputs.loss,
+            message=emission.message, loss=emission.loss + credit_loss
         )
 
 
@@ -430,18 +439,10 @@ class TDFeatureOutputs(SIPLossOutputs):
     uncertainty_loss: JaxRealArray  # scalar
 
 
-class TDCosts(eqx.Module):
-    """Prediction costs retained for the next prospect credit update."""
-
-    reconstruction: JaxRealArray
-    confounding: JaxRealArray
-
-
 class TDFeature(eqx.Module):
     """Learn the value of observed reward and supply credit signals that guide the agent."""
 
     td_error: TDError
-    last_costs_index: eqx.nn.StateIndex[TDCosts]
     last_advantage_index: eqx.nn.StateIndex[JaxRealArray]
 
     @classmethod
@@ -453,16 +454,12 @@ class TDFeature(eqx.Module):
         td_settings: TDSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
-        zero_cost = jnp.asarray(0.0, dtype=jnp.float64)
         return cls(
             td_error=TDError.create(
                 n,
                 predictor_features=predictor_features,
                 td_settings=td_settings,
                 streams=streams,
-            ),
-            last_costs_index=eqx.nn.StateIndex(
-                TDCosts(reconstruction=zero_cost, confounding=zero_cost)
             ),
             last_advantage_index=eqx.nn.StateIndex(jnp.zeros(n, dtype=jnp.float64)),
         )
@@ -476,10 +473,10 @@ class TDFeature(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, TDFeatureOutputs]:
-        """Score the reward prediction and retain the signals for the next credit update.
+        """Score the reward prediction and retain the advantage for the next intention update.
 
-        Save each prediction cost and the difference between the bootstrap target mean and
-        the delayed prediction mean.
+        The advantage is the difference between the bootstrap target mean and the delayed
+        prediction mean. The prediction costs go to the prospects within this step.
         """
         new_state, td_outputs = self.td_error.step(
             state,
@@ -487,13 +484,6 @@ class TDFeature(eqx.Module):
             predictor=predictor,
             streams=streams,
             inference=inference,
-        )
-        new_state = new_state.set(
-            self.last_costs_index,
-            TDCosts(
-                reconstruction=td_outputs.reconstruction_cost,
-                confounding=td_outputs.confounding_cost,
-            ),
         )
         new_state = new_state.set(self.last_advantage_index, td_outputs.advantage)
         return new_state, TDFeatureOutputs(

@@ -10,7 +10,7 @@ from cem.framework.graph import LearnableParameter
 from cem.sip.intentions import Intentions
 from cem.sip.messages import InstrumentedMessage
 
-from .tools import CREDIT_SETTINGS, MISMATCH_SETTINGS, _i_message, _message
+from .tools import MISMATCH_SETTINGS, _i_message, _message
 
 
 def test_intentions_create_sizes_readouts_demands_and_predictors(
@@ -21,7 +21,6 @@ def test_intentions_create_sizes_readouts_demands_and_predictors(
     intentions = Intentions.create(
         sizes,
         readout_features=readout_features,
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
@@ -44,7 +43,6 @@ def test_intentions_infer_returns_one_output_per_layer(
     intentions = Intentions.create(
         sizes,
         readout_features=[2, 2],
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
@@ -71,7 +69,6 @@ def test_intentions_infer_uses_previous_lower_message_and_current_upper_mismatch
     intentions = Intentions.create(
         sizes,
         readout_features=[2, 2],
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )
@@ -140,7 +137,6 @@ def test_intentions_action_is_bottom_layer_observation(
     intentions = Intentions.create(
         sizes,
         readout_features=[2, 2],
-        credit_settings=CREDIT_SETTINGS,
         mismatch_settings=MISMATCH_SETTINGS,
         streams=streams,
     )

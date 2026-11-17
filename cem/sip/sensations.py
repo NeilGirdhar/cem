@@ -16,7 +16,7 @@ from cem.sip.features import (
     SIPFeatureSizes,
 )
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
-from cem.sip.settings import CreditSettings, MismatchSettings
+from cem.sip.settings import MismatchSettings
 
 
 class Sensations(ExplanatoryCoupling):
@@ -34,7 +34,6 @@ class Sensations(ExplanatoryCoupling):
         sizes: Sequence[int],
         *,
         predictor_features: Sequence[int],
-        credit_settings: CreditSettings,
         mismatch_settings: MismatchSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
@@ -74,7 +73,6 @@ class Sensations(ExplanatoryCoupling):
                     sizes[i],
                     feature_sizes,
                     controllable=False,
-                    credit_settings=credit_settings,
                     mismatch_settings=mismatch_settings,
                     streams=streams,
                 )

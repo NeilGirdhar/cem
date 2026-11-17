@@ -8,6 +8,7 @@ import jax.random as jr
 from efax import NormalNP
 from tjax import KeyArray, RngStream
 
+from cem.sip.emitter import EmitterEmission
 from cem.sip.features import (
     ProspectFeature,
     ProspectFeatureOutputs,
@@ -16,7 +17,7 @@ from cem.sip.features import (
 )
 from cem.sip.losses import SIPLossOutputs
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
-from cem.sip.settings import CreditSettings, TDSettings
+from cem.sip.settings import TDSettings
 
 
 class RewardCriticOutputs(SIPLossOutputs):
@@ -43,7 +44,6 @@ class RewardCritic(eqx.Module):
         observation_content_features: Sequence[int],
         predictor_features: Sequence[int],
         reward_features: int = 1,
-        credit_settings: CreditSettings,
         td_settings: TDSettings,
         streams: Mapping[str, RngStream],
     ) -> Self:
@@ -68,7 +68,6 @@ class RewardCritic(eqx.Module):
                 size,
                 observation_content_features=obs_cf,
                 predictor_features=pred_f,
-                credit_settings=credit_settings,
                 streams=streams,
             )
             for size, obs_cf, pred_f in zip(
@@ -98,12 +97,13 @@ class RewardCritic(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> tuple[eqx.nn.State, RewardCriticOutputs]:
-        """Run the prospects, then the TD feature.
+        """Emit the prospects, run the TD feature, then credit the prospects.
 
-        Each prospect is advanced with its own `observation_content[i]`,
-        `predictor_instruments[i]`, optional `gains[i]`, and the TD feature's
-        previous reconstruction and confounding costs. The prospect outputs are concatenated on
-        each channel to form the TD feature's predictor.
+        Each prospect emits with its own `observation_content[i]`, `predictor_instruments[i]`,
+        and optional `gains[i]`. The emitted messages are concatenated on each channel to form the
+        TD feature's predictor. The TD feature's reconstruction and confounding costs from this
+        step score the prospects' previous emission, so each prospect takes its credit after the
+        TD feature runs.
         """
         if len(observation_content) != len(self.prospect_features):
             msg = "observation_content must have one entry per prospect"
@@ -116,9 +116,8 @@ class RewardCritic(eqx.Module):
         if len(gains) != len(self.prospect_features):
             msg = "gains must have one entry per prospect"
             raise ValueError(msg)
-        costs = state.get(self.td_feature.last_costs_index)
         keys = jr.split(key, len(self.prospect_features))
-        prospect_outputs: list[ProspectFeatureOutputs] = []
+        emissions: list[EmitterEmission] = []
         for feature, feature_key, obs_content, pred_inst, gain in zip(
             self.prospect_features,
             keys,
@@ -127,17 +126,15 @@ class RewardCritic(eqx.Module):
             gains,
             strict=True,
         ):
-            state, out = feature.step(
+            state, emission = feature.emit(
                 state,
                 feature_key,
                 observation_content=obs_content,
                 predictor_instrument=pred_inst,
                 gain=gain,
-                reconstruction=costs.reconstruction,
-                confounding=costs.confounding,
             )
-            prospect_outputs.append(out)
-        td_predictor = concat_instrumented_messages(*[p.message for p in prospect_outputs])
+            emissions.append(emission)
+        td_predictor = concat_instrumented_messages(*[e.message for e in emissions])
         state, td_out = self.td_feature.step(
             state,
             reward_observation=reward_observation,
@@ -145,6 +142,15 @@ class RewardCritic(eqx.Module):
             streams=streams,
             inference=inference,
         )
+        prospect_outputs: list[ProspectFeatureOutputs] = []
+        for feature, emission in zip(self.prospect_features, emissions, strict=True):
+            state, out = feature.credit(
+                state,
+                emission,
+                reconstruction=td_out.reconstruction_cost,
+                confounding=td_out.confounding_cost,
+            )
+            prospect_outputs.append(out)
         return state, RewardCriticOutputs(
             prospects=tuple(prospect_outputs),
             td=td_out,
