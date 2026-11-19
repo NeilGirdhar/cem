@@ -117,7 +117,7 @@ def test_second_step_delayed_prediction_matches_first_step_current_prediction(
     del first_outputs
 
 
-def test_reconstruction_cost_trains_prediction_map(
+def test_reconstruction_loss_trains_prediction_map(
     streams: Mapping[str, RngStream],
 ) -> None:
     n = 2
@@ -127,7 +127,7 @@ def test_reconstruction_cost_trains_prediction_map(
 
     def loss_fn(m: TDError) -> jnp.ndarray:
         _, out = m.step(**inputs, state=state, streams=streams, inference=True)
-        return out.reconstruction_cost
+        return out.reconstruction_loss
 
     grads = eqx.filter_grad(loss_fn)(td)
     assert jnp.any(jnp.abs(grads.prediction_map.layers[-1].weight.value) > 0)
@@ -151,7 +151,7 @@ def test_uncertainty_loss_trains_prediction_map(
 
 
 _WITNESS_MAPS = ("integral_witness_map", "proportional_witness_map")
-_WITNESS_LOSSES = ("integral_witness_loss", "proportional_witness_loss")
+_WITNESS_LOSSES = ("integral_witness_objective", "proportional_witness_objective")
 
 
 def _last_weight(m: TDError, name: str) -> JaxRealArray:
@@ -170,16 +170,16 @@ def _output_gradients(td: TDError, name: str, streams: Mapping[str, RngStream]) 
 
 
 @pytest.mark.parametrize("witness_map", _WITNESS_MAPS)
-def test_confounding_cost_does_not_train_witness_maps(
+def test_confounding_objective_does_not_train_witness_maps(
     streams: Mapping[str, RngStream], witness_map: str
 ) -> None:
     td = _td_error(2, streams)
-    grads = _output_gradients(td, "confounding_cost", streams)
+    grads = _output_gradients(td, "confounding_objective", streams)
     assert jnp.allclose(_last_weight(grads, witness_map), 0.0)
 
 
 @pytest.mark.parametrize("witness_loss", _WITNESS_LOSSES)
-def test_witness_losses_do_not_train_prediction_map(
+def test_witness_objectives_do_not_train_prediction_map(
     streams: Mapping[str, RngStream], witness_loss: str
 ) -> None:
     td = _td_error(2, streams)

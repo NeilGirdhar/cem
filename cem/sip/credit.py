@@ -44,9 +44,9 @@ class CreditEmission(eqx.Module):
 
 
 class CreditOutputs(eqx.Module):
-    """The goal prediction error and the loss that trains the goal baseline."""
+    """The goal prediction residual and the loss that trains the goal baseline."""
 
-    goal_prediction_error: JaxRealArray  # scalar
+    goal_prediction_residual: JaxRealArray  # scalar
     goal_prediction_loss: JaxRealArray  # scalar
 
 
@@ -127,10 +127,10 @@ class Credit(eqx.Module):
         emission_weight = lag_filter.value(retained.emission_weight)
         baseline_message = self.goal_baseline_map.infer(stop_gradient(retained.observation_content))
         baseline = baseline_message.mean().reshape(())
-        error = stop_gradient(goal) - (baseline + goal_penalty)
+        residual = stop_gradient(goal) - (baseline + goal_penalty)
         # The goal prediction loss trains only the baseline map; precision credit reaches the
         # penalty through the precision trace instead.
-        fixed_penalty_error = stop_gradient(goal - goal_penalty) - baseline
+        fixed_penalty_residual = stop_gradient(goal - goal_penalty) - baseline
         new_state = state.set(
             self.state_index,
             CreditState(
@@ -142,6 +142,6 @@ class Credit(eqx.Module):
             ),
         )
         return new_state, CreditOutputs(
-            goal_prediction_error=error,
-            goal_prediction_loss=0.5 * emission_weight * jnp.square(fixed_penalty_error),
+            goal_prediction_residual=residual,
+            goal_prediction_loss=0.5 * emission_weight * jnp.square(fixed_penalty_residual),
         )

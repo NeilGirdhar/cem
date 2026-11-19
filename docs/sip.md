@@ -14,23 +14,26 @@ and take no prefix.
 Circuit sub-modules:
 
 - `Credit` — eligibility-based parameter-update rule.
-- `Mismatch` — prediction and two witnesses over predictor and gain instruments producing
-  reconstruction and confounding costs.
+- `Mismatch` — prediction and two witnesses over predictor and gain instruments producing the
+  reconstruction loss and the confounding objective.
 - `IntegralWitnessMap` and `ProportionalWitnessMap` — the two witnesses shared by `Mismatch` and
-  `TDError`. Both encode each instrument with bounded presence and centre their output at the
-  all-certain-zero context. The integral witness returns tanh-bounded coefficients and ascends
-  `integral_witness_loss` under the participation-weighted norm bound, enforced by each circuit's
-  learned witness multiplier. The proportional witness is unbounded and ascends
-  `proportional_witness_loss`, a gain-weighted regression on the residuals. `witness_losses`
-  combines them: the confounding cost adds the proportional loss, scaled by the damping weight, to
-  the integral loss, which damps purification without moving its resting point.
+  `TDError`. Both encode each instrument with bounded presence and subtract the perceptron's
+  output from its all-certain-zero reference output. The witness objectives use residuals in
+  target-minus-prediction order. The integral witness returns tanh-bounded coefficients and
+  ascends `integral_witness_objective` under the participation-weighted norm bound, enforced by
+  each circuit's learned witness multiplier. The proportional witness is unbounded and ascends
+  `proportional_witness_objective`, a gain-weighted regression on the residuals.
+  `witness_objectives` combines them: the confounding objective adds the proportional objective,
+  scaled by the damping weight, to the integral objective, which damps purification without moving
+  its resting point.
 - `TDError` — Gaussian bootstrap value error with uncertainty penalty.
 - `Emitter` — forward dynamics: observation map, instrument map, noise top-up, injection.
 - `inherit_instrument`, `instrument_loss` — the first-stage instrument map and the
   gain-gated cross-entropy that fits it to the raw observation.
 
 Circuits train only their own maps. Prediction maps, witness maps, and instrument maps take their
-parents' messages with gradients stopped, and mismatch costs hold the target and the gain fixed.
+parents' messages with gradients stopped, and the reconstruction loss and confounding objective
+hold the target and the gain fixed.
 Parents learn from their own goals through credit.
 
 Features (per causal node):
@@ -99,7 +102,7 @@ default, the maps have no hidden layers, and the damping weight and the discount
     - `credit.py` — `Credit`.
     - `mismatch.py` — `Mismatch`.
     - `witness.py` — `IntegralWitnessMap`, `ProportionalWitnessMap`, `witness_residuals`,
-      `witness_losses`.
+      `witness_objectives`.
     - `instrument.py` — `inherit_instrument`, `instrument_loss`.
     - `td_error.py` — `TDError`.
     - `emitter.py` — `Emitter`.
@@ -174,8 +177,9 @@ full configuration and writes chart JSON.
      - both (`damping_weight = 1`).
 
      Plot each seed's signed effect estimate over training, without averaging across seeds, and
-     mark the true effect of 1.5. Over the last quarter of training, report each seed's mean
-     signed error and the standard deviation of its estimate across updates. Integral only should
+     mark the true effect of 1.5. Over the last quarter of training, report each seed's bias,
+     the mean estimate minus the true effect, and the standard deviation of its estimate across
+     updates. Integral only should
      reach 1.5 but may keep oscillating. Proportional only acts as a finite quadratic penalty, so it
      should settle between OLS (0.61) and 1.5. Both should settle at 1.5.
    - **Variance purification.** In test 5, once the mean is causal, the best constant variance is
@@ -229,13 +233,13 @@ full configuration and writes chart JSON.
    arrives at the next step.
 
    Average over held-out emissions:
-   - goal credit, the goal times the emission's mean drift;
+   - mean credit, the goal times the emission's mean drift;
    - shrinkage credit;
    - observational credit, which pairs the goal with the emitted value in place of the instrument.
 
    Compare them with the causal gradient `β E[∂μ/∂θ]` and the gain-weighted causal gradient
-   `β E[γ ∂μ/∂θ]` over all the observation map's parameters. Unit gain should align goal credit
-   with the causal gradient. With the gain `0.5 + 0.2 tanh(U) + γ̃` of experiment 8, goal credit
+   `β E[γ ∂μ/∂θ]` over all the observation map's parameters. Unit gain should align mean credit
+   with the causal gradient. With the gain `0.5 + 0.2 tanh(U) + γ̃` of experiment 8, mean credit
    should follow the gain-weighted gradient, which tilts toward contexts with high gain while
    keeping a positive inner product with the causal gradient. Observational credit should
    oppose the causal gradient.

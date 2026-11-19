@@ -187,14 +187,14 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
         inference=True,
     )
     assert jnp.allclose(outputs.td.advantage, td_out.advantage)
-    assert jnp.allclose(outputs.td.reconstruction_cost, td_out.reconstruction_cost)
-    assert jnp.allclose(outputs.td.confounding_cost, td_out.confounding_cost)
+    assert jnp.allclose(outputs.td.reconstruction_loss, td_out.reconstruction_loss)
+    assert jnp.allclose(outputs.td.confounding_objective, td_out.confounding_objective)
 
 
 def test_reward_critic_credits_prospects_with_this_steps_td_costs(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """Each prospect takes its credit from the TD costs that the critic computes in that step."""
+    """Each prospect takes its credit from the TD dissonance the critic computes in that step."""
     critic = _critic(streams)
     observation_content = [
         _message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
@@ -217,7 +217,7 @@ def test_reward_critic_credits_prospects_with_this_steps_td_costs(
             inference=True,
         )
 
-    # The first step leaves an emission for the second step's costs to credit.
+    # The first step leaves an emission for the second step's dissonance to credit.
     state, _ = run(eqx.nn.State(critic), jr.key(0))
     key = jr.key(1)
     _, outputs = run(_clone(state), key)
@@ -245,7 +245,7 @@ def test_reward_critic_credits_prospects_with_this_steps_td_costs(
     _, expected = critic.prospect_features[0].credit(
         manual,
         emissions[0],
-        reconstruction=td_out.reconstruction_cost,
-        confounding=td_out.confounding_cost,
+        reconstruction=td_out.reconstruction_loss,
+        confounding=td_out.confounding_objective,
     )
     assert jnp.allclose(outputs.prospects[0].loss, expected.loss)

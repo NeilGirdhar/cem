@@ -64,7 +64,7 @@ The claim, its arms, and the expected outcomes are in [`sip.md`](sip.md#tested-c
   predictor, this is the slope. Record about 200 snapshots per run if snapshots at every episode
   slow training.
 - **Variance-only witnesses.** Zero the mean column of both the residuals and the witness outputs
-  before computing the witness losses, so the mean cannot consume the integral witness's norm
+  before computing the witness objectives, so the mean cannot consume the integral witness's norm
   budget. Give each witness a hidden layer at the existing widths so it can detect a dependence on
   `A²`.
 - **Figures.**
@@ -78,7 +78,7 @@ The claim, its arms, and the expected outcomes are in [`sip.md`](sip.md#tested-c
 - [ ] Smoke-test `SIPAgent.step` with `eqx.filter_jit` and with `vmap` over a batch of agents.
 - [ ] Test `_predictor_for` with three layers in both `Sensations` and `Intentions`.
 - [ ] Test that `SIPAgent` broadcasts each summed TD advantage source to all intention levels
-  and sends both TD costs to prospects.
+  and sends the TD reconstruction loss and confounding objective to prospects.
 
 ## Open design questions
 

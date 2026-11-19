@@ -136,10 +136,10 @@ def test_sip_agent_step_returns_action_at_bottom_intention(
     assert outputs.action.mean_times_precision.shape == (ENV_ACT,)
 
 
-def test_tracking_rewards_low_reconstruction_cost(
+def test_tracking_rewards_low_reconstruction_loss(
     streams: Mapping[str, RngStream], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The reward observation ends with curiosity and the negated reconstruction costs."""
+    """The reward observation ends with curiosity and the negated reconstruction losses."""
     agent = _agent(streams)
     captured: list[NormalNP] = []
     original_step = RewardCritic.step
@@ -180,8 +180,8 @@ def test_tracking_rewards_low_reconstruction_cost(
     )
     n_levels = len(outputs.sensations)
     rewards = captured[0].mean()
-    curiosity = jnp.stack([out.confounding_cost for out in outputs.sensations])
-    reconstruction = jnp.stack([out.reconstruction_cost for out in outputs.sensations])
+    curiosity = jnp.stack([out.confounding_objective for out in outputs.sensations])
+    reconstruction = jnp.stack([out.reconstruction_loss for out in outputs.sensations])
     assert jnp.allclose(rewards[-2 * n_levels : -n_levels], curiosity)
     assert jnp.allclose(rewards[-n_levels:], -reconstruction)
 

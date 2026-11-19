@@ -49,9 +49,10 @@ class _InstrumentPerceptron(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxRealArray:
-        """Return the perceptron output minus its output at the reference, shape (n, 2).
+        """Subtract the perceptron output from its reference output, shape (n, 2).
 
-        The perceptron has no dropout, so subtracting its output at the reference is exact.
+        This sign convention lets the witness use target-minus-prediction residuals directly.
+        The perceptron has no dropout, so the output is exactly zero at the reference.
         """
         encoded = _encode(jax.lax.stop_gradient(instruments))
         reference = jnp.concat([jnp.zeros_like(encoded[0]), jnp.ones_like(encoded[1])])
@@ -59,7 +60,7 @@ class _InstrumentPerceptron(eqx.Module):
         output, reference_output = self.perceptron.infer(
             batch, streams=streams, inference=inference
         )
-        return (output - reference_output).reshape(-1, 2)
+        return (reference_output - output).reshape(-1, 2)
 
 
 class IntegralWitnessMap(_InstrumentPerceptron):
@@ -112,25 +113,24 @@ def _encode(instruments: NormalNP) -> tuple[JaxRealArray, JaxRealArray]:
 
 
 def witness_residuals(target: NormalVP, prediction: NormalVP) -> JaxRealArray:
-    """Return the mean and variance residuals of a prediction, shape (n, 2).
+    """Return the target-minus-prediction residuals, shape (n, 2).
 
-    The variance residual compares the predicted variance with the target's expected squared
-    error about the predicted mean, so each residual has zero expectation for a calibrated
-    prediction. See `sip-witness-residuals` in the thesis.
+    The variance target is the expected squared error about the predicted mean. Each residual
+    has zero expectation for a calibrated prediction. See `sip-witness-residuals` in the thesis.
     """
-    mean_residual = prediction.mean - target.mean
-    variance_residual = prediction.variance - target.variance - jnp.square(mean_residual)
+    mean_residual = target.mean - prediction.mean
+    variance_residual = target.variance - prediction.variance + jnp.square(mean_residual)
     return jnp.stack([mean_residual, variance_residual], axis=-1)
 
 
-def integral_witness_loss(
+def integral_witness_objective(
     residuals: JaxRealArray, witness: JaxRealArray, gain: JaxRealArray | None
 ) -> JaxRealArray:
-    """Return the integral witness loss, the gain-weighted sum of residual-witness products.
+    """Return the integral witness objective, the gain-weighted sum of residual-witness products.
 
-    The prediction descends this loss with the witness held fixed, and the integral witness ascends
-    it with the residuals held fixed; callers apply those stop-gradients. Without a gain, every
-    channel has unit gain. See `sip-confounding-witness` in the thesis.
+    The prediction descends this objective with the witness held fixed, and the integral witness
+    ascends it with the residuals held fixed; callers apply those stop-gradients. Without a gain,
+    every channel has unit gain. See `sip-confounding-witness` in the thesis.
 
     Args:
         residuals: The mean and variance residuals, shape (n, 2).
@@ -140,10 +140,10 @@ def integral_witness_loss(
     return jnp.sum(_gain_weights(gain) * residuals * witness)
 
 
-def proportional_witness_loss(
+def proportional_witness_objective(
     residuals: JaxRealArray, witness: JaxRealArray, gain: JaxRealArray | None
 ) -> JaxRealArray:
-    """Return the proportional witness loss, Σ γ (w δ - w² / 2).
+    """Return the proportional witness objective, Σ γ (w δ - w² / 2).
 
     Ascending it with the residuals held fixed is a gain-weighted regression of the residuals on
     the instruments. Descending it with the witness held fixed descends the squared conditional
@@ -158,16 +158,16 @@ def proportional_witness_loss(
     return jnp.sum(_gain_weights(gain) * (witness * residuals - 0.5 * jnp.square(witness)))
 
 
-def witness_norm_loss(
+def witness_norm_objective(
     witness: JaxRealArray, gain: JaxRealArray | None, multiplier: JaxRealArray
 ) -> JaxRealArray:
-    """Return the witness norm loss, which bounds the integral witness's gain-weighted norm.
+    """Return the witness norm objective, which bounds the integral witness's gain-weighted norm.
 
-    The loss is the multiplier times the excess of the gain-weighted squared norm over mean gain.
-    Descending it trains the witness map with the multiplier held fixed, and trains the multiplier
-    to ascend on the excess with the witness held fixed. The two terms cancel in value, so the loss
-    contributes gradients only. Without a gain, every channel has unit gain and the bound is one.
-    See `sip-norm-constraint` in the thesis.
+    The objective is the multiplier times the excess of the gain-weighted squared norm over mean
+    gain. Descending this surrogate trains the witness map with the multiplier held fixed, and
+    trains the multiplier to ascend on the excess with the witness held fixed. The two terms cancel
+    in value, so the surrogate contributes gradients only. Without a gain, every channel has unit
+    gain and the bound is one. See `sip-norm-constraint` in the thesis.
 
     Args:
         witness: The integral witness, shape (n, 2).
@@ -186,26 +186,26 @@ def witness_norm_loss(
     return fixed_multiplier * excess - multiplier * jax.lax.stop_gradient(excess)
 
 
-class WitnessLosses(eqx.Module):
-    """The confounding cost and the losses that train the two witnesses."""
+class WitnessObjectives(eqx.Module):
+    """The confounding objective and the objectives that train the two witnesses."""
 
-    confounding_cost: JaxRealArray  # scalar; descended by the prediction
-    integral_witness_loss: JaxRealArray  # scalar; ascended by the integral witness
-    proportional_witness_loss: JaxRealArray  # scalar; ascended by the proportional witness
-    witness_norm_loss: JaxRealArray  # scalar; descended by the integral witness
+    confounding_objective: JaxRealArray  # scalar; descended by the prediction
+    integral_witness_objective: JaxRealArray  # scalar; ascended by the integral witness
+    proportional_witness_objective: JaxRealArray  # scalar; ascended by the proportional witness
+    witness_norm_objective: JaxRealArray  # scalar; descended by the integral witness
 
     @property
     def loss(self) -> JaxRealArray:
         """The scalar whose descent applies every witness-related update."""
         return (
-            self.confounding_cost
-            - self.integral_witness_loss
-            - self.proportional_witness_loss
-            + self.witness_norm_loss
+            self.confounding_objective
+            - self.integral_witness_objective
+            - self.proportional_witness_objective
+            + self.witness_norm_objective
         )
 
 
-def witness_losses(
+def witness_objectives(
     residuals: JaxRealArray,
     *,
     integral_witness: JaxRealArray,
@@ -213,13 +213,13 @@ def witness_losses(
     gain: JaxRealArray | None,
     multiplier: JaxRealArray,
     damping_weight: JaxRealArray,
-) -> WitnessLosses:
-    """Return the confounding cost and the witness losses for one prediction.
+) -> WitnessObjectives:
+    """Return the confounding objective and the witness objectives for one prediction.
 
-    The confounding cost combines the two witness losses with the witnesses held fixed, weighting
-    the proportional loss by the damping weight; the prediction descends it. Each witness ascends
-    its own loss with the residuals held fixed. See `sip-prediction-purification` and
-    `sip-witness-learning` in the thesis.
+    The confounding objective combines the two witness objectives with the witnesses held fixed,
+    weighting the proportional objective by the damping weight; the prediction descends it. Each
+    witness ascends its own objective with the residuals held fixed. See
+    `sip-prediction-purification` and `sip-witness-learning` in the thesis.
 
     Args:
         residuals: The mean and variance residuals, shape (n, 2).
@@ -227,21 +227,23 @@ def witness_losses(
         proportional_witness: The proportional witness, shape (n, 2).
         gain: The gain observation, shape (n,), held fixed, or None for unit gain.
         multiplier: The witness multiplier, a nonnegative scalar.
-        damping_weight: The fixed positive weight on the proportional loss.
+        damping_weight: The fixed positive weight on the proportional objective.
     """
     fixed_residuals = jax.lax.stop_gradient(residuals)
     fixed_integral = jax.lax.stop_gradient(integral_witness)
     fixed_proportional = jax.lax.stop_gradient(proportional_witness)
-    confounding_cost = integral_witness_loss(
+    confounding_objective = integral_witness_objective(
         residuals, fixed_integral, gain
-    ) + damping_weight * proportional_witness_loss(residuals, fixed_proportional, gain)
-    return WitnessLosses(
-        confounding_cost=confounding_cost,
-        integral_witness_loss=integral_witness_loss(fixed_residuals, integral_witness, gain),
-        proportional_witness_loss=proportional_witness_loss(
+    ) + damping_weight * proportional_witness_objective(residuals, fixed_proportional, gain)
+    return WitnessObjectives(
+        confounding_objective=confounding_objective,
+        integral_witness_objective=integral_witness_objective(
+            fixed_residuals, integral_witness, gain
+        ),
+        proportional_witness_objective=proportional_witness_objective(
             fixed_residuals, proportional_witness, gain
         ),
-        witness_norm_loss=witness_norm_loss(integral_witness, gain, multiplier),
+        witness_norm_objective=witness_norm_objective(integral_witness, gain, multiplier),
     )
 
 

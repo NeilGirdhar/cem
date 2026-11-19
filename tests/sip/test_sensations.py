@@ -8,7 +8,7 @@ from tjax import RngStream
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
 from cem.sip.sensations import Sensations
 
-from .tools import MISMATCH_SETTINGS, _message
+from .tools import MISMATCH_SETTINGS, _clone, _message
 
 
 def _predictors(size: int) -> InstrumentedMessage:
@@ -102,10 +102,10 @@ def test_sensations_input_feature_passes_observation_through_unchanged(
     )
 
 
-def test_sensations_infer_feeds_costs_from_below(
+def test_sensations_infer_feeds_dissonance_from_below(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """Each interior layer receives both costs from the layer below."""
+    """On the first step, an interior layer's goal holds only the dissonance from below."""
     sizes = [2, 3]
     sensations = Sensations.create(
         sizes,
@@ -147,8 +147,8 @@ def test_sensations_infer_feeds_costs_from_below(
         observation_content=layer0.observation_mismatch,
         predictor=predictors[1],  # top layer has no higher layers to concat
         gain=None,
-        reconstruction=layer0.reconstruction_cost,
-        confounding=layer0.confounding_cost,
+        reconstruction=layer0.reconstruction_loss,
+        confounding=layer0.confounding_objective,
         streams=streams,
         inference=True,
     )
@@ -156,5 +156,71 @@ def test_sensations_infer_feeds_costs_from_below(
     assert jnp.allclose(
         outputs[1].message.observation.mean_times_precision,
         layer1.message.observation.mean_times_precision,
+    )
+    assert jnp.allclose(outputs[1].loss, layer1.loss)
+
+
+def test_sensations_carry_own_dissonance_one_step(
+    streams: Mapping[str, RngStream],
+) -> None:
+    """An interior layer adds its previous dissonance to the dissonance from below.
+
+    Both score the layer's previous emission, so they arrive together in the goal that credits it.
+    """
+    sizes = [2, 3]
+    sensations = Sensations.create(
+        sizes,
+        predictor_features=[1, 1],
+        mismatch_settings=MISMATCH_SETTINGS,
+        streams=streams,
+    )
+    predictors = [_predictors(1), _predictors(1)]
+    observation = _message(jnp.ones(sizes[0]), jnp.ones(sizes[0]))
+    state, first = sensations.infer(
+        eqx.nn.State(sensations),
+        jr.key(0),
+        observation=observation,
+        predictors=predictors,
+        streams=streams,
+        inference=True,
+    )
+    assert jnp.allclose(
+        state.get(sensations.previous_dissonance_index),
+        jnp.stack([first[1].reconstruction_loss, first[1].confounding_objective])[None],
+    )
+
+    key = jr.key(1)
+    _, outputs = sensations.infer(
+        _clone(state),
+        key,
+        observation=observation,
+        predictors=predictors,
+        streams=streams,
+        inference=True,
+    )
+
+    manual = _clone(state)
+    layer0_predictor = concat_instrumented_messages(
+        predictors[0], manual.get(sensations.interior_features[0].last_message_index)
+    )
+    manual, layer0 = sensations.input_feature.step(
+        manual,
+        observation=observation,
+        predictor=layer0_predictor,
+        gain=None,
+        streams=streams,
+        inference=True,
+    )
+    (layer1_key,) = jr.split(key, len(sensations.interior_features))
+    _, layer1 = sensations.interior_features[0].step(
+        manual,
+        layer1_key,
+        observation_content=layer0.observation_mismatch,
+        predictor=predictors[1],
+        gain=None,
+        reconstruction=layer0.reconstruction_loss + first[1].reconstruction_loss,
+        confounding=layer0.confounding_objective + first[1].confounding_objective,
+        streams=streams,
+        inference=True,
     )
     assert jnp.allclose(outputs[1].loss, layer1.loss)

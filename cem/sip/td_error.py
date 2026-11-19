@@ -18,7 +18,7 @@ from cem.sip.settings import TDSettings
 from cem.sip.witness import (
     IntegralWitnessMap,
     ProportionalWitnessMap,
-    witness_losses,
+    witness_objectives,
     witness_residuals,
 )
 
@@ -34,15 +34,15 @@ class TDTraces(eqx.Module):
 
 
 class TDErrorOutputs(SIPLossOutputs):
-    """The advantage signal and the losses for value prediction and its witnesses."""
+    """The advantage signal and the objectives for value prediction and its witnesses."""
 
     advantage: JaxRealArray  # shape (n,); outgoing TD-error mean signal
-    reconstruction_cost: JaxRealArray  # scalar
-    confounding_cost: JaxRealArray  # scalar
+    reconstruction_loss: JaxRealArray  # scalar
+    confounding_objective: JaxRealArray  # scalar
     uncertainty_loss: JaxRealArray  # scalar
-    integral_witness_loss: JaxRealArray  # scalar
-    proportional_witness_loss: JaxRealArray  # scalar
-    witness_norm_loss: JaxRealArray  # scalar
+    integral_witness_objective: JaxRealArray  # scalar
+    proportional_witness_objective: JaxRealArray  # scalar
+    witness_norm_objective: JaxRealArray  # scalar
 
 
 class _Moments(eqx.Module):
@@ -126,9 +126,9 @@ class TDError(eqx.Module):
         moments = self._moments(reward_observation, current_prediction, delayed_prediction)
         residuals = witness_residuals(moments.bootstrap, moments.delayed)
 
-        reconstruction_cost = _reconstruction_cost(moments)
+        reconstruction_loss = _reconstruction_loss(moments)
         uncertainty_loss = jnp.sum(moments.delayed.variance)
-        losses = witness_losses(
+        objectives = witness_objectives(
             residuals,
             integral_witness=self.integral_witness_map.infer(
                 delayed_instruments, streams=streams, inference=inference
@@ -147,20 +147,21 @@ class TDError(eqx.Module):
 
         return new_state, TDErrorOutputs(
             advantage=advantage,
-            reconstruction_cost=reconstruction_cost,
-            confounding_cost=losses.confounding_cost,
+            reconstruction_loss=reconstruction_loss,
+            confounding_objective=objectives.confounding_objective,
             uncertainty_loss=uncertainty_loss,
-            integral_witness_loss=losses.integral_witness_loss,
-            proportional_witness_loss=losses.proportional_witness_loss,
-            witness_norm_loss=losses.witness_norm_loss,
-            loss=reconstruction_cost + uncertainty_loss + losses.loss,
+            integral_witness_objective=objectives.integral_witness_objective,
+            proportional_witness_objective=objectives.proportional_witness_objective,
+            witness_norm_objective=objectives.witness_norm_objective,
+            loss=reconstruction_loss + uncertainty_loss + objectives.loss,
         )
 
     def _predict(self, predictor_observations: NormalNP) -> NormalNP:
         """Predict return with the predictor observations held fixed.
 
         The features that supplied the observations learn from their own goals rather than from
-        the TD costs. See `sip-td-error-circuit` in the thesis.
+        the TD reconstruction loss and confounding objective. See `sip-td-error-circuit` in the
+        thesis.
         """
         return self.prediction_map.infer(jax.lax.stop_gradient(predictor_observations))
 
@@ -189,5 +190,5 @@ class TDError(eqx.Module):
         )
 
 
-def _reconstruction_cost(moments: _Moments) -> JaxRealArray:
+def _reconstruction_loss(moments: _Moments) -> JaxRealArray:
     return jnp.sum(moments.bootstrap.cross_entropy(moments.delayed))

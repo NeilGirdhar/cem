@@ -101,9 +101,9 @@ class RewardCritic(eqx.Module):
 
         Each prospect emits with its own `observation_content[i]`, `predictor_instruments[i]`,
         and optional `gains[i]`. The emitted messages are concatenated on each channel to form the
-        TD feature's predictor. The TD feature's reconstruction and confounding costs from this
-        step score the prospects' previous emission, so each prospect takes its credit after the
-        TD feature runs.
+        TD feature's predictor. The TD feature's reconstruction loss and confounding objective
+        from this step score the prospects' previous emission, so each prospect takes its credit
+        after the TD feature runs.
         """
         if len(observation_content) != len(self.prospect_features):
             msg = "observation_content must have one entry per prospect"
@@ -147,8 +147,8 @@ class RewardCritic(eqx.Module):
             state, out = feature.credit(
                 state,
                 emission,
-                reconstruction=td_out.reconstruction_cost,
-                confounding=td_out.confounding_cost,
+                reconstruction=td_out.reconstruction_loss,
+                confounding=td_out.confounding_objective,
             )
             prospect_outputs.append(out)
         return state, RewardCriticOutputs(

@@ -1,4 +1,4 @@
-"""Check test 9: a controllable feature's goal credit follows the goal's causal gradient."""
+"""Check test 9: a controllable feature's mean credit follows the goal's causal gradient."""
 
 import jax.numpy as jnp
 import jax.random as jr
@@ -19,11 +19,11 @@ from cem.sip.experiments.emitter_credit import (
 from cem.sip.experiments.scenarios import DirectCreditScenario
 
 _SEEDS = 2
-# Both conditions' goal credit lies within about 1° of the gradient that it estimates.
+# Both conditions' mean credit lies within about 1° of the gradient that it estimates.
 _ALIGNED = 4.0
-# Endogenous gain tilts goal credit about 13.5° from the unweighted causal gradient.
+# Endogenous gain tilts mean credit about 13.5° from the unweighted causal gradient.
 _TILT = (8.0, 20.0)
-# Shrinkage credit is about as large as goal credit and points along the weight.
+# Shrinkage credit is about as large as mean credit and points along the weight.
 _SHRINKAGE_TILT = 30.0
 
 
@@ -80,7 +80,7 @@ def test_mean_credit_is_the_goal_times_the_instrument_pullback() -> None:
 
 
 @pytest.mark.usefixtures("log")
-def test_goal_credit_follows_the_causal_gradient() -> None:
+def test_mean_credit_follows_the_causal_gradient() -> None:
     experiment = DirectCreditExperiment(seeds=_SEEDS)
     (plotter,) = experiment.plotters
     series = plotter.plotted_series(experiment.runs({}))

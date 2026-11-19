@@ -177,7 +177,7 @@ class Emitter(eqx.Module):
     ) -> tuple[eqx.nn.State, CreditOutputs, JaxRealArray]:
         """Credit the arriving goal to the retained emissions, then retain this emission.
 
-        The goal scales the mean trace, the goal prediction error scales the precision trace, and
+        The goal scales the mean trace, the goal prediction residual scales the precision trace, and
         the shrinkage trace applies at unit scale. The traces are read before this emission's
         drifts enter them, so every training signal for an emission arrives with the goal that
         follows it, and none arrives for an emission whose goal never does. Return the new state,
@@ -189,7 +189,7 @@ class Emitter(eqx.Module):
         loss = (
             self.observation_projection.get_loss(lag_filter.value(traces.mean), goal)
             + self.observation_projection.get_loss(
-                lag_filter.value(traces.precision), credit_outputs.goal_prediction_error
+                lag_filter.value(traces.precision), credit_outputs.goal_prediction_residual
             )
             + self.observation_projection.get_loss(
                 lag_filter.value(traces.shrinkage), jnp.asarray(1.0)

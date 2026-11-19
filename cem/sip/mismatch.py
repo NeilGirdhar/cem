@@ -1,4 +1,4 @@
-"""SIP mismatch circuit: prediction map, integral and proportional witnesses, and their losses."""
+"""SIP mismatch circuit: prediction map, integral and proportional witnesses, and objectives."""
 
 from collections.abc import Mapping
 from typing import Self
@@ -18,20 +18,20 @@ from cem.sip.settings import MismatchSettings
 from cem.sip.witness import (
     IntegralWitnessMap,
     ProportionalWitnessMap,
-    witness_losses,
+    witness_objectives,
     witness_residuals,
 )
 
 
 class MismatchOutputs(SIPLossOutputs):
-    """The demand for explanation and the losses that train the prediction and witnesses."""
+    """The demand for explanation and the objectives that train the prediction and witnesses."""
 
     mismatch: NormalNP  # 2n unit-presence components; demand for explanation
-    reconstruction_cost: JaxRealArray  # scalar
-    confounding_cost: JaxRealArray  # scalar
-    integral_witness_loss: JaxRealArray  # scalar
-    proportional_witness_loss: JaxRealArray  # scalar
-    witness_norm_loss: JaxRealArray  # scalar
+    reconstruction_loss: JaxRealArray  # scalar
+    confounding_objective: JaxRealArray  # scalar
+    integral_witness_objective: JaxRealArray  # scalar
+    proportional_witness_objective: JaxRealArray  # scalar
+    witness_norm_objective: JaxRealArray  # scalar
 
 
 class _Moments(eqx.Module):
@@ -43,14 +43,14 @@ class _Moments(eqx.Module):
 
 
 class _Reconstruction(eqx.Module):
-    """The reconstruction cost and the outgoing demand for explanation."""
+    """The reconstruction loss and the outgoing demand for explanation."""
 
-    cost: JaxRealArray
+    loss: JaxRealArray
     mismatch: NormalNP
 
 
 class Mismatch(eqx.Module):
-    """Learn to predict a feature's observation and test for instrument-predictable errors.
+    """Learn to predict a feature's observation and test for instrument-predictable residuals.
 
     See `sip-mismatch-circuit` in the thesis.
     """
@@ -106,16 +106,16 @@ class Mismatch(eqx.Module):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> MismatchOutputs:
-        """Score the observation prediction and return its mismatch and training losses.
+        """Score the observation prediction and return its mismatch and training objectives.
 
-        The outgoing mismatch carries, for each channel, the mean error and the deviation error:
-        the predicted standard deviation minus the target's root-mean-square deviation about the
-        predicted mean. Both scale linearly with the messages, so mismatch content does not
-        compound powers of scale as it passes between features. The witnesses instead test centred
-        residuals for error predictable from the instruments.
+        The outgoing mismatch carries, for each channel, the target-minus-prediction mean residual
+        and the deviation residual: the target's root-mean-square deviation about the predicted
+        mean minus the predicted standard deviation. Both scale linearly with the messages, so
+        mismatch content does not compound powers of scale as it passes between features. The
+        witnesses instead test centred residuals for patterns predictable from the instruments.
 
         When there is no gain parent, construct the witnesses without gain features. The circuit
-        then uses unit gain for the losses and the witness norm constraint.
+        then uses unit gain for the objectives and the witness norm constraint.
         """
         gain_observation = None if gain is None else gain.observation
         gain_instrument = None if gain is None else gain.instrument
@@ -129,7 +129,7 @@ class Mismatch(eqx.Module):
             if gain_instrument is None
             else parameter_concat([predictor.instrument, gain_instrument])
         )
-        losses = witness_losses(
+        objectives = witness_objectives(
             residuals,
             integral_witness=self.integral_witness_map.infer(
                 instruments, streams=streams, inference=inference
@@ -144,12 +144,12 @@ class Mismatch(eqx.Module):
 
         return MismatchOutputs(
             mismatch=reconstruction.mismatch,
-            reconstruction_cost=reconstruction.cost,
-            confounding_cost=losses.confounding_cost,
-            integral_witness_loss=losses.integral_witness_loss,
-            proportional_witness_loss=losses.proportional_witness_loss,
-            witness_norm_loss=losses.witness_norm_loss,
-            loss=reconstruction.cost + losses.loss,
+            reconstruction_loss=reconstruction.loss,
+            confounding_objective=objectives.confounding_objective,
+            integral_witness_objective=objectives.integral_witness_objective,
+            proportional_witness_objective=objectives.proportional_witness_objective,
+            witness_norm_objective=objectives.witness_norm_objective,
+            loss=reconstruction.loss + objectives.loss,
         )
 
     def _moments(
@@ -161,10 +161,11 @@ class Mismatch(eqx.Module):
     ) -> _Moments:
         """Include fresh local noise in the target variance while keeping the raw target mean.
 
-        Hold the target fixed so that mismatch costs cannot move the observation or its local
-        noise towards the prediction. Hold the predictor observations fixed so that the parents
-        learn from their own goals rather than from these costs. Hold the gain fixed because
-        differentiating a positive cost through it would favour reducing participation. See
+        Hold the target fixed so that the reconstruction loss and confounding objective cannot move
+        the observation or its local noise towards the prediction. Hold the predictor observations
+        fixed so that the parents learn from their own goals rather than from these signals. Hold
+        the gain fixed because differentiating a positive loss through it would favour reducing
+        participation. See
         `sip-target-observation` and `sip-prediction-map` in the thesis.
         """
         raw = raw_observation.to_variance_parametrization()
@@ -180,20 +181,20 @@ class Mismatch(eqx.Module):
 
 def _reconstruction_and_mismatch(moments: _Moments) -> _Reconstruction:
     target, prediction = moments.target, moments.prediction
-    mean_error = prediction.mean - target.mean
+    mean_residual = target.mean - prediction.mean
     reconstruction_density = target.cross_entropy(prediction)
-    reconstruction_error = (
+    channel_reconstruction_losses = (
         reconstruction_density if moments.gain is None else moments.gain * reconstruction_density
     )
-    reconstruction_cost = jnp.sum(reconstruction_error)
+    reconstruction_loss = jnp.sum(channel_reconstruction_losses)
 
     # The target's root-mean-square deviation about the predicted mean.
-    target_deviation = jnp.sqrt(target.variance + jnp.square(mean_error))
-    deviation_error = jnp.sqrt(prediction.variance) - target_deviation
-    mismatch_pair = jnp.stack([mean_error, deviation_error], axis=-1)
+    target_deviation = jnp.sqrt(target.variance + jnp.square(mean_residual))
+    deviation_residual = target_deviation - jnp.sqrt(prediction.variance)
+    mismatch_pair = jnp.stack([mean_residual, deviation_residual], axis=-1)
     mismatch_flat = _scale_rows(mismatch_pair, moments.gain).reshape(-1)
     mismatch_message = NormalPP(mismatch_flat, jnp.ones_like(mismatch_flat)).to_nat()
-    return _Reconstruction(cost=reconstruction_cost, mismatch=mismatch_message)
+    return _Reconstruction(loss=reconstruction_loss, mismatch=mismatch_message)
 
 
 def _scale_rows(x: JaxRealArray, gain: JaxRealArray | None) -> JaxRealArray:

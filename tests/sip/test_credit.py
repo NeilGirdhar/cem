@@ -105,14 +105,14 @@ def test_goal_prediction_uses_the_previous_emission(streams: Mapping[str, RngStr
     emission = _emit(credit, inst_mean=jnp.zeros(n), content=later_content)
     goal = jnp.asarray(4.0)
 
-    def prediction_error(target: JaxRealArray) -> JaxRealArray:
+    def prediction_residual(target: JaxRealArray) -> JaxRealArray:
         _, outputs = credit.credit(state, emission, target)
-        return outputs.goal_prediction_error
+        return outputs.goal_prediction_residual
 
     expected_penalty = -0.5 * jnp.sum(jnp.square(inst_mean))
-    expected_error = goal - (_baseline(credit, first_content) + expected_penalty)
-    error, goal_gradient = value_and_grad(prediction_error)(goal)
-    assert jnp.allclose(error, expected_error)
+    expected_residual = goal - (_baseline(credit, first_content) + expected_penalty)
+    residual, goal_gradient = value_and_grad(prediction_residual)(goal)
+    assert jnp.allclose(residual, expected_residual)
     assert jnp.allclose(goal_gradient, 0.0)
 
 
@@ -138,12 +138,12 @@ def test_goal_prediction_loss_trains_only_the_baseline_map(
                 raw_observation=raw_observation,
             )
             state, outputs = circuit.credit(state, emission, jnp.asarray(goal))
-        return outputs.goal_prediction_loss, outputs.goal_prediction_error
+        return outputs.goal_prediction_loss, outputs.goal_prediction_residual
 
-    (value, error), (credit_gradient, content_gradient, raw_gradient) = eqx.filter_value_and_grad(
-        loss, has_aux=True
-    )((credit, content, raw))
-    assert jnp.allclose(value, 0.5 * jnp.square(error))
+    (value, residual), (credit_gradient, content_gradient, raw_gradient) = (
+        eqx.filter_value_and_grad(loss, has_aux=True)((credit, content, raw))
+    )
+    assert jnp.allclose(value, 0.5 * jnp.square(residual))
     assert all(jnp.allclose(leaf, 0.0) for leaf in tree.leaves((content_gradient, raw_gradient)))
     assert jnp.any(credit_gradient.goal_baseline_map.layers[-1].bias.value != 0)
 

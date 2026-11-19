@@ -99,8 +99,8 @@ def test_sip_feature_outputs_have_expected_shapes(
     assert outputs.message.observation.mean_times_precision.shape == (n,)
     assert outputs.message.instrument.mean_times_precision.shape == (n,)
     assert outputs.observation_mismatch.mean_times_precision.shape == (2 * n,)
-    assert outputs.reconstruction_cost.shape == ()
-    assert outputs.confounding_cost.shape == ()
+    assert outputs.reconstruction_loss.shape == ()
+    assert outputs.confounding_objective.shape == ()
     assert outputs.loss.shape == ()
 
 
@@ -136,15 +136,15 @@ def test_sip_feature_loss_sums_emitter_and_mismatch(
 
 
 def test_sensation_credit_lowers_dissonance(streams: Mapping[str, RngStream]) -> None:
-    """A higher cost pushes the observation map against the recorded experiments.
+    """Higher dissonance pushes the observation map against the recorded experiments.
 
-    Raising the reconstruction cost by one lowers the emitter's goal by one, so a descent step
-    moves the parameters opposite the mean and precision traces. The mismatch losses hold the
-    observation fixed, so only credit depends on the cost.
+    Raising the reconstruction loss by one lowers the emitter's goal by one, so a descent step
+    moves the parameters opposite the mean and precision traces. The mismatch circuit holds the
+    observation fixed, so only credit depends on the reconstruction loss.
     """
     n = 2
     feature = _sip_feature(n, streams, controllable=False)
-    # The first step records the experiments that the second step's cost credits.
+    # The first step records the experiments that the second step's dissonance credits.
     state, _ = feature.step(
         eqx.nn.State(feature), **_sip_inputs(n), streams=streams, inference=True
     )
@@ -429,8 +429,8 @@ def test_sensation_input_reports_prediction_costs(
         streams=streams,
         inference=True,
     )
-    assert jnp.allclose(outputs.reconstruction_cost, mismatch_outputs.reconstruction_cost)
-    assert jnp.allclose(outputs.confounding_cost, mismatch_outputs.confounding_cost)
+    assert jnp.allclose(outputs.reconstruction_loss, mismatch_outputs.reconstruction_loss)
+    assert jnp.allclose(outputs.confounding_objective, mismatch_outputs.confounding_objective)
     inherited = inherit_instrument(feature.instrument_map, predictor.instrument)
     expected_instrument_loss = instrument_loss(inherited, observation, None)
     assert jnp.allclose(outputs.loss, mismatch_outputs.loss + expected_instrument_loss)

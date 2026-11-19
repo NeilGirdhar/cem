@@ -287,8 +287,8 @@ class EndogenousGainScenario(eqx.Module):
 
         The prediction has the given constant variance, and the target observation adds the
         observation variance. The moments integrate out the confounder and both disturbances at
-        each instrument draw. The variance residual is the predicted variance minus the target
-        observation variance and the squared mean residual, so both moments vanish for a
+        each instrument draw. The variance residual subtracts the predicted variance from the
+        target observation variance plus the squared mean residual, so both moments vanish for a
         calibrated prediction.
 
         Args:
@@ -300,13 +300,13 @@ class EndogenousGainScenario(eqx.Module):
             gain_noise: The gain instrument draws γ̃, the same shape as `parent_noise`.
         """
         scenario = self.prediction
-        slope_error = slope - scenario.effects[0]
+        slope_residual = scenario.effects[0] - slope
         # δ₁ = d + b U + e, where e collects both disturbances.
-        offset = slope_error * parent_noise + intercept
-        confounder_coefficient = slope_error * scenario.parent_confounding - (
-            scenario.target_confounding
+        offset = slope_residual * parent_noise - intercept
+        confounder_coefficient = (
+            slope_residual * scenario.parent_confounding + scenario.target_confounding
         )
-        disturbance_variance = scenario.noise**2 * (slope_error**2 + 1.0)
+        disturbance_variance = scenario.noise**2 * (slope_residual**2 + 1.0)
         gain_mean, confounder_moment, squared_confounder_moment = self._gain_confounder_moments()
         gain = gain_mean + gain_noise
         mean = offset * gain + confounder_coefficient * confounder_moment
@@ -318,7 +318,7 @@ class EndogenousGainScenario(eqx.Module):
         )
         return GainMoments(
             mean=mean,
-            variance=(variance - observation_variance) * gain - squared_residual,
+            variance=(observation_variance - variance) * gain + squared_residual,
             gain=gain,
         )
 

@@ -31,12 +31,12 @@ class SIPFeatureSizes(eqx.Module):
 
 
 class SIPFeatureOutputs(SIPLossOutputs):
-    """An instrumented observation, its demand for explanation, and the training costs."""
+    """An instrumented observation, its demand for explanation, and its training signals."""
 
     message: InstrumentedMessage  # post-gain, noised
     observation_mismatch: NormalNP  # 2n unit-presence demand signal
-    reconstruction_cost: JaxRealArray  # scalar
-    confounding_cost: JaxRealArray  # scalar
+    reconstruction_loss: JaxRealArray  # scalar
+    confounding_objective: JaxRealArray  # scalar
 
 
 class SIPFeature(eqx.Module):
@@ -132,14 +132,14 @@ class SIPFeature(eqx.Module):
         return new_state, SIPFeatureOutputs(
             message=emitter_outputs.message,
             observation_mismatch=mismatch_outputs.mismatch,
-            reconstruction_cost=mismatch_outputs.reconstruction_cost,
-            confounding_cost=mismatch_outputs.confounding_cost,
+            reconstruction_loss=mismatch_outputs.reconstruction_loss,
+            confounding_objective=mismatch_outputs.confounding_objective,
             loss=emitter_outputs.loss + mismatch_outputs.loss,
         )
 
 
 class SensationFeature(SIPFeature):
-    """Learn a sensation from the reconstruction and confounding costs below it."""
+    """Learn a sensation from the dissonance that its sensation stack supplies."""
 
     def step(  # ruff: ignore[too-many-arguments]
         self,
@@ -157,7 +157,7 @@ class SensationFeature(SIPFeature):
         """Advance the sensation one time step.
 
         Credit raises the emitter's goal, so the goal is the negated dissonance: the sum of the
-        reconstruction and confounding costs, negated.
+        supplied reconstruction loss and confounding objective, negated.
         """
         return self._step(
             state,
@@ -272,8 +272,8 @@ class SensationInputFeature(eqx.Module):
         return state, SIPFeatureOutputs(
             message=message,
             observation_mismatch=mismatch_outputs.mismatch,
-            reconstruction_cost=mismatch_outputs.reconstruction_cost,
-            confounding_cost=mismatch_outputs.confounding_cost,
+            reconstruction_loss=mismatch_outputs.reconstruction_loss,
+            confounding_objective=mismatch_outputs.confounding_objective,
             loss=mismatch_outputs.loss
             + instrument_loss(inherited_instrument, observation, gain_mean),
         )
@@ -323,8 +323,8 @@ class RecruiterFeature(eqx.Module):
     ) -> tuple[eqx.nn.State, SIPFeatureOutputs]:
         """Advance the recruiter one time step, with no gain parent.
 
-        Negating the confounding cost turns the sensation's negated dissonance into negated
-        disutility: the confounding cost minus the reconstruction cost.
+        Negating the confounding objective turns the sensation's negated dissonance into negated
+        disutility: the confounding objective minus the reconstruction loss.
         """
         return self.feature.step(
             state,
@@ -414,12 +414,13 @@ class ProspectFeature(eqx.Module):
         reconstruction: JaxRealArray,
         confounding: JaxRealArray,
     ) -> tuple[eqx.nn.State, ProspectFeatureOutputs]:
-        """Credit the TD feature's costs from this step, after it has scored the critic.
+        """Credit the TD feature's dissonance from this step, after it has scored the critic.
 
-        Those costs score the delayed prediction, which the prospects emitted at the previous
-        step, so the lag filter's goal arrives one step after its emission. Credit raises the
+        The reconstruction loss and confounding objective score the delayed prediction, which the
+        prospects emitted at the previous step, so the lag filter's goal arrives one step after its
+        emission. Credit raises the
         emitter's goal, so the goal is the negated dissonance of the TD prediction: the sum of its
-        reconstruction and confounding costs, negated.
+        reconstruction loss and confounding objective, negated.
         """
         new_state, _, credit_loss = self.emitter.credit_goal(
             state, emission, -(reconstruction + confounding)
@@ -430,12 +431,12 @@ class ProspectFeature(eqx.Module):
 
 
 class TDFeatureOutputs(SIPLossOutputs):
-    """The observed reward, the advantage signal, and the costs of predicting reward."""
+    """The observed reward, the advantage signal, and the dissonance of predicting reward."""
 
     observation: NormalNP  # the supplied reward observation, passed through unchanged
     advantage: JaxRealArray  # TD error in reward, replaces observation mismatch
-    reconstruction_cost: JaxRealArray  # scalar
-    confounding_cost: JaxRealArray  # scalar
+    reconstruction_loss: JaxRealArray  # scalar
+    confounding_objective: JaxRealArray  # scalar
     uncertainty_loss: JaxRealArray  # scalar
 
 
@@ -476,7 +477,7 @@ class TDFeature(eqx.Module):
         """Score the reward prediction and retain the advantage for the next intention update.
 
         The advantage is the difference between the bootstrap target mean and the delayed
-        prediction mean. The prediction costs go to the prospects within this step.
+        prediction mean. The prediction's dissonance goes to the prospects within this step.
         """
         new_state, td_outputs = self.td_error.step(
             state,
@@ -489,8 +490,8 @@ class TDFeature(eqx.Module):
         return new_state, TDFeatureOutputs(
             observation=reward_observation,
             advantage=td_outputs.advantage,
-            reconstruction_cost=td_outputs.reconstruction_cost,
-            confounding_cost=td_outputs.confounding_cost,
+            reconstruction_loss=td_outputs.reconstruction_loss,
+            confounding_objective=td_outputs.confounding_objective,
             uncertainty_loss=td_outputs.uncertainty_loss,
             loss=td_outputs.loss,
         )

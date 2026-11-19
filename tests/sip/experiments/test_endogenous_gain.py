@@ -61,8 +61,8 @@ def test_population_moments_match_monte_carlo() -> None:
         + (prediction.target - 1.5 * prediction.parents[:, 0] + 2.0 * prediction.confounder)
     )
     slope, intercept, variance = 1.3, 0.2, 3.5
-    residual = slope * parents + intercept - target
-    variance_residual = variance - FEATURE_OBSERVATION_VARIANCE - jnp.square(residual)
+    residual = target - (slope * parents + intercept)
+    variance_residual = FEATURE_OBSERVATION_VARIANCE + jnp.square(residual) - variance
     moments = _ENDOGENOUS.population_moments(
         slope=slope,
         intercept=intercept,
@@ -89,9 +89,9 @@ def test_endogenous_gain_calls_for_an_intercept_that_varies() -> None:
     # At a zero intercept, the variance moment vanishes but the mean moment does not.
     shared = _moments(_ENDOGENOUS, 0.0, 4.26, _GAIN_NOISE)
     assert jnp.allclose(shared.variance, 0.0, atol=1e-5)
-    # The mean moment is then 2 E[f(U) U] at every instrument value.
+    # The mean moment is then -2 E[f(U) U] at every instrument value.
     assert jnp.allclose(shared.mean, shared.mean[0])
-    assert float(shared.mean[0]) > 0
+    assert float(shared.mean[0]) < 0
     # Each instrument value's own intercept and variance zero both moments there.
     for noise, mean in zip(_GAIN_NOISE, weighted_mean, strict=True):
         own = _moments(
@@ -113,7 +113,7 @@ def test_endogenous_gain_leaves_moments_the_slope_survives() -> None:
         assert len(scores[condition]) == _SEEDS
         for score in scores[condition]:
             assert abs(score["fit"]["slope"] - 1.5) < _SLOPE_TOLERANCE
-    # Slope error alone leaves both moments near 0.02 to 0.06, so only the mean moment separates
+    # Slope bias alone leaves both moments near 0.02 to 0.06, so only the mean moment separates
     # the conditions: the endogenous gain's intercept conflict keeps it near 0.06.
     for control, endogenous in zip(scores[GAIN_CONTROL], scores[ENDOGENOUS_GAIN], strict=True):
         assert control["mean_moment"] < _SETTLED_MOMENT < endogenous["mean_moment"]

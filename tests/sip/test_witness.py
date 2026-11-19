@@ -1,4 +1,4 @@
-"""Check the witnesses, their losses, and the multiplier projection."""
+"""Check the witnesses, their objectives, and the multiplier projection."""
 
 from collections.abc import Mapping
 
@@ -12,11 +12,11 @@ from cem.framework.graph import DisModel, Model
 from cem.sip import IntegralWitnessMap, ProportionalWitnessMap, SIPModel
 from cem.sip.parameters import WitnessMultiplierParameter
 from cem.sip.witness import (
-    WitnessLosses,
-    integral_witness_loss,
-    proportional_witness_loss,
-    witness_losses,
-    witness_norm_loss,
+    WitnessObjectives,
+    integral_witness_objective,
+    proportional_witness_objective,
+    witness_norm_objective,
+    witness_objectives,
     witness_residuals,
 )
 
@@ -90,7 +90,7 @@ def test_witness_gradients_follow_the_lagrangian(gain: JaxRealArray | None) -> N
     excess = jnp.sum(unit_gain[:, None] * jnp.square(_WITNESS)) - jnp.mean(unit_gain)
 
     def lagrangian(witness: JaxRealArray, multiplier: JaxRealArray) -> JaxRealArray:
-        return -integral_witness_loss(_RESIDUALS, witness, gain) + witness_norm_loss(
+        return -integral_witness_objective(_RESIDUALS, witness, gain) + witness_norm_objective(
             witness, gain, multiplier
         )
 
@@ -103,37 +103,39 @@ def test_witness_gradients_follow_the_lagrangian(gain: JaxRealArray | None) -> N
     assert jnp.isclose(multiplier_gradient, -excess)
 
 
-def test_integral_witness_loss_weights_products_by_gain() -> None:
-    loss = integral_witness_loss(_RESIDUALS, _WITNESS, _GAIN)
+def test_integral_witness_objective_weights_products_by_gain() -> None:
+    loss = integral_witness_objective(_RESIDUALS, _WITNESS, _GAIN)
     assert jnp.isclose(loss, jnp.sum(_GAIN[:, None] * _RESIDUALS * _WITNESS))
 
 
-def test_witness_norm_loss_contributes_gradients_only() -> None:
-    assert witness_norm_loss(_WITNESS, _GAIN, jnp.asarray(3.0)) == 0.0
+def test_witness_norm_objective_contributes_gradients_only() -> None:
+    assert witness_norm_objective(_WITNESS, _GAIN, jnp.asarray(3.0)) == 0.0
 
 
 @pytest.mark.parametrize("gain", [None, _GAIN])
 def test_proportional_witness_regresses_on_the_residuals(gain: JaxRealArray | None) -> None:
     """Ascending the loss moves the witness towards the residuals, weighted by gain."""
     unit_gain = jnp.ones(2) if gain is None else gain
-    witness_gradient = jax.grad(proportional_witness_loss, argnums=1)(_RESIDUALS, _WITNESS, gain)
+    witness_gradient = jax.grad(proportional_witness_objective, argnums=1)(
+        _RESIDUALS, _WITNESS, gain
+    )
     assert jnp.allclose(witness_gradient, unit_gain[:, None] * (_RESIDUALS - _WITNESS))
 
 
-def test_proportional_witness_loss_pushes_residuals_by_the_witness() -> None:
-    residual_gradient = jax.grad(proportional_witness_loss)(_RESIDUALS, _WITNESS, _GAIN)
+def test_proportional_witness_objective_pushes_residuals_by_the_witness() -> None:
+    residual_gradient = jax.grad(proportional_witness_objective)(_RESIDUALS, _WITNESS, _GAIN)
     assert jnp.allclose(residual_gradient, _GAIN[:, None] * _WITNESS)
 
 
-def test_witness_losses_combine_and_route_gradients() -> None:
+def test_witness_objectives_combine_and_route_gradients() -> None:
     """The prediction sees both witnesses fixed; each witness sees the residuals fixed."""
     proportional = 0.5 * _WITNESS
     damping_weight = jnp.asarray(2.0)
 
-    def losses(
+    def objectives(
         residuals: JaxRealArray, integral: JaxRealArray, proportional: JaxRealArray
-    ) -> WitnessLosses:
-        return witness_losses(
+    ) -> WitnessObjectives:
+        return witness_objectives(
             residuals,
             integral_witness=integral,
             proportional_witness=proportional,
@@ -142,23 +144,23 @@ def test_witness_losses_combine_and_route_gradients() -> None:
             damping_weight=damping_weight,
         )
 
-    result = losses(_RESIDUALS, _WITNESS, proportional)
+    result = objectives(_RESIDUALS, _WITNESS, proportional)
     assert jnp.isclose(
-        result.confounding_cost,
-        integral_witness_loss(_RESIDUALS, _WITNESS, _GAIN)
-        + damping_weight * proportional_witness_loss(_RESIDUALS, proportional, _GAIN),
+        result.confounding_objective,
+        integral_witness_objective(_RESIDUALS, _WITNESS, _GAIN)
+        + damping_weight * proportional_witness_objective(_RESIDUALS, proportional, _GAIN),
     )
-    cost_gradients = jax.grad(lambda *args: losses(*args).confounding_cost, argnums=(0, 1, 2))(
-        _RESIDUALS, _WITNESS, proportional
-    )
+    confounding_gradients = jax.grad(
+        lambda *args: objectives(*args).confounding_objective, argnums=(0, 1, 2)
+    )(_RESIDUALS, _WITNESS, proportional)
     assert jnp.allclose(
-        cost_gradients[0], _GAIN[:, None] * (_WITNESS + damping_weight * proportional)
+        confounding_gradients[0], _GAIN[:, None] * (_WITNESS + damping_weight * proportional)
     )
-    assert jnp.allclose(cost_gradients[1], 0.0)
-    assert jnp.allclose(cost_gradients[2], 0.0)
-    for name in ("integral_witness_loss", "proportional_witness_loss"):
+    assert jnp.allclose(confounding_gradients[1], 0.0)
+    assert jnp.allclose(confounding_gradients[2], 0.0)
+    for name in ("integral_witness_objective", "proportional_witness_objective"):
         residual_gradient = jax.grad(
-            lambda r, n=name: getattr(losses(r, _WITNESS, proportional), n)
+            lambda r, n=name: getattr(objectives(r, _WITNESS, proportional), n)
         )(_RESIDUALS)
         assert jnp.allclose(residual_gradient, 0.0)
 
@@ -216,10 +218,10 @@ def test_witness_holds_instruments_fixed(
     assert all(jnp.allclose(gradient, 0.0) for gradient in gradients)
 
 
-def test_witness_residuals_vanish_for_a_calibrated_variance() -> None:
-    """A calibrated variance leaves only the mean residual."""
+def test_witness_residuals_subtract_prediction_from_target() -> None:
+    """The first variance is calibrated around the predicted mean, and the second is too small."""
     target = NormalVP(jnp.zeros(2), jnp.ones(2))
-    prediction = NormalVP(jnp.asarray([0.5, -1.0]), jnp.asarray([1.25, 2.0]))
+    prediction = NormalVP(jnp.asarray([0.5, -1.0]), jnp.asarray([1.25, 1.5]))
     assert jnp.allclose(
-        witness_residuals(target, prediction), jnp.asarray([[0.5, 0.0], [-1.0, 0.0]])
+        witness_residuals(target, prediction), jnp.asarray([[-0.5, 0.0], [1.0, 0.5]])
     )

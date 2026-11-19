@@ -125,7 +125,7 @@ def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> No
 def test_goal_credit_reaches_observation_map(streams: Mapping[str, RngStream]) -> None:
     """A unit increase in the goal adds the previous emission's credit to the gradient.
 
-    The goal scales the mean trace, and the goal prediction error, which rises with the goal,
+    The goal scales the mean trace, and the goal prediction residual, which rises with the goal,
     scales the precision trace. Both traces hold the previous emission's drifts. The emitter's
     other terms do not depend on the goal.
     """

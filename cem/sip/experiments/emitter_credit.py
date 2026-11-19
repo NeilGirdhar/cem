@@ -338,13 +338,13 @@ class DirectCreditPlotter(Plotter):
         return bar_chart(
             list(self.conditions),
             {
-                "causal": ("Goal credit and causal gradient", angles(lambda s: s.causal)),
+                "causal": ("Mean credit and causal gradient", angles(lambda s: s.causal)),
                 "gain weighted": (
-                    "Goal credit and gain-weighted causal gradient",
+                    "Mean credit and gain-weighted causal gradient",
                     angles(lambda s: s.gain_weighted),
                 ),
                 "with shrinkage": (
-                    "Goal and shrinkage credit and causal gradient",
+                    "Mean and shrinkage credit and causal gradient",
                     angles(lambda s: s.with_shrinkage),
                 ),
                 "observational": (
@@ -372,7 +372,7 @@ DIRECT_CREDIT_SCENARIOS = {
 
 
 class DirectCreditExperiment(SeededExperiment):
-    """Test 9: whether a controllable feature's goal credit follows the goal's causal gradient.
+    """Test 9: whether a controllable feature's mean credit follows the goal's causal gradient.
 
     The goal's confounded correlation with the feature opposes its causal effect. Both conditions
     measure credit at the same operating point on held-out emissions. The unit-gain condition

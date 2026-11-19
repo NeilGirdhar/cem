@@ -47,8 +47,8 @@ from cem.sip.settings import MismatchSettings
 from cem.sip.witness import (
     IntegralWitnessMap,
     ProportionalWitnessMap,
-    integral_witness_loss,
-    witness_losses,
+    integral_witness_objective,
+    witness_objectives,
     witness_residuals,
 )
 
@@ -89,12 +89,12 @@ class PurificationModel(Model):
     """A target's mismatch circuit, trained with or without purification.
 
     With purification, the circuit's full loss trains the prediction map, including the
-    confounding cost from the witnesses over the parents' instruments. Without it, only the
-    reconstruction cost trains the prediction map.
+    confounding objective from the witnesses over the parents' instruments. Without it, only the
+    reconstruction loss trains the prediction map.
 
     Turning off the integral term removes the integral witness's correction from the prediction's
     update, which leaves proportional-only purification. The integral witness and its multiplier
-    still train on their own losses, so every variant builds and updates the same modules.
+    still train on their own objectives, so every variant builds and updates the same modules.
     """
 
     mismatch: Mismatch
@@ -141,7 +141,7 @@ class PurificationModel(Model):
         prediction = self.mismatch.prediction_map.infer(
             jax.lax.stop_gradient(observation.predictor.observation)
         ).to_variance_parametrization()
-        loss = outputs.loss if self.purify else outputs.reconstruction_cost
+        loss = outputs.loss if self.purify else outputs.reconstruction_loss
         if self.purify and not self.integral:
             loss -= self._integral_correction(
                 observation, prediction, streams=streams, inference=inference
@@ -166,7 +166,7 @@ class PurificationModel(Model):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> JaxRealArray:
-        """Return the integral term of the confounding cost, through which the prediction learns.
+        """Return the confounding objective's integral term, through which the prediction learns.
 
         The witness is held fixed, so subtracting this term changes only the prediction's update.
         """
@@ -174,7 +174,7 @@ class PurificationModel(Model):
         witness = self.mismatch.integral_witness_map.infer(
             observation.predictor.instrument, streams=streams, inference=inference
         )
-        return integral_witness_loss(
+        return integral_witness_objective(
             witness_residuals(target, prediction), jax.lax.stop_gradient(witness), None
         )
 
@@ -851,7 +851,7 @@ class FixedMeanVarianceModel(Model):
         loss = jnp.sum(target.cross_entropy(prediction))
         if self.purify:
             instrument = observation.predictor.instrument
-            losses = witness_losses(
+            objectives = witness_objectives(
                 _VARIANCE_ONLY * witness_residuals(target, prediction),
                 integral_witness=_VARIANCE_ONLY
                 * self.integral_witness_map.infer(instrument, streams=streams, inference=inference),
@@ -863,7 +863,7 @@ class FixedMeanVarianceModel(Model):
                 multiplier=self.witness_multiplier.value,
                 damping_weight=self.damping_weight.value,
             )
-            loss += losses.loss
+            loss += objectives.loss
         return ModelResult(
             loss=loss,
             configurations=frozendict(
@@ -928,9 +928,9 @@ class EffectTrajectoriesPlotter(Plotter):
     """Plot each seed's effect estimate over training for each purification arm.
 
     Each seed has its own line, so averaging cannot hide oscillations that are out of phase across
-    seeds. The late-training metrics use every update in the last quarter of training: the mean
-    signed error measures where an arm settles, and the standard deviation measures how much it
-    still moves.
+    seeds. The late-training metrics use every update in the last quarter of training: the bias,
+    the mean estimate minus the true effect, measures where an arm settles, and the standard
+    deviation measures how much it still moves.
     """
 
     _: KW_ONLY
@@ -964,7 +964,7 @@ class EffectTrajectoriesPlotter(Plotter):
             "line styles": {"true effect": "dashed"},
             **lines,
             "true effect": [self.effect for _ in shown],
-            "late signed error": {
+            "late bias": {
                 arm: [float(np.mean(_late_window(t)) - self.effect) for t in arm_trajectories]
                 for arm, arm_trajectories in trajectories.items()
             },
@@ -1357,7 +1357,8 @@ class GainScores:
     Each moment is a root mean square over the draws. The proportional witness estimates each
     gain-weighted moment divided by the mean gain, so each correlation compares the learned
     proportional witness with that population target. The integral score is the population value
-    of the integral witness loss, the mean over draws of each moment times the integral witness.
+    of the integral witness objective, the mean over draws of each moment times the integral
+    witness.
     """
 
     fit: GainFit
@@ -1438,7 +1439,7 @@ class EndogenousGainSolver(Solver[EndogenousGainProblem]):
 
 
 class EndogenousGainScoresPlotter(Plotter):
-    """Compare each gain rule's slope error and remaining population moments.
+    """Compare each gain rule's slope bias and remaining population moments.
 
     The moments are evaluated at each run's fitted parameters on its held-out instrument draws,
     which both conditions share. The fits and witness checks are recorded for each seed.
@@ -1468,8 +1469,8 @@ class EndogenousGainScoresPlotter(Plotter):
         return bar_chart(
             list(self.conditions),
             {
-                "slope error": (
-                    "Slope error",
+                "slope bias": (
+                    "Slope bias",
                     [
                         [score.fit.slope - effects[condition] for score in seed_scores]
                         for condition, seed_scores in scores.items()
@@ -1563,7 +1564,7 @@ class EndogenousGainExperiment(SeededExperiment):
             plotters=[
                 EndogenousGainScoresPlotter(
                     name="endogenous-gain-scores",
-                    title="Slope error and remaining population moments",
+                    title="Slope bias and remaining population moments",
                     conditions=ENDOGENOUS_GAIN_SCENARIOS,
                 ),
                 EndogenousGainConflictPlotter(

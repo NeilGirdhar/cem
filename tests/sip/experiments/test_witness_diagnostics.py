@@ -34,7 +34,7 @@ _SCENARIO = ConfoundedPredictionScenario()
 _SEEDS = 2
 _VARIANCE_TRAINING_EXAMPLES = 40_000
 # Both witnesses settle within about 0.02 of the effect; integral only still swings by 0.1 to 0.3.
-_SETTLED_ERROR = 0.1
+_SETTLED_BIAS = 0.1
 # Proportional only settles about 0.375 short of the effect, as a finite quadratic penalty.
 _PENALTY_BIAS = 0.25
 # Reconstruction learns a slope of about 0.8 in y²; purification's slope is within about 0.06 of 0.
@@ -153,11 +153,11 @@ def test_each_witness_mechanism_does_its_job() -> None:
     damping_plotter, variance_plotter = experiment.plotters
 
     damping = damping_plotter.plotted_series(runs)
-    errors = damping["late signed error"]
+    biases = damping["late bias"]
     variability = damping["late variability"]
-    assert list(errors) == list(DAMPING_ARMS)
-    assert all(abs(error) < _SETTLED_ERROR for error in errors[INTEGRAL_AND_PROPORTIONAL])
-    assert all(error < -_PENALTY_BIAS for error in errors[PROPORTIONAL_ONLY])
+    assert list(biases) == list(DAMPING_ARMS)
+    assert all(abs(bias) < _SETTLED_BIAS for bias in biases[INTEGRAL_AND_PROPORTIONAL])
+    assert all(bias < -_PENALTY_BIAS for bias in biases[PROPORTIONAL_ONLY])
     assert sum(variability[INTEGRAL_ONLY]) > sum(variability[INTEGRAL_AND_PROPORTIONAL])
     assert len(damping[f"{INTEGRAL_ONLY} 0"]) == len(damping["iteration"])
 

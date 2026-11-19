@@ -73,8 +73,8 @@ class SIPAgent(eqx.Module):
         prospect_sizes_full = per_side_sizes + per_side_sizes
         diffuse_content = sum(sensation_sizes) + sum(intention_sizes)
         n_levels = len(sensation_sizes)
-        # Augment reward with one curiosity (confounding cost) and one tracking
-        # (negated reconstruction cost) channel per sensation feature.
+        # Augment reward with one curiosity (confounding objective) and one tracking
+        # (negated reconstruction loss) channel per sensation feature.
         reward_features = environment.reward_features + 2 * n_levels
         sensations = Sensations.create(
             sensation_sizes,
@@ -119,7 +119,8 @@ class SIPAgent(eqx.Module):
 
         Sensations interpret the observation in the context of the previous action.
         Intentions use those sensations and the previous critic advantage. The critic
-        then scores the environment reward together with the current sensation costs.
+        then scores the environment reward together with the current sensation tracking and
+        curiosity.
         """
         key_s, key_i, key_c = jr.split(key, 3)
         n_levels = 1 + len(self.sensations.interior_features)
@@ -170,11 +171,11 @@ class SIPAgent(eqx.Module):
         prospect_predictor_instruments = [out.message.instrument for out in sensation_outputs] + [
             out.message.instrument for out in intention_outputs
         ]
-        # Each sensation contributes its confounding cost as curiosity and its negated
-        # reconstruction cost as tracking, so tracking rewards predictable sensation. Both enter
+        # Each sensation contributes its confounding objective as curiosity and its negated
+        # reconstruction loss as tracking, so tracking rewards predictable sensation. Both enter
         # the reward observation with unit precision.
-        curiosity = jnp.stack([out.confounding_cost for out in sensation_outputs])
-        tracking = -jnp.stack([out.reconstruction_cost for out in sensation_outputs])
+        curiosity = jnp.stack([out.confounding_objective for out in sensation_outputs])
+        tracking = -jnp.stack([out.reconstruction_loss for out in sensation_outputs])
         intrinsic_precision = jnp.ones_like(curiosity)
         reward_observation = parameter_concat(
             [
