@@ -120,7 +120,7 @@ def test_sip_feature_loss_sums_emitter_and_mismatch(
         fresh_state,
         inputs["key"],
         observation_content=inputs["observation_content"],
-        predictor_instrument=inputs["predictor"].instrument,
+        predictor=inputs["predictor"],
         gain_observation=inputs["gain"].observation,
         goal=-(inputs["reconstruction"] + inputs["confounding"]),
     )
@@ -277,7 +277,10 @@ def test_recruiter_feature_observation_equals_pre_gain(
         fresh_state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
-        predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        predictor=InstrumentedMessage(
+            observation=_message(jnp.asarray([0.3, -0.2]), jnp.ones(2)),
+            instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        ),
         gain_observation=None,
         goal=jnp.asarray(0.2) - jnp.asarray(0.5),
     )

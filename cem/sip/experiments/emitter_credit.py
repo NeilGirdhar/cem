@@ -14,7 +14,7 @@ import jax.random as jr
 import numpy as np
 from efax import NormalNP
 from jax import tree
-from optuna.distributions import IntDistribution
+from optuna.distributions import FloatDistribution, IntDistribution
 from tjax import JaxRealArray, RngStream, create_streams
 from tjax.dataclasses import field
 
@@ -22,18 +22,12 @@ from cem.framework.graph import Model, ModelResult, NodeConfiguration
 from cem.framework.plotter import Run, Variant
 from cem.framework.plotter.plotter import PlottedSeries, Plotter
 from cem.framework.problem import DataSource, Problem
-from cem.framework.solution import (
-    ExecutionPacket,
-    Inference,
-    InferenceResult,
-    Telemetries,
-    Telemetry,
-    TrainingResults,
-)
-from cem.framework.solver import Solver, int_field
+from cem.framework.solution import Inference, InferenceResult, Telemetries, Telemetry
+from cem.framework.solver import Solver, float_field, int_field
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit
 from cem.sip.emitter import Emitter, ObservationCoordinates
+from cem.sip.messages import InstrumentedMessage
 
 from .common import SEED_COUNT, SeededExperiment, bar_chart, seed_runs
 from .datasets import DirectCreditProblem, DirectCreditState
@@ -43,18 +37,20 @@ _FEATURE_NODE = "feature"
 
 
 class DirectCreditConfiguration(NodeConfiguration):
-    """One emission's gain, value, and goal, and parameter vectors for the observation map.
+    """One emission's gain, value, goal, and goal residual, and parameter vectors for the map.
 
-    Each vector flattens the map's trainable parameters in leaf order. The mean credit is the
-    goal times the mean eligibility trace, the update direction that the goal contributes. The
+    The goal residual is the goal minus the fitted goal baseline. Each vector flattens the
+    observation map's trainable parameters in leaf order. The mean credit is the goal residual
+    times the recorded mean cotangent, the update direction that the goal contributes. The
     shrinkage credit is the update that mean shrinkage contributes. The observational credit pairs
-    the goal with the emitted value in place of the instrument. The Jacobian is the derivative of
-    the raw mean with respect to the parameters.
+    the same residual with the emitted value in place of the instrument. The Jacobian is the
+    derivative of the raw mean with respect to the parameters.
     """
 
     gain: JaxRealArray  # scalar
     value: JaxRealArray  # scalar
     goal: JaxRealArray  # scalar
+    goal_residual: JaxRealArray  # scalar
     mean_credit: JaxRealArray  # (p,)
     shrinkage_credit: JaxRealArray  # (p,)
     observational_credit: JaxRealArray  # (p,)
@@ -79,19 +75,21 @@ class DirectCreditModel(Model):
     """A controllable emitter whose observation reads the confounder, at a fixed operating point.
 
     The observation map is affine in the observation content, with the given weight and a zero
-    bias. The feature has no parents, so the instrument map reads an absent instrument. Its weight
-    is zero, so the inherited instrument is the map's initial bias, a standard normal. Each
-    emission therefore injects unit-variance noise with a centred, unit-precision instrument.
+    bias. The feature has no parents, so its predictor message is absent. The instrument map's
+    weight is zero, so the inherited instrument is the map's initial bias, a standard normal. Each
+    emission therefore injects unit-variance noise with a centred, unit-precision instrument. The
+    absent predictor leaves the substrate empty, so the fitted goal baseline is the mean goal.
 
     The model stores the emitter's maps and assembles the emitter for each example, then credits
     the goal to that example's emission alone, as the lag filter does when the goal arrives at the
-    next step. The model measures credit at fixed
-    parameters and never trains, so it reports no loss.
+    next step. Its loss holds the observation and instrument maps fixed, so training fits only the
+    goal and quadratic cost baselines.
     """
 
     observation_map: GaussianNeuralProjection
     instrument_map: GaussianNeuralProjection
     goal_baseline_map: GaussianNeuralProjection
+    quadratic_cost_baseline_map: GaussianNeuralProjection
     scenario: DirectCreditScenario = eqx.field(static=True)
 
     @classmethod
@@ -109,12 +107,13 @@ class DirectCreditModel(Model):
             observation_map=_with_output_weight(projection(), observation_weight),
             instrument_map=_with_output_weight(projection(), 0.0),
             goal_baseline_map=projection(),
+            quadratic_cost_baseline_map=projection(),
             scenario=scenario,
         )
 
     def emitter(self) -> Emitter:
         """Assemble a controllable emitter from the maps, with empty traces."""
-        credit = Credit.create(self.goal_baseline_map)
+        credit = Credit.create(self.goal_baseline_map, self.quadratic_cost_baseline_map)
         return Emitter.create(
             observation_map=self.observation_map,
             instrument_map=self.instrument_map,
@@ -131,24 +130,30 @@ class DirectCreditModel(Model):
         streams: Mapping[str, RngStream],
         inference: bool,
     ) -> ModelResult:
-        """Emit, evaluate the oracle goal at the emitted value, and form each credit vector.
+        """Emit, score the oracle goal at the emitted value, and form each credit vector.
 
         The emission's drift does not depend on the goal, so the model emits before the goal
-        arrives and credits the goal to that drift.
+        arrives, retains the emission, and then credits the goal to it. The loss fits the goal and
+        quadratic cost baselines to that goal and to the emission's cost.
         """
         assert isinstance(observation, DirectCreditState)
         emitter = self.emitter()
         absent = NormalNP(jnp.zeros(1), jnp.zeros(1))
-        _, emission = emitter.emit(
+        credit_state, emission = emitter.emit(
             eqx.nn.State(emitter),
             streams["inference"].key(),
             observation_content=observation.content,
-            predictor_instrument=absent,
+            predictor=InstrumentedMessage(absent, absent),
             gain_observation=observation.gain,
         )
         value = emission.message.observation.mean()[0]
         goal = self.scenario.goal(value, observation.sample)
         gain = observation.gain.mean()[0]
+        credit_state, _ = emitter.credit.credit(
+            credit_state, emission.credit_emission, jnp.zeros(())
+        )
+        _, credit_outputs = emitter.credit.credit(credit_state, emission.credit_emission, goal)
+        goal_residual = credit_outputs.baseline_goal_residual
         _, pullback = emitter.observation_projection.infer(observation.content)
 
         def pull_back_mean(cotangent: JaxRealArray) -> JaxRealArray:
@@ -162,13 +167,15 @@ class DirectCreditModel(Model):
             gain=gain,
             value=value,
             goal=goal,
-            mean_credit=goal * _flatten(emission.mean_drift),
+            goal_residual=goal_residual,
+            mean_credit=goal_residual * _flatten(emission.mean_drift),
             shrinkage_credit=pull_back_mean(emission.credit_emission.shrinkage_cotangent),
-            observational_credit=goal * pull_back_mean(gain * instrument_precision * value),
+            observational_credit=goal_residual
+            * pull_back_mean(gain * instrument_precision * value),
             mean_jacobian=pull_back_mean(jnp.ones(1)),
         )
         return ModelResult(
-            loss=jnp.zeros(()),
+            loss=credit_outputs.goal_baseline_loss + credit_outputs.quadratic_cost_loss,
             configurations=frozendict({_FEATURE_NODE: configuration}),
             state=state,
         )
@@ -223,10 +230,14 @@ class DirectCreditScores:
     Each expectation is a mean over the run's held-out emissions. The causal gradient is the
     derivative of the expected goal with respect to the observation map's parameters, β E[∂μ/∂θ].
     The gain-weighted gradient is the derivative of the expected gain-weighted goal, β E[γ ∂μ/∂θ].
-    The confounded slope is the regression slope of the goal on the emitted value.
+    The confounded slope is the regression slope of the goal on the emitted value. The goal
+    baseline is the fitted baseline's mean on the held-out emissions, for comparison with their
+    mean goal.
     """
 
     confounded_slope: float
+    goal_baseline: float
+    mean_goal: float
     mean_credit: list[float]
     shrinkage_credit: list[float]
     observational_credit: list[float]
@@ -249,6 +260,7 @@ def score_direct_credit_run(run: Run, scenario: DirectCreditScenario) -> DirectC
     gain = np.asarray(samples.gain).ravel()
     value = np.asarray(samples.value).ravel()
     goal = np.asarray(samples.goal).ravel()
+    goal_baseline = goal - np.asarray(samples.goal_residual).ravel()
     jacobian = vectors(samples.mean_jacobian)
     mean_credit = vectors(samples.mean_credit).mean(axis=0)
     shrinkage_credit = vectors(samples.shrinkage_credit).mean(axis=0)
@@ -257,6 +269,8 @@ def score_direct_credit_run(run: Run, scenario: DirectCreditScenario) -> DirectC
     gain_weighted_gradient = scenario.causal_effect * (gain[:, np.newaxis] * jacobian).mean(axis=0)
     return DirectCreditScores(
         confounded_slope=float(np.cov(goal, value)[0, 1] / np.var(value, ddof=1)),
+        goal_baseline=float(goal_baseline.mean()),
+        mean_goal=float(goal.mean()),
         mean_credit=mean_credit.tolist(),
         shrinkage_credit=shrinkage_credit.tolist(),
         observational_credit=observational_credit.tolist(),
@@ -270,11 +284,19 @@ def score_direct_credit_run(run: Run, scenario: DirectCreditScenario) -> DirectC
 
 
 class DirectCreditSolver(Solver[DirectCreditProblem]):
-    """Measure an emitter's credit at its operating point on held-out samples, without training."""
+    """Fit an emitter's credit baselines, then measure its credit on held-out samples.
+
+    Training batches fit only the goal and quadratic cost baselines, at the fixed operating point.
+    Measurement then holds the fitted baselines fixed.
+    """
 
     _: KW_ONLY
     scenario: DirectCreditScenario = eqx.field(default_factory=DirectCreditScenario)
     observation_weight: float = eqx.field(static=True, default=1.0)
+    training_examples: int = int_field(default=512, domain=IntDistribution(1, 1 << 12, log=True))
+    learning_rate: float = float_field(
+        default=0.01, domain=FloatDistribution(1e-4, 1.0, log=True), optimize=True
+    )
     inference_examples: int = int_field(default=256, domain=IntDistribution(1, 1 << 12, log=True))
     inference_batch_size: int = int_field(default=256, domain=IntDistribution(1, 1 << 12, log=True))
 
@@ -295,11 +317,6 @@ class DirectCreditSolver(Solver[DirectCreditProblem]):
             observation_weight=self.observation_weight,
             streams=streams,
         )
-
-    @override
-    def training_results(self, *, packet: ExecutionPacket) -> TrainingResults:
-        """Return the initial state, since the test measures credit at fixed parameters."""
-        return TrainingResults(count=0, telemetries={}, final_state=self.solution().solution_state)
 
 
 class DirectCreditPlotter(Plotter):

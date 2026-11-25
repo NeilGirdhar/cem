@@ -91,7 +91,7 @@ class RewardCritic(eqx.Module):
         key: KeyArray,
         *,
         observation_content: Sequence[NormalNP],
-        predictor_instruments: Sequence[NormalNP],
+        predictors: Sequence[InstrumentedMessage],
         gains: Sequence[InstrumentedMessage | None] | None = None,
         reward_observation: NormalNP,
         streams: Mapping[str, RngStream],
@@ -99,8 +99,8 @@ class RewardCritic(eqx.Module):
     ) -> tuple[eqx.nn.State, RewardCriticOutputs]:
         """Emit the prospects, run the TD feature, then credit the prospects.
 
-        Each prospect emits with its own `observation_content[i]`, `predictor_instruments[i]`,
-        and optional `gains[i]`. The emitted messages are concatenated on each channel to form the
+        Each prospect emits with its own `observation_content[i]`, `predictors[i]`, and optional
+        `gains[i]`. The emitted messages are concatenated on each channel to form the
         TD feature's predictor. The TD feature's reconstruction loss and confounding objective
         from this step score the prospects' previous emission, so each prospect takes its credit
         after the TD feature runs.
@@ -108,8 +108,8 @@ class RewardCritic(eqx.Module):
         if len(observation_content) != len(self.prospect_features):
             msg = "observation_content must have one entry per prospect"
             raise ValueError(msg)
-        if len(predictor_instruments) != len(self.prospect_features):
-            msg = "predictor_instruments must have one entry per prospect"
+        if len(predictors) != len(self.prospect_features):
+            msg = "predictors must have one entry per prospect"
             raise ValueError(msg)
         if gains is None:
             gains = [None] * len(self.prospect_features)
@@ -118,11 +118,11 @@ class RewardCritic(eqx.Module):
             raise ValueError(msg)
         keys = jr.split(key, len(self.prospect_features))
         emissions: list[EmitterEmission] = []
-        for feature, feature_key, obs_content, pred_inst, gain in zip(
+        for feature, feature_key, obs_content, predictor, gain in zip(
             self.prospect_features,
             keys,
             observation_content,
-            predictor_instruments,
+            predictors,
             gains,
             strict=True,
         ):
@@ -130,7 +130,7 @@ class RewardCritic(eqx.Module):
                 state,
                 feature_key,
                 observation_content=obs_content,
-                predictor_instrument=pred_inst,
+                predictor=predictor,
                 gain=gain,
             )
             emissions.append(emission)

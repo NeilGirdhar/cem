@@ -4,7 +4,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from efax import parameter_concat
-from tjax import KeyArray, RngStream
+from tjax import JaxRealArray, KeyArray, RngStream
 
 from cem.sip.features import ProspectFeature
 from cem.sip.messages import InstrumentedMessage, concat_instrumented_messages
@@ -12,6 +12,14 @@ from cem.sip.reward_critic import RewardCritic, RewardCriticOutputs
 from cem.sip.settings import TDSettings
 
 from .tools import _clone, _message
+
+
+def _predictor(instrument_mean: JaxRealArray) -> InstrumentedMessage:
+    """Pair a unit-precision instrument with a fixed unit-precision observation."""
+    return InstrumentedMessage(
+        observation=_message(jnp.asarray([0.4, -0.2]), jnp.ones(2)),
+        instrument=_message(instrument_mean, jnp.ones(2)),
+    )
 
 
 def _prospect(n: int, streams: Mapping[str, RngStream]) -> ProspectFeature:
@@ -38,7 +46,7 @@ def test_prospect_feature_outputs_have_expected_shapes(
         eqx.nn.State(feature),
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
-        predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        predictor=_predictor(jnp.asarray([0.5, 0.1])),
         gain=None,
     )
     _, outputs = feature.credit(
@@ -59,7 +67,7 @@ def test_prospect_message_is_independent_of_the_local_noise_key(
             eqx.nn.State(feature),
             jr.key(seed),
             observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
-            predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+            predictor=_predictor(jnp.asarray([0.5, 0.1])),
             gain=None,
         )
         messages.append(emission.message)
@@ -76,7 +84,7 @@ def test_prospect_feature_stores_message_into_state(
         state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
-        predictor_instrument=_message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
+        predictor=_predictor(jnp.asarray([0.5, 0.1])),
         gain=None,
     )
     stored = new_state.get(feature.last_message_index)
@@ -121,10 +129,7 @@ def test_reward_critic_step_runs_end_to_end(
             _message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
             _message(jnp.asarray([0.2, 0.4]), jnp.ones(2)),
         ],
-        predictor_instruments=[
-            _message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
-            _message(jnp.asarray([-0.3, 0.2]), jnp.ones(2)),
-        ],
+        predictors=[_predictor(jnp.asarray([0.5, 0.1])), _predictor(jnp.asarray([-0.3, 0.2]))],
         reward_observation=_message(jnp.asarray([0.6]), jnp.ones(1)),
         streams=streams,
         inference=True,
@@ -147,10 +152,7 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
         _message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
         _message(jnp.asarray([0.2, 0.4]), jnp.ones(2)),
     ]
-    predictor_instruments = [
-        _message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
-        _message(jnp.asarray([-0.3, 0.2]), jnp.ones(2)),
-    ]
+    predictors = [_predictor(jnp.asarray([0.5, 0.1])), _predictor(jnp.asarray([-0.3, 0.2]))]
     reward_observation = _message(jnp.asarray([0.6]), jnp.ones(1))
 
     state = eqx.nn.State(critic)
@@ -158,7 +160,7 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
         state,
         key,
         observation_content=observation_content,
-        predictor_instruments=predictor_instruments,
+        predictors=predictors,
         reward_observation=reward_observation,
         streams=streams,
         inference=True,
@@ -168,12 +170,10 @@ def test_reward_critic_feeds_prospect_outputs_as_td_predictor(
     keys = jr.split(key, len(critic.prospect_features))
     fresh = eqx.nn.State(critic)
     prospects: list = []
-    for feature, k, oc, pi in zip(
-        critic.prospect_features, keys, observation_content, predictor_instruments, strict=True
+    for feature, k, oc, predictor in zip(
+        critic.prospect_features, keys, observation_content, predictors, strict=True
     ):
-        fresh, out = feature.emit(
-            fresh, k, observation_content=oc, predictor_instrument=pi, gain=None
-        )
+        fresh, out = feature.emit(fresh, k, observation_content=oc, predictor=predictor, gain=None)
         prospects.append(out)
     expected_predictor = InstrumentedMessage(
         observation=parameter_concat([p.message.observation for p in prospects]),
@@ -200,10 +200,7 @@ def test_reward_critic_credits_prospects_with_this_steps_td_costs(
         _message(jnp.asarray([0.3, -0.1]), jnp.ones(2)),
         _message(jnp.asarray([0.2, 0.4]), jnp.ones(2)),
     ]
-    predictor_instruments = [
-        _message(jnp.asarray([0.5, 0.1]), jnp.ones(2)),
-        _message(jnp.asarray([-0.3, 0.2]), jnp.ones(2)),
-    ]
+    predictors = [_predictor(jnp.asarray([0.5, 0.1])), _predictor(jnp.asarray([-0.3, 0.2]))]
     reward_observation = _message(jnp.asarray([0.6]), jnp.ones(1))
 
     def run(state: eqx.nn.State, key: KeyArray) -> tuple[eqx.nn.State, RewardCriticOutputs]:
@@ -211,7 +208,7 @@ def test_reward_critic_credits_prospects_with_this_steps_td_costs(
             state,
             key,
             observation_content=observation_content,
-            predictor_instruments=predictor_instruments,
+            predictors=predictors,
             reward_observation=reward_observation,
             streams=streams,
             inference=True,
@@ -224,15 +221,15 @@ def test_reward_critic_credits_prospects_with_this_steps_td_costs(
 
     manual = _clone(state)
     emissions = []
-    for feature, k, oc, pi in zip(
+    for feature, k, oc, predictor in zip(
         critic.prospect_features,
         jr.split(key, len(critic.prospect_features)),
         observation_content,
-        predictor_instruments,
+        predictors,
         strict=True,
     ):
         manual, emission = feature.emit(
-            manual, k, observation_content=oc, predictor_instrument=pi, gain=None
+            manual, k, observation_content=oc, predictor=predictor, gain=None
         )
         emissions.append(emission)
     manual, td_out = critic.td_feature.step(

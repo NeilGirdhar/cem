@@ -162,15 +162,14 @@ class SIPAgent(eqx.Module):
             inference=inference,
         )
 
-        # All prospects share the observation context. Each gets an instrument from one
-        # feature so its contribution to reward prediction can track that feature's variation.
+        # All prospects share the observation context. Each takes one feature's message as its
+        # predictor, so its instrument tracks that feature's variation and its credit baselines
+        # read that feature's substrate.
         diffuse = parameter_concat(
             [out.message.observation for out in [*sensation_outputs, *intention_outputs]]
         )
         prospect_observation_content = [diffuse] * len(self.reward_critic.prospect_features)
-        prospect_predictor_instruments = [out.message.instrument for out in sensation_outputs] + [
-            out.message.instrument for out in intention_outputs
-        ]
+        prospect_predictors = [out.message for out in [*sensation_outputs, *intention_outputs]]
         # Each sensation contributes its confounding objective as curiosity and its negated
         # reconstruction loss as tracking, so tracking rewards predictable sensation. Both enter
         # the reward observation with unit precision.
@@ -188,7 +187,7 @@ class SIPAgent(eqx.Module):
             state,
             key_c,
             observation_content=prospect_observation_content,
-            predictor_instruments=prospect_predictor_instruments,
+            predictors=prospect_predictors,
             reward_observation=reward_observation,
             streams=streams,
             inference=inference,

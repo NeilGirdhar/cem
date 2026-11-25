@@ -5,11 +5,12 @@ import jax.numpy as jnp
 import jax.random as jr
 from efax import NormalNP
 from jax import tree
-from tjax import RngStream
+from tjax import KeyArray, RngStream
 
 from cem.npn.gaussian import GaussianNeuralProjection
 from cem.sip.credit import Credit
-from cem.sip.emitter import Emitter
+from cem.sip.emitter import Emitter, EmitterOutputs
+from cem.sip.messages import InstrumentedMessage
 
 from .tools import _clone, _message
 
@@ -28,16 +29,25 @@ def _emitter(
     instrument_map = GaussianNeuralProjection.create(
         in_features=instrument_dim, out_features=n, hidden_features=(), streams=streams
     )
-    baseline_map = GaussianNeuralProjection.create(
-        in_features=content_dim, out_features=1, hidden_features=(), streams=streams
-    )
-    credit = Credit.create(baseline_map)
+
+    def baseline_map() -> GaussianNeuralProjection:
+        return GaussianNeuralProjection.create(
+            in_features=instrument_dim, out_features=1, hidden_features=(), streams=streams
+        )
+
+    credit = Credit.create(baseline_map(), baseline_map())
     return Emitter.create(
         observation_map=observation_map,
         instrument_map=instrument_map,
         credit=credit,
         controllable=controllable,
     )
+
+
+def _paired(instrument: NormalNP) -> InstrumentedMessage:
+    """Pair a predictor instrument with a unit-precision predictor observation."""
+    size = instrument.shape[0]
+    return InstrumentedMessage(_message(jnp.full(size, 0.3), jnp.ones(size)), instrument)
 
 
 def _inherited(emitter: Emitter, predictor_instrument: NormalNP) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -61,7 +71,7 @@ def test_local_variance_matches_inherited_moments(
         state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
-        predictor_instrument=predictor_instrument,
+        predictor=_paired(predictor_instrument),
         gain_observation=_message(jnp.ones(n), jnp.ones(n)),
         goal=jnp.asarray(0.0),
     )
@@ -83,7 +93,7 @@ def test_same_displacement_shifts_both_means(streams: Mapping[str, RngStream]) -
         state,
         jr.key(7),
         observation_content=_message(jnp.asarray([0.3]), jnp.ones(1)),
-        predictor_instrument=predictor_instrument,
+        predictor=_paired(predictor_instrument),
         gain_observation=_message(jnp.ones(n), jnp.ones(n)),
         goal=jnp.asarray(0.0),
     )
@@ -107,7 +117,7 @@ def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> No
         state,
         jr.key(0),
         observation_content=_message(jnp.asarray([0.4]), jnp.ones(1)),
-        predictor_instrument=_message(jnp.asarray([0.1, 0.2]), jnp.asarray([1.0, 1.0])),
+        predictor=_paired(_message(jnp.asarray([0.1, 0.2]), jnp.asarray([1.0, 1.0]))),
         gain_observation=_message(gain, jnp.ones(n)),
         goal=jnp.asarray(0.0),
     )
@@ -125,18 +135,26 @@ def test_non_controllable_passes_through(streams: Mapping[str, RngStream]) -> No
 def test_goal_credit_reaches_observation_map(streams: Mapping[str, RngStream]) -> None:
     """A unit increase in the goal adds the previous emission's credit to the gradient.
 
-    The goal scales the mean trace, and the goal prediction residual, which rises with the goal,
-    scales the precision trace. Both traces hold the previous emission's drifts. The emitter's
-    other terms do not depend on the goal.
+    The baseline goal residual scales the mean trace and the quadratic goal residual scales the
+    precision trace. Both residuals rise with the goal at unit rate, and both traces hold the
+    previous emission's drifts. The emitter's other terms do not depend on the goal.
     """
     n = 2
     emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=False, streams=streams)
-    inputs = {
-        "observation_content": _message(jnp.asarray([0.5]), jnp.ones(1)),
-        "predictor_instrument": _message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 1.0])),
-        "gain_observation": _message(jnp.ones(n), jnp.ones(n)),
-    }
-    state, _ = emitter.step(eqx.nn.State(emitter), jr.key(0), **inputs, goal=jnp.asarray(0.0))
+
+    def step(
+        em: Emitter, state: eqx.nn.State, key: KeyArray, goal: float
+    ) -> tuple[eqx.nn.State, EmitterOutputs]:
+        return em.step(
+            state,
+            key,
+            observation_content=_message(jnp.asarray([0.5]), jnp.ones(1)),
+            predictor=_paired(_message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 1.0]))),
+            gain_observation=_message(jnp.ones(n), jnp.ones(n)),
+            goal=jnp.asarray(goal),
+        )
+
+    state, _ = step(emitter, eqx.nn.State(emitter), jr.key(0), 0.0)
     lag_filter = emitter.credit.lag_filter.value
     traces = state.get(emitter.trace_index)
     credit_trace = (
@@ -146,7 +164,7 @@ def test_goal_credit_reaches_observation_map(streams: Mapping[str, RngStream]) -
 
     def weight_gradient(goal: float) -> jnp.ndarray:
         def loss_fn(em: Emitter) -> jnp.ndarray:
-            _, outputs = em.step(_clone(state), jr.key(1), **inputs, goal=jnp.asarray(goal))
+            _, outputs = step(em, _clone(state), jr.key(1), goal)
             return outputs.loss
 
         grads = eqx.filter_grad(loss_fn)(emitter)
@@ -167,7 +185,7 @@ def test_goal_does_not_credit_its_own_step(streams: Mapping[str, RngStream]) -> 
                 eqx.nn.State(em),
                 jr.key(0),
                 observation_content=_message(jnp.asarray([0.5]), jnp.ones(1)),
-                predictor_instrument=_message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 1.0])),
+                predictor=_paired(_message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 1.0]))),
                 gain_observation=_message(jnp.ones(n), jnp.ones(n)),
                 goal=jnp.asarray(goal),
             )
@@ -200,34 +218,32 @@ def test_observation_projection_stops_gradients_at_its_input(
 def test_instrument_loss_trains_only_the_instrument_map(
     streams: Mapping[str, RngStream],
 ) -> None:
-    """The emitter's loss trains its instrument map but not the parents' instruments or gain."""
+    """The emitter's loss trains its instrument map but not the parents' messages or gain."""
     n = 2
     emitter = _emitter(n, content_dim=1, instrument_dim=n, controllable=True, streams=streams)
     state = eqx.nn.State(emitter)
 
     def loss_fn(
-        em: Emitter, predictor_instrument: NormalNP, gain_observation: NormalNP
+        em: Emitter, predictor: InstrumentedMessage, gain_observation: NormalNP
     ) -> jnp.ndarray:
         _, outputs = em.step(
             state,
             jr.key(0),
             observation_content=_message(jnp.asarray([0.5]), jnp.ones(1)),
-            predictor_instrument=predictor_instrument,
+            predictor=predictor,
             gain_observation=gain_observation,
             goal=jnp.asarray(0.0),
         )
         return outputs.loss
 
-    model_gradient, instrument_gradient, gain_gradient = eqx.filter_grad(
+    model_gradient, predictor_gradient, gain_gradient = eqx.filter_grad(
         lambda args: loss_fn(*args)
     )(
         (
             emitter,
-            _message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 2.0])),
+            _paired(_message(jnp.asarray([0.1, -0.2]), jnp.asarray([1.0, 2.0]))),
             _message(jnp.asarray([0.6, 0.9]), jnp.ones(n)),
         )
     )
     assert jnp.any(jnp.abs(model_gradient.instrument_map.layers[-1].weight.value) > 0)
-    assert all(
-        jnp.allclose(leaf, 0.0) for leaf in tree.leaves((instrument_gradient, gain_gradient))
-    )
+    assert all(jnp.allclose(leaf, 0.0) for leaf in tree.leaves((predictor_gradient, gain_gradient)))

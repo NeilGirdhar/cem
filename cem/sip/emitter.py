@@ -95,7 +95,7 @@ class Emitter(eqx.Module):
         key: KeyArray,
         *,
         observation_content: NormalNP,
-        predictor_instrument: NormalNP,
+        predictor: InstrumentedMessage,
         gain_observation: NormalNP | None,
     ) -> tuple[eqx.nn.State, EmitterEmission]:
         """Emit an instrumented observation and record the drifts that a later goal will credit.
@@ -108,10 +108,12 @@ class Emitter(eqx.Module):
         both at their original precision and use unit gain for credit.
 
         Every drift is pulled back through the map as it ran, so the goal that arrives later
-        credits this emission's computation.
+        credits this emission's computation. The instrument map reads the predictor's instrument,
+        and credit retains the substrate formed from the predictor's paired observation and
+        instrument.
         """
         raw_observation, pullback = self.observation_projection.infer(observation_content)
-        inherited_instrument = inherit_instrument(self.instrument_map, predictor_instrument)
+        inherited_instrument = inherit_instrument(self.instrument_map, predictor.instrument)
         inherited = inherited_instrument.to_variance_parametrization()
 
         if self.controllable:
@@ -136,7 +138,7 @@ class Emitter(eqx.Module):
         credit_emission = self.credit.emit(
             gain_observation=gain_observation,
             noised_instrument=noised_instrument,
-            observation_content=observation_content,
+            predictor=predictor,
             raw_observation=raw_observation,
         )
         mean_contribution = credit_emission.mean_contribution
@@ -175,26 +177,30 @@ class Emitter(eqx.Module):
     def credit_goal(
         self, state: eqx.nn.State, emission: EmitterEmission, goal: JaxRealArray
     ) -> tuple[eqx.nn.State, CreditOutputs, JaxRealArray]:
-        """Credit the arriving goal to the retained emissions, then retain this emission.
+        """Credit the arriving goal to the retained emission, then retain this emission.
 
-        The goal scales the mean trace, the goal prediction residual scales the precision trace, and
-        the shrinkage trace applies at unit scale. The traces are read before this emission's
-        drifts enter them, so every training signal for an emission arrives with the goal that
-        follows it, and none arrives for an emission whose goal never does. Return the new state,
-        the credit outputs, and the loss, which includes the goal prediction loss.
+        The baseline goal residual scales the mean trace, the quadratic goal residual scales the
+        precision trace, and the shrinkage trace applies at unit scale. The traces are read before
+        this emission's drifts enter them, so every training signal for an emission arrives with
+        the goal that follows it, and none arrives for an emission whose goal never does. Return
+        the new state, the credit outputs, and the loss, which includes the losses that train the
+        goal and quadratic cost baselines.
         """
         lag_filter = self.credit.lag_filter.value
         traces = state.get(self.trace_index)
         new_state, credit_outputs = self.credit.credit(state, emission.credit_emission, goal)
         loss = (
-            self.observation_projection.get_loss(lag_filter.value(traces.mean), goal)
+            self.observation_projection.get_loss(
+                lag_filter.value(traces.mean), credit_outputs.baseline_goal_residual
+            )
             + self.observation_projection.get_loss(
-                lag_filter.value(traces.precision), credit_outputs.goal_prediction_residual
+                lag_filter.value(traces.precision), credit_outputs.quadratic_goal_residual
             )
             + self.observation_projection.get_loss(
                 lag_filter.value(traces.shrinkage), jnp.asarray(1.0)
             )
-            + credit_outputs.goal_prediction_loss
+            + credit_outputs.goal_baseline_loss
+            + credit_outputs.quadratic_cost_loss
         )
         new_state = new_state.set(
             self.trace_index,
@@ -212,7 +218,7 @@ class Emitter(eqx.Module):
         key: KeyArray,
         *,
         observation_content: NormalNP,
-        predictor_instrument: NormalNP,
+        predictor: InstrumentedMessage,
         gain_observation: NormalNP | None,
         goal: JaxRealArray,
     ) -> tuple[eqx.nn.State, EmitterOutputs]:
@@ -224,7 +230,7 @@ class Emitter(eqx.Module):
             state,
             key,
             observation_content=observation_content,
-            predictor_instrument=predictor_instrument,
+            predictor=predictor,
             gain_observation=gain_observation,
         )
         state, credit_outputs, credit_loss = self.credit_goal(state, emission, goal)

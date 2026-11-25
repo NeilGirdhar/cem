@@ -61,9 +61,9 @@ class SIPFeature(eqx.Module):
     ) -> Self:
         """Build an identification feature with separate widths for its three parent inputs.
 
-        Observation content supplies the emitted observation and the credit baseline. The
-        predictor supplies the causal prediction and its instrument. The gain width controls
-        whether the witnesses also receive a gain instrument.
+        Observation content supplies the emitted observation. The predictor supplies the causal
+        prediction, the instrument, and the substrate that the credit baselines read. The gain
+        width controls whether the witnesses also receive a gain instrument.
         """
         observation_map = GaussianNeuralProjection.create(
             in_features=sizes.observation_content, out_features=n, streams=streams
@@ -71,13 +71,10 @@ class SIPFeature(eqx.Module):
         instrument_map = GaussianNeuralProjection.create(
             in_features=sizes.predictor, out_features=n, streams=streams
         )
-        baseline_map = GaussianNeuralProjection.create(
-            in_features=sizes.observation_content, out_features=1, streams=streams
-        )
         emitter = Emitter.create(
             observation_map=observation_map,
             instrument_map=instrument_map,
-            credit=Credit.create(baseline_map),
+            credit=_credit(sizes.predictor, streams),
             controllable=controllable,
         )
         mismatch_circuit = Mismatch.create(
@@ -116,7 +113,7 @@ class SIPFeature(eqx.Module):
             state,
             key,
             observation_content=observation_content,
-            predictor_instrument=predictor.instrument,
+            predictor=predictor,
             gain_observation=gain_observation,
             goal=goal,
         )
@@ -366,13 +363,10 @@ class ProspectFeature(eqx.Module):
         instrument_map = GaussianNeuralProjection.create(
             in_features=predictor_features, out_features=n, streams=streams
         )
-        baseline_map = GaussianNeuralProjection.create(
-            in_features=observation_content_features, out_features=1, streams=streams
-        )
         emitter = Emitter.create(
             observation_map=observation_map,
             instrument_map=instrument_map,
-            credit=Credit.create(baseline_map),
+            credit=_credit(predictor_features, streams),
             controllable=False,
         )
         return cls(
@@ -386,7 +380,7 @@ class ProspectFeature(eqx.Module):
         key: KeyArray,
         *,
         observation_content: NormalNP,
-        predictor_instrument: NormalNP,
+        predictor: InstrumentedMessage,
         gain: InstrumentedMessage | None,
     ) -> tuple[eqx.nn.State, EmitterEmission]:
         """Emit the prospect's message, before the TD feature scores the critic.
@@ -400,7 +394,7 @@ class ProspectFeature(eqx.Module):
             state,
             key,
             observation_content=observation_content,
-            predictor_instrument=predictor_instrument,
+            predictor=predictor,
             gain_observation=gain_observation,
         )
         new_state = new_state.set(self.last_message_index, emission.message)
@@ -495,3 +489,14 @@ class TDFeature(eqx.Module):
             uncertainty_loss=td_outputs.uncertainty_loss,
             loss=td_outputs.loss,
         )
+
+
+def _credit(substrate_features: int, streams: Mapping[str, RngStream]) -> Credit:
+    """Build a credit circuit whose two baselines read a substrate of the given width."""
+
+    def baseline_map() -> GaussianNeuralProjection:
+        return GaussianNeuralProjection.create(
+            in_features=substrate_features, out_features=1, streams=streams
+        )
+
+    return Credit.create(baseline_map(), baseline_map())
