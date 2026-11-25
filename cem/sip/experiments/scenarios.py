@@ -394,3 +394,85 @@ class DirectCreditScenario(eqx.Module):
             + self.goal_confounding * sample.confounder
             + sample.goal_noise
         )
+
+
+class InheritedCreditSample(eqx.Module):
+    """One draw of the context, confounder, parent's noise, goal disturbance, and gain."""
+
+    context: JaxRealArray  # scalar
+    confounder: JaxRealArray  # scalar
+    injected_noise: JaxRealArray  # scalar
+    goal_noise: JaxRealArray  # scalar
+    gain_noise: JaxRealArray  # scalar
+    gain: JaxRealArray  # scalar
+
+
+class InheritedCreditScenario(eqx.Module):
+    """A goal whose confounded correlation with an inherited feature opposes its causal effect.
+
+    A root controllable parent observes a standard normal context C and injects standard normal
+    noise ε, so it emits C + ε with instrument ε. A non-controllable child's observation content
+    is the parent's value plus a standard normal confounder V, so the child's only experimental
+    variation is the parent's noise. The goal is G = β x + λ V + η + c, where x is the child's
+    emitted value and c is a constant offset, so the causal derivative of the expected goal with
+    respect to x is β. The child's substrate, the parent's value less its instrument, reveals C but
+    not V. With the default λ = -4, the regression slope of the goal on x is about -1/3: C and the
+    noise add variance to x, so a weaker confounder than in the direct test would not reverse it.
+
+    The gain is base + κ tanh(D) + γ̃, where D is the confounder V or the context C, and the gain
+    instrument γ̃ is drawn uniformly from [-w, w] independently of everything else. The defaults
+    give unit gain.
+    """
+
+    causal_effect: float = eqx.field(static=True, default=1.0)  # β
+    goal_confounding: float = eqx.field(static=True, default=-4.0)  # λ
+    goal_noise_scale: float = eqx.field(static=True, default=0.5)
+    goal_offset: float = eqx.field(static=True, default=0.0)  # c
+    base_gain: float = eqx.field(static=True, default=1.0)
+    gain_confounding: float = eqx.field(static=True, default=0.0)  # κ
+    gain_noise_width: float = eqx.field(static=True, default=0.0)  # w
+    gain_reads_context: bool = eqx.field(static=True, default=False)  # D = C, else D = V
+
+    def __check_init__(self) -> None:  # ruff:ignore[bad-dunder-method-name]
+        if self.gain_confounding + self.gain_noise_width >= self.base_gain:
+            msg = "The gain must stay positive"
+            raise ValueError(msg)
+
+    def sample(self, key: KeyArray) -> InheritedCreditSample:
+        context_key, confounder_key, noise_key, goal_key, gain_key = jr.split(key, 5)
+        context = jr.normal(context_key, ())
+        confounder = jr.normal(confounder_key, ())
+        driver = context if self.gain_reads_context else confounder
+        width = self.gain_noise_width
+        gain_noise = jr.uniform(gain_key, (), minval=-width, maxval=width)
+        return InheritedCreditSample(
+            context=context,
+            confounder=confounder,
+            injected_noise=jr.normal(noise_key, ()),
+            goal_noise=self.goal_noise_scale * jr.normal(goal_key, ()),
+            gain_noise=gain_noise,
+            gain=self.base_gain + self.gain_confounding * jnp.tanh(driver) + gain_noise,
+        )
+
+    def samples(self, key: KeyArray, examples: int) -> InheritedCreditSample:
+        """Return independent draws, each field with a leading axis of length `examples`."""
+        return jax.vmap(self.sample)(jr.split(key, examples))
+
+    def gain_weighted_content_mean(self) -> float:
+        """Return the gain-weighted mean of the child's content, E[γ (C + ε + V)] / E[γ].
+
+        Only κ tanh(D) correlates with the content, so the mean is κ E[D tanh(D)] / base for a
+        standard normal D, computed by Gauss–Hermite quadrature.
+        """
+        nodes, weights = np.polynomial.hermite_e.hermegauss(64)
+        weights /= weights.sum()
+        return float(self.gain_confounding * (weights @ (nodes * np.tanh(nodes))) / self.base_gain)
+
+    def goal(self, value: JaxRealArray, sample: InheritedCreditSample) -> JaxRealArray:
+        """Return the goal when the child takes the given value."""
+        return (
+            self.causal_effect * value
+            + self.goal_confounding * sample.confounder
+            + sample.goal_noise
+            + self.goal_offset
+        )

@@ -3,7 +3,10 @@
 from cem.framework.plotter import Experiment
 from cem.npn.experiments.supervised.calibration import supervised_calibration_experiment
 from cem.npn.experiments.supervised.missingness import supervised_missingness_experiment
-from cem.sip.experiments.emitter_credit import sip_direct_credit_experiment
+from cem.sip.experiments.emitter_credit import (
+    sip_direct_credit_experiment,
+    sip_inherited_credit_experiment,
+)
 from cem.sip.experiments.instruments import (
     sip_exclusion_repair_experiment,
     sip_inherited_instrument_experiment,
@@ -31,5 +34,6 @@ experiments: dict[str, Experiment] = {
         sip_nonlinear_effect_experiment,
         sip_endogenous_gain_experiment,
         sip_direct_credit_experiment,
+        sip_inherited_credit_experiment,
     ]
 }

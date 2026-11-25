@@ -245,6 +245,22 @@ full configuration and writes chart JSON.
    oppose the causal gradient.
 10. **Mean credit — inherited.** Same comparison at a non-controllable feature whose variation comes
     only from inherited instruments.
+
+    A root controllable parent observes a standard normal context `C` and injects unit noise `ε`,
+    so it emits `C + ε` with instrument `ε`. The child's content adds a hidden standard normal
+    confounder `V`, and its affine observation map has weight 1, with a bias that centres the raw
+    mean under gain weighting, where mean shrinkage would hold it. The child's substrate reveals `C`
+    but not `V`. The goal is `G = x − 4V + η + 2`, with regression slope −1/3 on `x`. Training fits
+    the child's first stage and both baselines; measurement holds them fixed.
+
+    The inherited draw changes both the instrument and the weight's derivative, so three forms of
+    credit scale the same recorded cotangent: the raw goal, the goal minus its mean, and the goal
+    minus the fitted substrate baseline. Under four gains (unit; `0.5 + 0.2 tanh(V) + γ̃`;
+    `0.5 + 0.2 tanh(C) + γ̃`; and `0.5 + γ̃` with `γ̃` uniform on `[−0.4, 0.4]`), each form fixes one
+    more condition. The offset defeats the raw goal everywhere. A constant baseline also fails when
+    the gain reads `C`, and the substrate baseline fails only when the gain reads the hidden `V`.
+    That failure motivates the goal slope map in the thesis TODO. Observational credit should
+    oppose the causal gradient throughout.
 11. **Precision.** In a controlled Gaussian case, check presence against known pointwise curvature
     and against smoothed curvature at finite σ. More generally, compare presence with the circuit's
     constrained-regression optimum. Include contextual baselines, and a condition where the

@@ -17,6 +17,8 @@ from .scenarios import (
     DirectCreditScenario,
     EndogenousGainSample,
     EndogenousGainScenario,
+    InheritedCreditSample,
+    InheritedCreditScenario,
     InstrumentChainSample,
     InstrumentChainScenario,
 )
@@ -256,4 +258,53 @@ class DirectCreditProblem(Problem):
     @override
     def extract_observation(self, state: ProblemState) -> DirectCreditState:
         assert isinstance(state, DirectCreditState)
+        return state
+
+
+class InheritedCreditState(ProblemState):
+    """The child's observation content, predictor, and gain, and the sample that generated them.
+
+    The content and the gain are precise observations. The predictor is the root parent's message:
+    its precise value, context plus noise, and its noise with unit precision. The model sees the
+    whole state because the oracle goal depends on the value the child emits.
+    """
+
+    content: NormalNP  # (1,)
+    predictor: InstrumentedMessage  # (1,)
+    gain: NormalNP  # (1,)
+    sample: InheritedCreditSample
+
+
+class InheritedCreditDataSource(DataSource):
+    """Draw fresh samples from the scenario."""
+
+    scenario: InheritedCreditScenario
+
+    @override
+    def initial_problem_state(self, example_key: KeyArray) -> InheritedCreditState:
+        sample = self.scenario.sample(example_key)
+        parent_value = (sample.context + sample.injected_noise)[jnp.newaxis]
+        return InheritedCreditState(
+            content=_precise(parent_value + sample.confounder),
+            predictor=_root_message(parent_value, sample.injected_noise[jnp.newaxis]),
+            gain=_precise(sample.gain[jnp.newaxis]),
+            sample=sample,
+        )
+
+
+class InheritedCreditProblem(Problem):
+    """Credit an inherited feature's experiments with an oracle goal.
+
+    Training and inference draw from the same scenario, with independent samples.
+    """
+
+    scenario: InheritedCreditScenario
+
+    @override
+    def create_data_source(self, *, inference: bool = False) -> InheritedCreditDataSource:
+        return InheritedCreditDataSource(self.scenario)
+
+    @override
+    def extract_observation(self, state: ProblemState) -> InheritedCreditState:
+        assert isinstance(state, InheritedCreditState)
         return state
